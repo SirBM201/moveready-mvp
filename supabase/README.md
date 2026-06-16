@@ -14,6 +14,12 @@ Creates the core relocation tables, indexes, triggers, row-level security flags,
 
 Adds conservative starter records for Portugal, Estonia, and Finland plus broad route placeholders and admin review tasks.
 
+## 3. Estonia startup founder route detail
+
+`supabase/migrations/003_seed_estonia_startup_route_detail.sql`
+
+Adds official-source-backed starter detail for the Estonia startup founder pathway, including route facts, document requirements, budget planning items, insurance notes, source links, and an admin review task.
+
 ## Important
 
 The seed data is for MVP testing only. It does not contain final legal or immigration guidance. Detailed route facts should be reviewed and approved from official sources before production use.
