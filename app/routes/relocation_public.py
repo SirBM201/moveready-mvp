@@ -13,59 +13,17 @@ bp = Blueprint("relocation_public", __name__)
 
 def _fallback_countries() -> List[Dict[str, Any]]:
     return [
-        {
-            "country_code": "PT",
-            "country_name": "Portugal",
-            "region": "Europe",
-            "summary": "Routes for visitors, students, entrepreneurs, workers, and families should be verified from official sources before use.",
-        },
-        {
-            "country_code": "EE",
-            "country_name": "Estonia",
-            "region": "Europe",
-            "summary": "Useful for startup, e-residency, digital business, study, and work pathway research.",
-        },
-        {
-            "country_code": "FI",
-            "country_name": "Finland",
-            "region": "Europe",
-            "summary": "Popular for study, work, startup, family, and long-term settlement planning.",
-        },
+        {"country_code": "PT", "country_name": "Portugal", "region": "Europe", "summary": "Routes for visitors, students, entrepreneurs, workers, and families should be verified from official sources before use."},
+        {"country_code": "EE", "country_name": "Estonia", "region": "Europe", "summary": "Useful for startup, e-residency, digital business, study, and work pathway research."},
+        {"country_code": "FI", "country_name": "Finland", "region": "Europe", "summary": "Popular for study, work, startup, family, and long-term settlement planning."},
     ]
 
 
 def _fallback_routes() -> List[Dict[str, Any]]:
     return [
-        {
-            "route_code": "study",
-            "route_name": "Study pathway",
-            "route_category": "study",
-            "country_code": "generic",
-            "risk_level": "medium",
-            "last_verified_at": None,
-            "freshness_status": "starter_fallback",
-            "summary": "Compare admission, proof of funds, insurance, accommodation, and family rules before applying.",
-        },
-        {
-            "route_code": "startup",
-            "route_name": "Startup or business pathway",
-            "route_category": "startup",
-            "country_code": "generic",
-            "risk_level": "medium",
-            "last_verified_at": None,
-            "freshness_status": "starter_fallback",
-            "summary": "Check business eligibility, founder commitment, funds, and local registration expectations.",
-        },
-        {
-            "route_code": "work",
-            "route_name": "Work pathway",
-            "route_category": "work",
-            "country_code": "generic",
-            "risk_level": "high",
-            "last_verified_at": None,
-            "freshness_status": "starter_fallback",
-            "summary": "Usually depends on job offer, employer eligibility, qualification evidence, and residence rules.",
-        },
+        {"route_code": "study", "route_name": "Study pathway", "route_category": "study", "country_code": "generic", "risk_level": "medium", "last_verified_at": None, "freshness_status": "starter_fallback", "summary": "Compare admission, proof of funds, insurance, accommodation, and family rules before applying."},
+        {"route_code": "startup", "route_name": "Startup or business pathway", "route_category": "startup", "country_code": "generic", "risk_level": "medium", "last_verified_at": None, "freshness_status": "starter_fallback", "summary": "Check business eligibility, founder commitment, funds, and local registration expectations."},
+        {"route_code": "work", "route_name": "Work pathway", "route_category": "work", "country_code": "generic", "risk_level": "high", "last_verified_at": None, "freshness_status": "starter_fallback", "summary": "Usually depends on job offer, employer eligibility, qualification evidence, and residence rules."},
     ]
 
 
@@ -137,10 +95,7 @@ def _route_summary_row(route: Dict[str, Any]) -> Dict[str, Any]:
 
 @bp.get("/countries")
 def countries():
-    rows = _select(
-        "relocation_countries",
-        "id,country_code,country_name,region,currency_code,official_language_codes,summary,is_active",
-    )
+    rows = _select("relocation_countries", "id,country_code,country_name,region,currency_code,official_language_codes,summary,is_active")
     if rows is None:
         rows = _fallback_countries()
     else:
@@ -206,11 +161,15 @@ def route_detail(route_id: str):
         insurance: List[Dict[str, Any]] = []
 
         if active_version_id:
-            facts = _select(
-                "relocation_route_facts",
-                "fact_key,fact_label,fact_value,fact_payload,display_order",
-            ) or []
-            facts = [row for row in facts if row.get("route_version_id") in {None, active_version_id}]
+            facts_response = (
+                get_supabase()
+                .table("relocation_route_facts")
+                .select("fact_key,fact_label,fact_value,fact_payload,display_order")
+                .eq("route_version_id", active_version_id)
+                .order("display_order")
+                .execute()
+            )
+            facts = facts_response.data or []
 
             documents_response = (
                 get_supabase()
@@ -240,19 +199,17 @@ def route_detail(route_id: str):
             )
             insurance = insurance_response.data or []
 
-        return jsonify(
-            {
-                "ok": True,
-                "route": {
-                    **summary,
-                    "raw": route,
-                    "facts": facts,
-                    "documents": documents,
-                    "budget_items": budget_items,
-                    "insurance_requirements": insurance,
-                },
-            }
-        )
+        return jsonify({
+            "ok": True,
+            "route": {
+                **summary,
+                "raw": route,
+                "facts": facts,
+                "documents": documents,
+                "budget_items": budget_items,
+                "insurance_requirements": insurance,
+            },
+        })
     except Exception as exc:
         return jsonify({"ok": False, "error": "route_detail_unavailable", "details": str(exc)}), 503
 
