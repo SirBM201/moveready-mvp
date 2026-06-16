@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
 
+from app.services.report_generator import build_readiness_report
 from app.services.supabase_client import get_supabase
 
 bp = Blueprint("relocation_public", __name__)
@@ -132,7 +133,7 @@ def checklist():
 @bp.post("/budget-estimate")
 def budget_estimate():
     payload = request.get_json(silent=True) or {}
-    currency = payload.get("currency") or "USD"
+    currency = payload.get("currency") or payload.get("available_funds_currency") or "USD"
     family_members = int(payload.get("family_members_count") or 0)
 
     base_items = [
@@ -171,3 +172,29 @@ def insurance_requirements():
     if rows is None:
         rows = []
     return jsonify({"ok": True, "insurance_requirements": rows})
+
+
+@bp.post("/reports")
+def create_report():
+    payload = request.get_json(silent=True) or {}
+    report = build_readiness_report(payload)
+
+    try:
+        row = {
+            "report_ref": report["report_ref"],
+            "status": "generated",
+            "report_title": report["report_title"],
+            "risk_level": report["risk_level"],
+            "input_payload": payload,
+            "report_payload": report,
+        }
+        response = get_supabase().table("relocation_generated_reports").insert(row).execute()
+        stored = (response.data or [None])[0]
+        if stored:
+            report["stored"] = True
+            report["id"] = stored.get("id")
+    except Exception:
+        report["stored"] = False
+        report["storage_note"] = "Report generated but not saved. Run Supabase SQL and configure backend env to enable storage."
+
+    return jsonify({"ok": True, "report": report})
