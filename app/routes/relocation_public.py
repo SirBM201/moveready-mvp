@@ -133,6 +133,40 @@ def routes():
     return jsonify({"ok": True, "routes": rows})
 
 
+@bp.get("/routes/by-code/<country_code>/<route_code>")
+def route_detail_by_code(country_code: str, route_code: str):
+    try:
+        country_response = (
+            get_supabase()
+            .table("relocation_countries")
+            .select("id")
+            .eq("country_code", country_code.upper())
+            .maybe_single()
+            .execute()
+        )
+        country = country_response.data
+        if not country:
+            return jsonify({"ok": False, "error": "country_not_found"}), 404
+
+        route_response = (
+            get_supabase()
+            .table("relocation_visa_routes")
+            .select("id")
+            .eq("country_id", country.get("id"))
+            .eq("route_code", route_code)
+            .eq("is_public", True)
+            .maybe_single()
+            .execute()
+        )
+        route = route_response.data
+        if not route:
+            return jsonify({"ok": False, "error": "route_not_found"}), 404
+
+        return route_detail(route.get("id"))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "route_lookup_unavailable", "details": str(exc)}), 503
+
+
 @bp.get("/routes/<route_id>")
 def route_detail(route_id: str):
     try:
