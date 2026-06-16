@@ -9,11 +9,20 @@ Base prefix: `/api`
 - `GET /api/relocation/countries`
 - `GET /api/relocation/routes`
 - `GET /api/relocation/routes/<route_id>`
+- `GET /api/relocation/routes/by-code/<country_code>/<route_code>`
 - `POST /api/relocation/checklist`
 - `POST /api/relocation/budget-estimate`
 - `GET /api/relocation/scholarships`
 - `GET /api/relocation/insurance-requirements`
 - `POST /api/relocation/reports`
+
+## Route Detail By Code
+
+`GET /api/relocation/routes/by-code/EE/startup-founder`
+
+Returns the public route, active route version summary, route facts, document requirements, budget items, insurance requirements, risk level, source confidence, verified date, and review due date.
+
+This is useful for stable frontend pages because the page can use country and route codes instead of database UUIDs.
 
 ## Admin
 
