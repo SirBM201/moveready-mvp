@@ -1,15 +1,31 @@
 # MoveReady Deployment Strategy
 
-Status: staging plan
+Status: Railway backend staging active
+
+## Current Backend URL
+
+```text
+https://moveready-mvp-production.up.railway.app
+```
+
+Verified endpoints:
+
+```text
+/health
+/api/health
+/api/relocation/countries
+```
+
+The backend is online and reading country seed data from Supabase.
 
 ## Decision
 
-Keep the Koyeb free service reserved for Naija Tax Guide until launch. MoveReady should use a separate staging provider during MVP development, then move to Koyeb later when the Koyeb paid plan is active.
+Keep the Koyeb free service reserved for Naija Tax Guide until launch. MoveReady uses Railway for backend staging during MVP development, then can move to Koyeb later when the Koyeb paid plan is active.
 
-## Recommended Temporary Split
+## Current Temporary Split
 
 - Frontend: Vercel Hobby or Netlify Free
-- Backend: Railway Free/Trial or PythonAnywhere Free for staging
+- Backend: Railway
 - Database: Supabase
 - Later consolidation: Koyeb paid plan when Naija Tax Guide is ready for launch
 
@@ -17,22 +33,11 @@ Keep the Koyeb free service reserved for Naija Tax Guide until launch. MoveReady
 
 Naija Tax Guide is closer to launch and should keep priority. MoveReady is still in MVP/staging mode, so it can tolerate a staging provider while features are being built.
 
-## Backend Staging Option A: Railway
-
-Best when we want GitHub-based deploys, environment variables, logs, and simple Python backend hosting.
-
-Notes:
-
-- Good for short-term staging and testing.
-- Watch usage credits carefully.
-- Do not treat it as final production until the billing model is comfortable.
-
-Required environment variables:
+## Railway Backend Environment Variables
 
 ```text
 ENV_MODE=production
 FLASK_ENV=production
-PORT=8000
 SECRET_KEY=replace-with-private-secret
 API_PREFIX=/api
 CORS_ORIGINS=https://your-frontend-domain
@@ -43,21 +48,13 @@ OPENAI_MODEL=gpt-4o-mini
 MOVEREADY_ADMIN_API_KEY=replace-with-private-admin-key
 ```
 
-Start command:
+Railway provides `PORT`; do not hard-code it unless necessary.
+
+Start command is defined in `railway.json`:
 
 ```text
 gunicorn -w 2 -k gthread -t 120 -b 0.0.0.0:${PORT:-8000} app.main:app
 ```
-
-## Backend Staging Option B: PythonAnywhere
-
-Best if the goal is a simple Flask staging app with a free Python host.
-
-Notes:
-
-- Simpler for Python-only hosting.
-- May have outbound internet restrictions on free accounts, so Supabase/OpenAI connectivity must be tested.
-- Less ideal if we want GitHub auto-deploy and modern CI/CD.
 
 ## Frontend Staging: Vercel
 
@@ -67,7 +64,7 @@ Required environment variables:
 
 ```text
 NEXT_PUBLIC_APP_NAME=Project MoveReady
-NEXT_PUBLIC_BACKEND_URL=https://your-backend-staging-domain
+NEXT_PUBLIC_BACKEND_URL=https://moveready-mvp-production.up.railway.app
 NEXT_PUBLIC_API_BASE=
 ```
 
@@ -90,8 +87,8 @@ Databases -> Supabase
 ## Current Deployment Priority
 
 1. Keep Naija Tax Guide stable.
-2. Deploy MoveReady frontend to Vercel for preview.
-3. Deploy MoveReady backend to Railway or PythonAnywhere for staging.
-4. Connect frontend to backend.
+2. Deploy MoveReady backend to Railway. Done.
+3. Deploy MoveReady frontend to Vercel for preview.
+4. Connect frontend to Railway backend.
 5. Run smoke tests.
 6. Move backend to Koyeb paid later.
