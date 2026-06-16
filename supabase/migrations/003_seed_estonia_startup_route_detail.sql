@@ -139,9 +139,10 @@ update public.relocation_visa_routes r
 set active_version_id = rv.id,
     route_name = 'Estonia startup founder pathway',
     updated_at = now()
-from public.relocation_route_versions rv
-join public.relocation_countries c on c.id = r.country_id
+from public.relocation_route_versions rv,
+     public.relocation_countries c
 where rv.route_id = r.id
+  and c.id = r.country_id
   and c.country_code = 'EE'
   and r.route_code = 'startup-founder'
   and rv.version_label = 'estonia-startup-founder-2026-06';
@@ -294,8 +295,15 @@ insert into public.relocation_admin_review_tasks (
   description,
   assigned_to
 )
-select 'route_review', 'open', 'medium', id,
+select 'route_review', 'open', 'medium', version.id,
   'Next review: Estonia startup founder route',
   'Review Startup Estonia and Estonia MFA D visa sources again before the review due date. Update fees, proof-of-funds details, family rules, and application-channel instructions.',
   'admin'
-from version;
+from version
+where not exists (
+  select 1
+  from public.relocation_admin_review_tasks existing
+  where existing.route_version_id = version.id
+    and existing.task_type = 'route_review'
+    and existing.title = 'Next review: Estonia startup founder route'
+);
