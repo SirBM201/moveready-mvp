@@ -12,6 +12,10 @@ Base prefix: `/api`
 - `GET /api/relocation/routes/by-code/<country_code>/<route_code>`
 - `GET /api/opportunities`
 - `GET /api/opportunities/<opportunity_code>`
+- `POST /api/readiness/name-consistency`
+- `POST /api/readiness/document-readiness`
+- `POST /api/readiness/funds-plan`
+- `POST /api/readiness/refusal-risk`
 - `POST /api/relocation/checklist`
 - `POST /api/relocation/budget-estimate`
 - `GET /api/relocation/scholarships`
@@ -45,9 +49,77 @@ Returns one opportunity record by stable opportunity code.
 
 The endpoint uses `relocation_opportunities` after migration `005_official_opportunities.sql`. If the table is not present yet, it returns conservative starter fallback records so the frontend does not break during deployment.
 
+## Readiness Tools
+
+These endpoints do not require new SQL. They are live helper tools for pre-application checks.
+
+### Name Consistency
+
+`POST /api/readiness/name-consistency`
+
+```json
+{
+  "records": [
+    { "label": "Passport", "name": "Ada Chika Okafor" },
+    { "label": "Certificate", "name": "Ada C. Okafor" },
+    { "label": "Bank statement", "name": "Ada Chika Okafor" }
+  ]
+}
+```
+
+Returns token-level mismatch warnings and an overall consistency status.
+
+### Document Readiness
+
+`POST /api/readiness/document-readiness`
+
+```json
+{
+  "route_category": "startup",
+  "documents": ["passport", "proof of funds", "business plan"]
+}
+```
+
+Returns required/recommended documents, missing items, present items, and readiness status.
+
+### Proof of Funds
+
+`POST /api/readiness/funds-plan`
+
+```json
+{
+  "available_funds_amount": 12000,
+  "required_funds_amount": 15000,
+  "target_timeline_months": 6,
+  "family_members_count": 0,
+  "currency": "EUR",
+  "recent_large_deposits": true
+}
+```
+
+Returns adjusted funds target, shortfall, monthly savings target, and evidence warnings.
+
+### Refusal Risk
+
+`POST /api/readiness/refusal-risk`
+
+```json
+{
+  "indicators": {
+    "previous_refusal": true,
+    "low_funds": false,
+    "unclear_purpose": true,
+    "weak_home_ties": false,
+    "incomplete_documents": true
+  }
+}
+```
+
+Returns an honest risk level, flagged issues, and a repair plan. It does not predict approval.
+
 ## Platform Services
 
-Service endpoints are prepared for launch and return public-safe availability labels until the relevant official-source checks, provider approvals, opt-in flows, and audit rules are ready.
+Service endpoints return public-safe availability labels: `Available`, `Coming soon`, or `Partner approval pending`.
 
 - `GET /api/platform/status`
 - `GET /api/platform/modules`
@@ -75,11 +147,11 @@ Expected availability response shape:
 {
   "ok": true,
   "availability": "coming_soon",
-  "message": "This service is being prepared for launch and will be available once official-source checks, provider approval, user consent, and audit rules are ready."
+  "message": "This service is available now or being prepared for public access, depending on its status label."
 }
 ```
 
-Use feature flags to switch modules on only after their database models, provider integrations, opt-in workflows, and compliance rules are ready.
+Use feature flags to switch partner-dependent modules on only after their database models, provider integrations, opt-in workflows, and compliance rules are ready.
 
 ### Service Interest
 
