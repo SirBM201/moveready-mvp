@@ -66,6 +66,21 @@ def _first_row(response: Any) -> Optional[Dict[str, Any]]:
     return rows[0] if rows else None
 
 
+def _route_versions(route_id: str, columns: str = "*") -> List[Dict[str, Any]]:
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_route_versions")
+            .select(columns)
+            .eq("route_id", route_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return response.data or []
+    except Exception:
+        return []
+
+
 def _route_summary_row(route: Dict[str, Any]) -> Dict[str, Any]:
     country = route.get("relocation_countries") or {}
     versions = route.get("relocation_route_versions") or []
@@ -119,15 +134,21 @@ def routes():
             .table("relocation_visa_routes")
             .select(
                 "id,route_code,route_name,route_category,is_public,country_id,active_version_id,"
-                "relocation_countries(country_code,country_name),"
-                "relocation_route_versions(id,status,risk_level,route_summary,source_confidence,verified_at,review_due_at)"
+                "relocation_countries(country_code,country_name)"
             )
             .eq("is_public", True)
         )
         if category:
             query = query.eq("route_category", category)
         response = query.execute()
-        rows = [_route_summary_row(row) for row in (response.data or [])]
+        raw_rows = response.data or []
+        rows = []
+        for row in raw_rows:
+            row["relocation_route_versions"] = _route_versions(
+                row.get("id"),
+                "id,status,risk_level,route_summary,source_confidence,verified_at,review_due_at,created_at",
+            )
+            rows.append(_route_summary_row(row))
         if country_code:
             rows = [row for row in rows if row.get("country_code") == country_code]
     except Exception:
@@ -180,8 +201,7 @@ def route_detail(route_id: str):
             .table("relocation_visa_routes")
             .select(
                 "id,route_code,route_name,route_category,is_public,country_id,active_version_id,created_at,updated_at,"
-                "relocation_countries(id,country_code,country_name,region,currency_code),"
-                "relocation_route_versions(*)"
+                "relocation_countries(id,country_code,country_name,region,currency_code)"
             )
             .eq("id", route_id)
             .limit(1)
@@ -191,6 +211,7 @@ def route_detail(route_id: str):
         if not route:
             return jsonify({"ok": False, "error": "route_not_found"}), 404
 
+        route["relocation_route_versions"] = _route_versions(route.get("id"))
         summary = _route_summary_row(route)
         active_version_id = summary.get("active_version_id")
 
