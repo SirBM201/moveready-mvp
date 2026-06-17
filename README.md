@@ -19,6 +19,7 @@ Implemented foundation:
 - Admin API guard
 - Public relocation endpoints
 - Stable route detail by country and route code
+- Official opportunities endpoint for lotteries, ballots, invitation pools, caps, and quotas
 - Starter readiness report generator
 - Supabase schema and seed SQL
 - Service availability endpoints and feature flags
@@ -54,6 +55,7 @@ Run these in order when ready:
 2. `supabase/migrations/002_seed_starter_relocation_data.sql`
 3. `supabase/migrations/003_seed_estonia_startup_route_detail.sql`
 4. `supabase/migrations/004_service_interest_requests.sql`
+5. `supabase/migrations/005_official_opportunities.sql`
 
 See `supabase/README.md`.
 
