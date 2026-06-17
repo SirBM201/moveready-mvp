@@ -8,6 +8,7 @@ from app.utils.admin_auth import require_admin_access
 bp = Blueprint("admin", __name__)
 
 REQUEST_STATUSES = {"new", "reviewing", "contacted", "closed", "spam"}
+WATCHLIST_STATUSES = {"active", "paused", "unsubscribed", "closed", "spam"}
 
 
 @bp.get("/status")
@@ -110,6 +111,59 @@ def readiness_checks():
         return jsonify({"ok": True, "readiness_checks": response.data or []})
     except Exception as exc:
         return jsonify({"ok": False, "error": "readiness_checks_unavailable", "details": str(exc)}), 503
+
+
+@bp.get("/watchlist-subscriptions")
+@require_admin_access
+def watchlist_subscriptions():
+    status = (request.args.get("status") or "").strip()
+    watch_type = (request.args.get("watch_type") or "").strip()
+    preferred_channel = (request.args.get("preferred_channel") or "").strip()
+    limit = min(max(int(request.args.get("limit") or 50), 1), 100)
+
+    try:
+        query = (
+            get_supabase()
+            .table("relocation_watchlist_subscriptions")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
+        )
+        if status:
+            query = query.eq("status", status)
+        if watch_type:
+            query = query.eq("watch_type", watch_type)
+        if preferred_channel:
+            query = query.eq("preferred_channel", preferred_channel)
+        response = query.execute()
+        return jsonify({"ok": True, "watchlist_subscriptions": response.data or []})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "watchlist_subscriptions_unavailable", "details": str(exc)}), 503
+
+
+@bp.patch("/watchlist-subscriptions/<subscription_id>")
+@require_admin_access
+def update_watchlist_subscription(subscription_id: str):
+    payload = request.get_json(silent=True) or {}
+    status = (payload.get("status") or "").strip()
+
+    if status not in WATCHLIST_STATUSES:
+        return jsonify({"ok": False, "error": "invalid_status", "allowed_statuses": sorted(WATCHLIST_STATUSES)}), 400
+
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_watchlist_subscriptions")
+            .update({"status": status})
+            .eq("id", subscription_id)
+            .execute()
+        )
+        updated = (response.data or [None])[0]
+        if not updated:
+            return jsonify({"ok": False, "error": "watchlist_subscription_not_found"}), 404
+        return jsonify({"ok": True, "watchlist_subscription": updated})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "watchlist_subscription_update_failed", "details": str(exc)}), 500
 
 
 @bp.post("/trusted-sources")
