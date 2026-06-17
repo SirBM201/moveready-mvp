@@ -200,6 +200,7 @@ Routes:
 - `GET /api/admin/review-tasks`
 - `GET /api/admin/service-requests`
 - `PATCH /api/admin/service-requests/<request_id>`
+- `GET /api/admin/readiness-checks`
 - `POST /api/admin/trusted-sources`
 
 ### Service Request Admin
@@ -231,6 +232,19 @@ contacted
 closed
 spam
 ```
+
+### Readiness Check Admin
+
+`GET /api/admin/readiness-checks`
+
+Optional query params:
+
+- `tool_slug=funds_plan`
+- `risk_level=high`
+- `readiness_status=needs_attention`
+- `limit=75`
+
+Returns saved readiness tool runs after migration `006_readiness_check_runs.sql` is run.
 
 ## Report Endpoint
 
