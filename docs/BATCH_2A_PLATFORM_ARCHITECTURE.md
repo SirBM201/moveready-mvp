@@ -59,10 +59,13 @@ New endpoints:
 - `GET /api/alerts`
 - `GET /api/documents`
 - `GET /api/funds`
+- `GET /api/refusal-risk`
 - `GET /api/courier`
 - `GET /api/legalization`
 - `GET /api/insurance`
 - `GET /api/appointments`
+- `GET /api/family-relocation`
+- `GET /api/settlement`
 - `GET /api/partners`
 
 The direct module endpoints return planned responses until their feature flags and data models are activated.
