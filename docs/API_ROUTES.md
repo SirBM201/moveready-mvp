@@ -24,6 +24,39 @@ Returns the public route, active route version summary, route facts, document re
 
 This is useful for stable frontend pages because the page can use country and route codes instead of database UUIDs.
 
+## Platform Architecture
+
+Batch 2A adds planned platform endpoints. These are architecture placeholders, not active third-party integrations.
+
+- `GET /api/platform/status`
+- `GET /api/platform/modules`
+- `GET /api/platform/modules/<slug>`
+
+Planned direct endpoints:
+
+- `GET /api/opportunities`
+- `GET /api/watchlist`
+- `GET /api/alerts`
+- `GET /api/documents`
+- `GET /api/funds`
+- `GET /api/courier`
+- `GET /api/legalization`
+- `GET /api/insurance`
+- `GET /api/appointments`
+- `GET /api/partners`
+
+Expected planned response shape:
+
+```json
+{
+  "ok": true,
+  "status": "planned",
+  "message": "This module is part of the platform architecture but is not active for production use yet."
+}
+```
+
+Use feature flags to activate modules later after their database models, provider integrations, opt-in workflows, and compliance rules are ready.
+
 ## Admin
 
 Admin routes require one of these headers:
