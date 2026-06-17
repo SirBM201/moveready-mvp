@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from flask import Blueprint, jsonify, request
 
 from app.core import config
+from app.services.supabase_client import get_supabase
 
 bp = Blueprint("platform_modules", __name__)
 planned_bp = Blueprint("planned_platform_modules", __name__)
@@ -143,6 +144,15 @@ def _flag_value(flag_name: Optional[str]) -> bool:
     return bool(getattr(config, flag_name, False))
 
 
+def _clean_text(value: Any, limit: int = 500) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    if not cleaned:
+        return None
+    return cleaned[:limit]
+
+
 def _public_module(module: Dict[str, Any]) -> Dict[str, Any]:
     flag = module.get("flag")
     enabled = _flag_value(flag)
@@ -203,6 +213,55 @@ def platform_module(slug: str):
     if not module:
         return jsonify({"ok": False, "error": "module_not_found"}), 404
     return jsonify({"ok": True, "module": _public_module(module)})
+
+
+@bp.post("/service-interest")
+def create_service_interest():
+    payload = request.get_json(silent=True) or {}
+    service_slug = _clean_text(payload.get("service_slug"), 120)
+    email = _clean_text(payload.get("email"), 255)
+    phone = _clean_text(payload.get("phone"), 80)
+    consent_to_contact = bool(payload.get("consent_to_contact"))
+
+    if not service_slug:
+        return jsonify({"ok": False, "error": "service_slug_required"}), 400
+    if not email and not phone:
+        return jsonify({"ok": False, "error": "contact_required"}), 400
+    if not consent_to_contact:
+        return jsonify({"ok": False, "error": "contact_consent_required"}), 400
+
+    module = next((item for item in PLATFORM_MODULES if item["slug"] == service_slug), None)
+    row = {
+        "service_slug": service_slug,
+        "service_title": _clean_text(payload.get("service_title"), 180) or (module or {}).get("title"),
+        "full_name": _clean_text(payload.get("full_name"), 180),
+        "email": email,
+        "phone": phone,
+        "preferred_channel": _clean_text(payload.get("preferred_channel"), 40) or "email",
+        "current_country": _clean_text(payload.get("current_country"), 120),
+        "target_country": _clean_text(payload.get("target_country"), 120),
+        "route_or_goal": _clean_text(payload.get("route_or_goal"), 180),
+        "message": _clean_text(payload.get("message"), 1200),
+        "consent_to_contact": consent_to_contact,
+        "source_page": _clean_text(payload.get("source_page"), 240),
+        "metadata": {
+            "user_agent": request.headers.get("User-Agent"),
+            "remote_addr": request.headers.get("X-Forwarded-For") or request.remote_addr,
+            "module_availability": (module or {}).get("availability"),
+        },
+    }
+
+    try:
+        response = get_supabase().table("relocation_service_interest_requests").insert(row).execute()
+        stored = (response.data or [None])[0]
+        return jsonify({"ok": True, "stored": True, "request": stored})
+    except Exception as exc:
+        return jsonify({
+            "ok": False,
+            "stored": False,
+            "error": "service_interest_storage_unavailable",
+            "details": str(exc),
+        }), 503
 
 
 @planned_bp.get("/<slug>")
