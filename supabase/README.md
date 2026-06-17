@@ -20,6 +20,12 @@ Adds conservative starter records for Portugal, Estonia, and Finland plus broad 
 
 Adds official-source-backed starter detail for the Estonia startup founder pathway, including route facts, document requirements, budget planning items, insurance notes, source links, and an admin review task.
 
+## 4. Service interest requests
+
+`supabase/migrations/004_service_interest_requests.sql`
+
+Adds `relocation_service_interest_requests` so public platform service pages can collect opt-in requests for alerts, courier, insurance, legalization, document readiness, funds planning, refusal risk, and partner support.
+
 ## Important
 
 The seed data is for MVP testing only. It does not contain final legal or immigration guidance. Detailed route facts should be reviewed and approved from official sources before production use.
