@@ -1,10 +1,10 @@
 # Batch 2A - Platform Architecture Expansion
 
-This batch designs MoveReady as a full relocation readiness and opportunity-monitoring platform while keeping unfinished services inactive.
+This batch designs MoveReady as a full relocation readiness and opportunity-monitoring platform while keeping approval-gated services clearly labelled until they are ready.
 
 ## Rule
 
-Design for the full platform now. Build only the MVP behavior now. Leave clean integration points for future APIs, partners, and paid services.
+Design for the full platform now. Build only launch-safe behavior now. Leave clean integration points for future APIs, partners, and paid services.
 
 ## Live Now
 
@@ -19,7 +19,7 @@ Design for the full platform now. Build only the MVP behavior now. Leave clean i
 - Readiness reports
 - Admin review foundation
 
-## Planned Modules
+## Service Areas
 
 - Official ballots and quota opportunities
 - Route watchlist and WhatsApp/email/Telegram/in-app alerts
@@ -34,22 +34,21 @@ Design for the full platform now. Build only the MVP behavior now. Leave clean i
 - Post-arrival settlement checklist
 - Partner and expert review network
 
-## Safety Position
+## Public Safety Position
 
-Planned modules must not look active until implementation, provider setup, compliance review, and user opt-in flows are ready.
+The public app should use user-friendly labels:
 
-Inactive modules should return structured planned responses and display clear frontend labels such as:
-
-- Planned
+- Available
 - Coming soon
-- Partner integration pending
-- Admin-only testing
+- Partner approval pending
+
+It should not expose internal roadmap language such as phase numbers or implementation status.
 
 ## Backend Layer
 
 Batch 2A adds a separate platform blueprint instead of changing the stable relocation endpoints.
 
-New endpoints:
+Service endpoints:
 
 - `GET /api/platform/status`
 - `GET /api/platform/modules`
@@ -68,11 +67,11 @@ New endpoints:
 - `GET /api/settlement`
 - `GET /api/partners`
 
-The direct module endpoints return planned responses until their feature flags and data models are activated.
+The direct service endpoints return public-safe availability responses until their feature flags and data models are activated.
 
 ## Feature Flags
 
-The current default is conservative. Planned services are disabled by default.
+The current default is conservative. Approval-gated services are disabled by default.
 
 - `PLATFORM_MODULES_ENABLED=true`
 - `OPPORTUNITY_ALERTS_ENABLED=false`
