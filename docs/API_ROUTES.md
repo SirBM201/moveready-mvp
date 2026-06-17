@@ -12,6 +12,9 @@ Base prefix: `/api`
 - `GET /api/relocation/routes/by-code/<country_code>/<route_code>`
 - `GET /api/opportunities`
 - `GET /api/opportunities/<opportunity_code>`
+- `GET /api/watchlist/options`
+- `POST /api/watchlist/subscriptions`
+- `PATCH /api/watchlist/subscriptions/<subscription_id>`
 - `POST /api/readiness/name-consistency`
 - `POST /api/readiness/document-readiness`
 - `POST /api/readiness/funds-plan`
@@ -48,6 +51,67 @@ Optional query params:
 Returns one opportunity record by stable opportunity code.
 
 The endpoint uses `relocation_opportunities` after migration `005_official_opportunities.sql`. If the table is not present yet, it returns conservative starter fallback records so the frontend does not break during deployment.
+
+## Watchlist And Alerts
+
+`GET /api/watchlist/options`
+
+Returns allowed watch types, preferred channels, and alert event types for the public watchlist form.
+
+`POST /api/watchlist/subscriptions`
+
+Stores an opt-in watchlist subscription after migration `007_watchlist_alert_subscriptions.sql` is run.
+
+Starter body:
+
+```json
+{
+  "watch_type": "opportunity",
+  "watch_code": "US-DV",
+  "watch_title": "USA Diversity Visa Program",
+  "full_name": "Example User",
+  "email": "user@example.com",
+  "phone": "+96500000000",
+  "preferred_channel": "whatsapp",
+  "current_country": "Kuwait",
+  "target_country": "United States",
+  "route_or_goal": "DV lottery alert",
+  "alert_types": ["opens", "closing_soon", "eligibility_change"],
+  "consent_to_contact": true,
+  "source_page": "/watchlist"
+}
+```
+
+Rules:
+
+- `watch_type` must be one of `route`, `opportunity`, `scholarship`, `country`, or `service`.
+- `preferred_channel` must be one of `email`, `whatsapp`, `telegram`, `phone`, or `in_app`.
+- Either `email` or `phone` is required.
+- `consent_to_contact` must be `true`.
+
+`PATCH /api/watchlist/subscriptions/<subscription_id>`
+
+Allows a user-facing unsubscribe/pause flow later.
+
+Starter body:
+
+```json
+{
+  "status": "paused"
+}
+```
+
+Allowed statuses:
+
+```text
+active
+paused
+unsubscribed
+closed
+spam
+```
+
+The watchlist currently stores consent and preferences. Actual WhatsApp, Telegram, email, or in-app message delivery should only be enabled after provider setup, opt-in flow, and audit logging are approved.
 
 ## Readiness Tools
 
@@ -200,6 +264,8 @@ Routes:
 - `GET /api/admin/review-tasks`
 - `GET /api/admin/service-requests`
 - `PATCH /api/admin/service-requests/<request_id>`
+- `GET /api/admin/watchlist-subscriptions`
+- `PATCH /api/admin/watchlist-subscriptions/<subscription_id>`
 - `GET /api/admin/readiness-checks`
 - `POST /api/admin/trusted-sources`
 
@@ -229,6 +295,39 @@ Allowed statuses:
 new
 reviewing
 contacted
+closed
+spam
+```
+
+### Watchlist Subscription Admin
+
+`GET /api/admin/watchlist-subscriptions`
+
+Optional query params:
+
+- `status=active`
+- `watch_type=opportunity`
+- `preferred_channel=whatsapp`
+- `limit=75`
+
+Returns saved watchlist subscriptions after migration `007_watchlist_alert_subscriptions.sql` is run.
+
+`PATCH /api/admin/watchlist-subscriptions/<subscription_id>`
+
+Starter body:
+
+```json
+{
+  "status": "closed"
+}
+```
+
+Allowed statuses:
+
+```text
+active
+paused
+unsubscribed
 closed
 spam
 ```
