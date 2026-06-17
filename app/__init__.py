@@ -41,12 +41,13 @@ def create_app() -> Flask:
     origins, supports_credentials = _parse_origins(CORS_ORIGINS)
     CORS(app, resources={r"/*": {"origins": origins}}, supports_credentials=supports_credentials)
 
-    from app.routes import admin, health, opportunities, platform_modules, relocation_public
+    from app.routes import admin, health, opportunities, platform_modules, readiness_tools, relocation_public
 
     app.register_blueprint(health.bp)
     app.register_blueprint(relocation_public.bp, url_prefix=f"{API_PREFIX}/relocation")
     app.register_blueprint(platform_modules.bp, url_prefix=f"{API_PREFIX}/platform")
     app.register_blueprint(opportunities.bp, url_prefix=f"{API_PREFIX}/opportunities")
+    app.register_blueprint(readiness_tools.bp, url_prefix=f"{API_PREFIX}/readiness")
     app.register_blueprint(platform_modules.planned_bp, url_prefix=API_PREFIX)
     app.register_blueprint(admin.bp, url_prefix=f"{API_PREFIX}/admin")
 
