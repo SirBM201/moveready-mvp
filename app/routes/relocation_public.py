@@ -21,6 +21,8 @@ def _fallback_countries() -> List[Dict[str, Any]]:
 
 def _fallback_routes() -> List[Dict[str, Any]]:
     return [
+
+        
         {"route_code": "study", "route_name": "Study pathway", "route_category": "study", "country_code": "generic", "risk_level": "medium", "last_verified_at": None, "freshness_status": "starter_fallback", "summary": "Compare admission, proof of funds, insurance, accommodation, and family rules before applying."},
         {"route_code": "startup", "route_name": "Startup or business pathway", "route_category": "startup", "country_code": "generic", "risk_level": "medium", "last_verified_at": None, "freshness_status": "starter_fallback", "summary": "Check business eligibility, founder commitment, funds, and local registration expectations."},
         {"route_code": "work", "route_name": "Work pathway", "route_category": "work", "country_code": "generic", "risk_level": "high", "last_verified_at": None, "freshness_status": "starter_fallback", "summary": "Usually depends on job offer, employer eligibility, qualification evidence, and residence rules."},
