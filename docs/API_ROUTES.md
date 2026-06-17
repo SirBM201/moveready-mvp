@@ -10,6 +10,8 @@ Base prefix: `/api`
 - `GET /api/relocation/routes`
 - `GET /api/relocation/routes/<route_id>`
 - `GET /api/relocation/routes/by-code/<country_code>/<route_code>`
+- `GET /api/opportunities`
+- `GET /api/opportunities/<opportunity_code>`
 - `POST /api/relocation/checklist`
 - `POST /api/relocation/budget-estimate`
 - `GET /api/relocation/scholarships`
@@ -24,6 +26,25 @@ Returns the public route, active route version summary, route facts, document re
 
 This is useful for stable frontend pages because the page can use country and route codes instead of database UUIDs.
 
+## Official Opportunities
+
+`GET /api/opportunities`
+
+Returns official lottery, ballot, invitation-pool, annual-quota, country-cap, first-come quota, and seasonal-intake opportunities.
+
+Optional query params:
+
+- `country_code=US`
+- `type=ballot`
+- `status=open`
+- `q=dv`
+
+`GET /api/opportunities/US-DV`
+
+Returns one opportunity record by stable opportunity code.
+
+The endpoint uses `relocation_opportunities` after migration `005_official_opportunities.sql`. If the table is not present yet, it returns conservative starter fallback records so the frontend does not break during deployment.
+
 ## Platform Services
 
 Service endpoints are prepared for launch and return public-safe availability labels until the relevant official-source checks, provider approvals, opt-in flows, and audit rules are ready.
@@ -35,7 +56,6 @@ Service endpoints are prepared for launch and return public-safe availability la
 
 Service endpoints:
 
-- `GET /api/opportunities`
 - `GET /api/watchlist`
 - `GET /api/alerts`
 - `GET /api/documents`
