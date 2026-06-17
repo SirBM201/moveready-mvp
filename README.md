@@ -22,6 +22,7 @@ Implemented foundation:
 - Starter readiness report generator
 - Supabase schema and seed SQL
 - Service availability endpoints and feature flags
+- Service interest/request capture endpoint
 
 ## MVP Mission
 
@@ -52,6 +53,7 @@ Run these in order when ready:
 1. `supabase/migrations/001_initial_relocation_schema.sql`
 2. `supabase/migrations/002_seed_starter_relocation_data.sql`
 3. `supabase/migrations/003_seed_estonia_startup_route_detail.sql`
+4. `supabase/migrations/004_service_interest_requests.sql`
 
 See `supabase/README.md`.
 
