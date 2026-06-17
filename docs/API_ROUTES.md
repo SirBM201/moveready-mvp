@@ -24,15 +24,15 @@ Returns the public route, active route version summary, route facts, document re
 
 This is useful for stable frontend pages because the page can use country and route codes instead of database UUIDs.
 
-## Platform Architecture
+## Platform Services
 
-Batch 2A adds planned platform endpoints. These are architecture placeholders, not active third-party integrations.
+Service endpoints are prepared for launch and return public-safe availability labels until the relevant official-source checks, provider approvals, opt-in flows, and audit rules are ready.
 
 - `GET /api/platform/status`
 - `GET /api/platform/modules`
 - `GET /api/platform/modules/<slug>`
 
-Planned direct endpoints:
+Service endpoints:
 
 - `GET /api/opportunities`
 - `GET /api/watchlist`
@@ -48,17 +48,17 @@ Planned direct endpoints:
 - `GET /api/settlement`
 - `GET /api/partners`
 
-Expected planned response shape:
+Expected availability response shape:
 
 ```json
 {
   "ok": true,
-  "status": "planned",
-  "message": "This module is part of the platform architecture but is not active for production use yet."
+  "availability": "coming_soon",
+  "message": "This service is being prepared for launch and will be available once official-source checks, provider approval, user consent, and audit rules are ready."
 }
 ```
 
-Use feature flags to activate modules later after their database models, provider integrations, opt-in workflows, and compliance rules are ready.
+Use feature flags to switch modules on only after their database models, provider integrations, opt-in workflows, and compliance rules are ready.
 
 ## Admin
 
