@@ -26,6 +26,12 @@ Adds official-source-backed starter detail for the Estonia startup founder pathw
 
 Adds `relocation_service_interest_requests` so public platform service pages can collect opt-in requests for alerts, courier, insurance, legalization, document readiness, funds planning, refusal risk, and partner support.
 
+## 5. Official opportunities
+
+`supabase/migrations/005_official_opportunities.sql`
+
+Adds `relocation_opportunities` for official lottery, ballot, invitation-pool, annual-quota, country-cap, first-come quota, and seasonal-intake routes. Starter records include USA DV, Canada IEC, Australia subclass 462 ballot/caps, UK India Young Professionals Scheme, New Zealand PAC/Samoan Quota, Hong Kong Working Holiday Scheme, and Japan Working Holiday Programmes.
+
 ## Important
 
 The seed data is for MVP testing only. It does not contain final legal or immigration guidance. Detailed route facts should be reviewed and approved from official sources before production use.
