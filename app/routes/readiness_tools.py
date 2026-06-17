@@ -4,6 +4,8 @@ from typing import Any, Dict, List
 
 from flask import Blueprint, jsonify, request
 
+from app.services.supabase_client import get_supabase
+
 bp = Blueprint("readiness_tools", __name__)
 
 
@@ -17,6 +19,36 @@ def _risk_level(score: int) -> str:
     if score >= 35:
         return "medium"
     return "low"
+
+
+def _readiness_status(risk_level: str) -> str:
+    if risk_level == "high":
+        return "needs_attention"
+    if risk_level == "medium":
+        return "review_recommended"
+    return "ready_to_continue"
+
+
+def _with_storage(tool_slug: str, payload: Dict[str, Any], result: Dict[str, Any]):
+    result["stored"] = False
+    try:
+        row = {
+            "tool_slug": tool_slug,
+            "status": "completed",
+            "risk_level": result.get("risk_level"),
+            "readiness_status": result.get("readiness_status"),
+            "input_payload": payload,
+            "result_payload": result,
+            "source_page": _text(payload.get("source_page"))[:240] or None,
+        }
+        response = get_supabase().table("relocation_readiness_check_runs").insert(row).execute()
+        stored = (response.data or [None])[0]
+        if stored:
+            result["stored"] = True
+            result["id"] = stored.get("id")
+    except Exception:
+        result["storage_note"] = "Check completed but not saved. Run the readiness storage SQL if persistence is required."
+    return jsonify(result)
 
 
 @bp.post("/name-consistency")
@@ -51,13 +83,16 @@ def name_consistency():
             })
 
     score = sum(30 if issue["severity"] == "high" else 15 for issue in issues)
-    return jsonify({
+    risk_level = _risk_level(score)
+    result = {
         "ok": True,
-        "risk_level": _risk_level(score),
+        "risk_level": risk_level,
+        "readiness_status": _readiness_status(risk_level),
         "issues": issues,
         "summary": "No visible name mismatch detected." if not issues else "Potential name mismatch detected across documents.",
         "note": "This is a readiness check, not legal advice. Official document correction or affidavit requirements depend on the route and receiving authority.",
-    })
+    }
+    return _with_storage("name_consistency", payload, result)
 
 
 @bp.post("/document-readiness")
@@ -78,15 +113,18 @@ def document_readiness():
     missing = [item for item in required if item not in documents]
     recommended = [item for item in conditional if item not in documents]
     score = len(missing) * 25 + len(recommended) * 7
+    risk_level = _risk_level(score)
 
-    return jsonify({
+    result = {
         "ok": True,
-        "risk_level": _risk_level(score),
+        "risk_level": risk_level,
+        "readiness_status": _readiness_status(risk_level),
         "missing_required": missing,
         "recommended_checks": recommended,
         "summary": "Core required documents appear present." if not missing else "Some core required documents are missing from the checklist.",
         "note": "Document names are normalized starter categories. Route-specific official document names should be verified before applying.",
-    })
+    }
+    return _with_storage("document_readiness", payload, result)
 
 
 @bp.post("/funds-plan")
@@ -110,22 +148,25 @@ def funds_plan():
         score += 25
     if months <= 2 and shortfall > 0:
         score += 20
+    risk_level = _risk_level(score)
 
-    return jsonify({
+    result = {
         "ok": True,
         "currency": currency,
         "available_funds": round(available, 2),
         "required_funds_adjusted": round(adjusted_required, 2),
         "shortfall": round(shortfall, 2),
         "monthly_savings_target": round(monthly_target, 2),
-        "risk_level": _risk_level(score),
+        "risk_level": risk_level,
+        "readiness_status": _readiness_status(risk_level),
         "warnings": [item for item in [
             "Funds are below the entered requirement." if shortfall else None,
             "Recent large deposits may need clear source-of-funds explanation." if large_deposit_risk else None,
             "Timeline is short for closing a funds gap." if months <= 2 and shortfall else None,
         ] if item],
         "note": "Use official proof-of-funds rules for the target route. This planner only models readiness pressure.",
-    })
+    }
+    return _with_storage("funds_plan", payload, result)
 
 
 @bp.post("/refusal-risk")
@@ -147,10 +188,12 @@ def refusal_risk():
         if bool(indicators.get(key))
     ]
     score = sum(points for key, _text_value, points in checks if bool(indicators.get(key)))
+    risk_level = _risk_level(score)
 
-    return jsonify({
+    result = {
         "ok": True,
-        "risk_level": _risk_level(score),
+        "risk_level": risk_level,
+        "readiness_status": _readiness_status(risk_level),
         "findings": findings,
         "repair_plan": [
             "Confirm the correct route and official eligibility rules.",
@@ -159,4 +202,5 @@ def refusal_risk():
             "For previous refusal, compare the old refusal reasons against the new evidence pack.",
         ],
         "note": "This is a risk-screening tool, not a guarantee of approval or refusal.",
-    })
+    }
+    return _with_storage("refusal_risk", payload, result)
