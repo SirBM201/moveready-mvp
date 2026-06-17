@@ -51,7 +51,7 @@ The endpoint uses `relocation_opportunities` after migration `005_official_oppor
 
 ## Readiness Tools
 
-These endpoints do not require new SQL. They are live helper tools for pre-application checks.
+These endpoints are live helper tools for pre-application checks. They return results even without new SQL. After migration `006_readiness_check_runs.sql` is run, each check can also save to `relocation_readiness_check_runs` and return `stored: true`.
 
 ### Name Consistency
 
@@ -63,7 +63,8 @@ These endpoints do not require new SQL. They are live helper tools for pre-appli
     { "label": "Passport", "name": "Ada Chika Okafor" },
     { "label": "Certificate", "name": "Ada C. Okafor" },
     { "label": "Bank statement", "name": "Ada Chika Okafor" }
-  ]
+  ],
+  "source_page": "/readiness"
 }
 ```
 
@@ -76,7 +77,8 @@ Returns token-level mismatch warnings and an overall consistency status.
 ```json
 {
   "route_category": "startup",
-  "documents": ["passport", "proof of funds", "business plan"]
+  "documents": ["passport", "proof of funds", "business plan"],
+  "source_page": "/readiness"
 }
 ```
 
@@ -93,7 +95,8 @@ Returns required/recommended documents, missing items, present items, and readin
   "target_timeline_months": 6,
   "family_members_count": 0,
   "currency": "EUR",
-  "recent_large_deposits": true
+  "recent_large_deposits": true,
+  "source_page": "/readiness"
 }
 ```
 
@@ -111,7 +114,8 @@ Returns adjusted funds target, shortfall, monthly savings target, and evidence w
     "unclear_purpose": true,
     "weak_home_ties": false,
     "incomplete_documents": true
-  }
+  },
+  "source_page": "/readiness"
 }
 ```
 
