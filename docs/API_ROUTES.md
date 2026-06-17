@@ -31,6 +31,7 @@ Service endpoints are prepared for launch and return public-safe availability la
 - `GET /api/platform/status`
 - `GET /api/platform/modules`
 - `GET /api/platform/modules/<slug>`
+- `POST /api/platform/service-interest`
 
 Service endpoints:
 
@@ -59,6 +60,35 @@ Expected availability response shape:
 ```
 
 Use feature flags to switch modules on only after their database models, provider integrations, opt-in workflows, and compliance rules are ready.
+
+### Service Interest
+
+`POST /api/platform/service-interest`
+
+Stores a visitor request for a service such as alerts, courier, insurance, legalization, documents, funds, refusal risk, or partner review.
+
+Requires migration `supabase/migrations/004_service_interest_requests.sql`.
+
+Starter body:
+
+```json
+{
+  "service_slug": "courier",
+  "service_title": "Passport and document courier",
+  "full_name": "Example User",
+  "email": "user@example.com",
+  "phone": "+96500000000",
+  "preferred_channel": "whatsapp",
+  "current_country": "Kuwait",
+  "target_country": "Estonia",
+  "route_or_goal": "Estonia startup route",
+  "message": "I need passport and document courier updates.",
+  "consent_to_contact": true,
+  "source_page": "/platform/courier"
+}
+```
+
+The endpoint requires either `email` or `phone`, and `consent_to_contact` must be `true`.
 
 ## Admin
 
