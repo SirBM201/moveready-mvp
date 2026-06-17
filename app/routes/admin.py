@@ -84,6 +84,34 @@ def update_service_request(request_id: str):
         return jsonify({"ok": False, "error": "service_request_update_failed", "details": str(exc)}), 500
 
 
+@bp.get("/readiness-checks")
+@require_admin_access
+def readiness_checks():
+    tool_slug = (request.args.get("tool_slug") or "").strip()
+    risk_level = (request.args.get("risk_level") or "").strip()
+    readiness_status = (request.args.get("readiness_status") or "").strip()
+    limit = min(max(int(request.args.get("limit") or 50), 1), 100)
+
+    try:
+        query = (
+            get_supabase()
+            .table("relocation_readiness_check_runs")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
+        )
+        if tool_slug:
+            query = query.eq("tool_slug", tool_slug)
+        if risk_level:
+            query = query.eq("risk_level", risk_level)
+        if readiness_status:
+            query = query.eq("readiness_status", readiness_status)
+        response = query.execute()
+        return jsonify({"ok": True, "readiness_checks": response.data or []})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "readiness_checks_unavailable", "details": str(exc)}), 503
+
+
 @bp.post("/trusted-sources")
 @require_admin_access
 def create_trusted_source():
