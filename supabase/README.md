@@ -38,6 +38,12 @@ Adds `relocation_opportunities` for official lottery, ballot, invitation-pool, a
 
 Adds `relocation_readiness_check_runs` so name consistency, document readiness, proof-of-funds, and refusal-risk checks can be saved for audit, support, and follow-up. The tools still return results if this migration has not been run, but `stored` will remain false.
 
+## 7. Watchlist alert subscriptions
+
+`supabase/migrations/007_watchlist_alert_subscriptions.sql`
+
+Adds `relocation_watchlist_subscriptions` so users can opt in to route, opportunity, scholarship, country, or service alerts. This stores alert preferences and consent records. Actual WhatsApp, Telegram, email, or in-app message delivery should only be enabled after provider setup, opt-in flow, and audit logging are approved.
+
 ## Important
 
 The seed data is for MVP testing only. It does not contain final legal or immigration guidance. Detailed route facts should be reviewed and approved from official sources before production use.
