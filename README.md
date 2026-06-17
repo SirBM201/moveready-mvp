@@ -21,7 +21,7 @@ Implemented foundation:
 - Stable route detail by country and route code
 - Starter readiness report generator
 - Supabase schema and seed SQL
-- Platform module placeholders and feature flags
+- Service availability endpoints and feature flags
 
 ## MVP Mission
 
@@ -35,9 +35,9 @@ Approved source records, route versions, and admin-reviewed facts are the source
 
 ## Platform Direction
 
-MoveReady is designed as a global relocation readiness and opportunity monitoring platform. Batch 2A adds planned architecture slots for official ballots/quota opportunities, watchlists, alerts, document checks, proof-of-funds planning, refusal analysis, legalization, courier, appointments, family planning, settlement, and partner services.
+MoveReady is designed as a global relocation readiness and opportunity monitoring platform. The service architecture includes official ballots/quota opportunities, watchlists, alerts, document checks, proof-of-funds planning, refusal analysis, legalization, courier, appointments, family planning, settlement, and partner services.
 
-These modules are not all active yet. They are feature-flagged and return planned responses until their database tables, provider integrations, opt-in flows, and compliance rules are ready.
+Services that require provider approval, user opt-in, or additional compliance checks return launch-safe availability labels until they are ready.
 
 See `docs/BATCH_2A_PLATFORM_ARCHITECTURE.md`.
 
@@ -55,13 +55,13 @@ Run these in order when ready:
 
 See `supabase/README.md`.
 
-## Not Active Yet
+## Approval-Gated Services
 
 - Live courier booking
 - Flight, hotel, or taxi booking
 - Full consultant marketplace
 - Full document vault
-- Automated embassy appointment booking
+- Automated embassy appointment monitoring
 - Legal representation
 - WhatsApp alerts
 - Partner insurance quotes
