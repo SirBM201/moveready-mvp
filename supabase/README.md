@@ -32,6 +32,12 @@ Adds `relocation_service_interest_requests` so public platform service pages can
 
 Adds `relocation_opportunities` for official lottery, ballot, invitation-pool, annual-quota, country-cap, first-come quota, and seasonal-intake routes. Starter records include USA DV, Canada IEC, Australia subclass 462 ballot/caps, UK India Young Professionals Scheme, New Zealand PAC/Samoan Quota, Hong Kong Working Holiday Scheme, and Japan Working Holiday Programmes.
 
+## 6. Readiness check runs
+
+`supabase/migrations/006_readiness_check_runs.sql`
+
+Adds `relocation_readiness_check_runs` so name consistency, document readiness, proof-of-funds, and refusal-risk checks can be saved for audit, support, and follow-up. The tools still return results if this migration has not been run, but `stored` will remain false.
+
 ## Important
 
 The seed data is for MVP testing only. It does not contain final legal or immigration guidance. Detailed route facts should be reviewed and approved from official sources before production use.
