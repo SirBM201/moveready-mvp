@@ -61,6 +61,11 @@ def _freshness_status(version: Optional[Dict[str, Any]]) -> str:
     return "active"
 
 
+def _first_row(response: Any) -> Optional[Dict[str, Any]]:
+    rows = getattr(response, "data", None) or []
+    return rows[0] if rows else None
+
+
 def _route_summary_row(route: Dict[str, Any]) -> Dict[str, Any]:
     country = route.get("relocation_countries") or {}
     versions = route.get("relocation_route_versions") or []
@@ -141,10 +146,10 @@ def route_detail_by_code(country_code: str, route_code: str):
             .table("relocation_countries")
             .select("id")
             .eq("country_code", country_code.upper())
-            .maybe_single()
+            .limit(1)
             .execute()
         )
-        country = country_response.data
+        country = _first_row(country_response)
         if not country:
             return jsonify({"ok": False, "error": "country_not_found"}), 404
 
@@ -155,10 +160,10 @@ def route_detail_by_code(country_code: str, route_code: str):
             .eq("country_id", country.get("id"))
             .eq("route_code", route_code)
             .eq("is_public", True)
-            .maybe_single()
+            .limit(1)
             .execute()
         )
-        route = route_response.data
+        route = _first_row(route_response)
         if not route:
             return jsonify({"ok": False, "error": "route_not_found"}), 404
 
@@ -179,10 +184,10 @@ def route_detail(route_id: str):
                 "relocation_route_versions(*)"
             )
             .eq("id", route_id)
-            .maybe_single()
+            .limit(1)
             .execute()
         )
-        route = route_response.data
+        route = _first_row(route_response)
         if not route:
             return jsonify({"ok": False, "error": "route_not_found"}), 404
 
