@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: moveready-mvp-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 2 -k gthread -t 120 -b 0.0.0.0:$PORT app.main:app
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: MOVEREADY_ADMIN_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
