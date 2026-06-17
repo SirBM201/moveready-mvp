@@ -20,13 +20,14 @@ Implemented foundation:
 - Public relocation endpoints
 - Stable route detail by country and route code
 - Official opportunities endpoint for lotteries, ballots, invitation pools, caps, and quotas
+- Watchlist subscription endpoint for routes, opportunities, scholarships, countries, and services
 - Live readiness tools for name consistency, documents, funds, and refusal risk
 - Optional readiness check persistence
 - Starter readiness report generator
 - Supabase schema and seed SQL
 - Service availability endpoints and feature flags
 - Service interest/request capture endpoint
-- Admin endpoints for service requests and readiness checks
+- Admin endpoints for service requests, watchlist subscriptions, and readiness checks
 
 ## MVP Mission
 
@@ -60,6 +61,7 @@ Run these in order when ready:
 4. `supabase/migrations/004_service_interest_requests.sql`
 5. `supabase/migrations/005_official_opportunities.sql`
 6. `supabase/migrations/006_readiness_check_runs.sql`
+7. `supabase/migrations/007_watchlist_alert_subscriptions.sql`
 
 See `supabase/README.md`.
 
@@ -71,7 +73,7 @@ See `supabase/README.md`.
 - Full document vault
 - Automated embassy appointment monitoring
 - Legal representation
-- WhatsApp alerts
+- WhatsApp message delivery
 - Partner insurance quotes
 
 ## Next Backend Work
