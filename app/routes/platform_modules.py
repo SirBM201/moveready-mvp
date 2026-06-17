@@ -14,125 +14,113 @@ PLATFORM_MODULES: List[Dict[str, Any]] = [
         "slug": "opportunities",
         "title": "Official ballots and quota opportunities",
         "category": "opportunity_monitoring",
-        "phase": "phase_2",
-        "status": "planned",
+        "availability": "coming_soon",
         "flag": "OPPORTUNITY_ALERTS_ENABLED",
         "summary": "Track official lottery, ballot, invitation-pool, quota, and capped routes such as DV, youth mobility, IEC, and country-cap opportunities.",
-        "live_mvp_behavior": "Show planned route categories, scam warnings, and official-source requirements before alerts are activated.",
+        "current_support": "The workspace is prepared for official-source monitoring and route alerts.",
     },
     {
         "slug": "watchlist",
         "title": "Route watchlist and alerts",
         "category": "opportunity_monitoring",
-        "phase": "phase_2",
-        "status": "planned",
+        "availability": "coming_soon",
         "flag": "WHATSAPP_ALERTS_ENABLED",
         "summary": "Let users save routes and receive email, WhatsApp, Telegram, or in-app alerts when an opening, deadline, result window, or source change occurs.",
-        "live_mvp_behavior": "Collect the product shape now; notification providers stay disabled until opt-in and provider setup are complete.",
+        "current_support": "The product surface is ready for user opt-in and notification preferences.",
     },
     {
         "slug": "documents",
         "title": "Document readiness and name consistency",
         "category": "readiness",
-        "phase": "phase_2",
-        "status": "planned",
+        "availability": "coming_soon",
         "flag": "DOCUMENT_CHECKS_ENABLED",
         "summary": "Check passport validity, missing documents, name mismatch, translation, notarization, apostille, legalization, and route-specific evidence gaps.",
-        "live_mvp_behavior": "Use route checklists now; upload/scanning and automated checks come later.",
+        "current_support": "Route-level checklists are already supported by the live MVP.",
     },
     {
         "slug": "funds",
         "title": "Proof-of-funds planner",
         "category": "readiness",
-        "phase": "phase_2",
-        "status": "planned",
+        "availability": "coming_soon",
         "flag": "PROOF_OF_FUNDS_PLANNER_ENABLED",
         "summary": "Track required funds, available funds, shortfall, savings target, sponsor evidence, family-size adjustment, and large-deposit risk.",
-        "live_mvp_behavior": "Budget estimates are live; deeper funds planning stays planned until the schema and rules are expanded.",
+        "current_support": "Starter budget estimates are already supported by the live MVP.",
     },
     {
         "slug": "refusal-risk",
         "title": "Refusal risk analyzer",
         "category": "risk_review",
-        "phase": "phase_2",
-        "status": "planned",
+        "availability": "coming_soon",
         "flag": "REFUSAL_ANALYZER_ENABLED",
         "summary": "Review previous refusals and weak application indicators such as unclear purpose, low funds, weak home ties, incomplete evidence, or wrong route selection.",
-        "live_mvp_behavior": "Surface honest risk labels now; refusal-letter upload and expert review come later.",
+        "current_support": "Risk labels are already used on source-backed route pages and readiness reports.",
     },
     {
         "slug": "legalization",
         "title": "Notarization, apostille, and legalization",
         "category": "execution_services",
-        "phase": "phase_2",
-        "status": "planned",
+        "availability": "coming_soon",
         "flag": "LEGALIZATION_MODULE_ENABLED",
         "summary": "Guide users on whether documents need notarization, apostille, embassy legalization, translation, or ministry authentication.",
-        "live_mvp_behavior": "Show route-level document notes now; provider workflows remain disabled.",
+        "current_support": "Route document notes can already show legalization requirements where official sources confirm them.",
     },
     {
         "slug": "courier",
         "title": "Passport and document courier",
         "category": "execution_services",
-        "phase": "phase_3",
-        "status": "partner_pending",
+        "availability": "partner_approval_pending",
         "flag": "COURIER_MODULE_ENABLED",
         "summary": "Coordinate trusted passport, certificate, embassy, and notarization courier workflows with tracking and insurance options.",
-        "live_mvp_behavior": "Keep the service slot visible internally; booking and partner pricing come later.",
+        "current_support": "The service slot is prepared for trusted provider onboarding.",
     },
     {
         "slug": "insurance",
         "title": "Insurance readiness and partners",
         "category": "execution_services",
-        "phase": "phase_2",
-        "status": "planned",
+        "availability": "coming_soon",
         "flag": "INSURANCE_PARTNER_ENABLED",
         "summary": "Track travel, health, student, family, work-permit, and Schengen-style insurance requirements and future partner quotes.",
-        "live_mvp_behavior": "Insurance requirements endpoint is live; quote providers stay disabled.",
+        "current_support": "Insurance requirement records are already supported by the backend.",
     },
     {
         "slug": "appointments",
         "title": "Embassy and application appointment tracker",
         "category": "timeline",
-        "phase": "phase_2",
-        "status": "planned",
+        "availability": "coming_soon",
         "flag": "APPOINTMENT_TRACKER_ENABLED",
         "summary": "Save embassy, visa center, biometrics, document submission, collection, and deadline events for user reminders.",
-        "live_mvp_behavior": "No external appointment monitoring yet; manual timeline tracking comes first.",
+        "current_support": "The first version can start with manual timelines and user reminders.",
     },
     {
         "slug": "family-relocation",
         "title": "Family relocation planner",
         "category": "readiness",
-        "phase": "phase_2",
-        "status": "planned",
+        "availability": "coming_soon",
         "flag": "FAMILY_PLANNER_ENABLED",
         "summary": "Model spouse, children, extra documents, extra funds, accommodation, school, insurance, and arrival tasks per family member.",
-        "live_mvp_behavior": "Family count already affects starter budget estimates; detailed dependent planning comes later.",
+        "current_support": "Family count already affects starter budget estimates.",
     },
     {
         "slug": "settlement",
         "title": "Post-arrival settlement checklist",
         "category": "arrival",
-        "phase": "phase_3",
-        "status": "planned",
+        "availability": "coming_soon",
         "flag": "SETTLEMENT_MODULE_ENABLED",
         "summary": "Track airport pickup, accommodation, SIM, bank account, tax number, residence registration, school, health insurance, and local transport tasks.",
-        "live_mvp_behavior": "Keep as a future module until pre-arrival readiness is stable.",
+        "current_support": "The service flow is prepared for route-specific arrival checklists.",
     },
     {
         "slug": "partners",
         "title": "Partner and expert review network",
         "category": "marketplace",
-        "phase": "phase_3",
-        "status": "partner_pending",
+        "availability": "partner_approval_pending",
         "flag": "PARTNER_MARKETPLACE_ENABLED",
         "summary": "Connect users to vetted experts, document reviewers, couriers, insurers, translators, admission support, and settlement providers.",
-        "live_mvp_behavior": "No marketplace claims yet; only the integration slot is defined.",
+        "current_support": "The app is structured for provider onboarding and service requests.",
     },
 ]
 
-PLANNED_ENDPOINTS = {
+MODULE_ENDPOINTS = {
     "opportunities": "Official lottery, ballot, invitation-pool, quota, and capped-route monitoring.",
     "watchlist": "Saved route and opportunity monitoring for users.",
     "alerts": "Email, WhatsApp, Telegram, and in-app notification preferences and logs.",
@@ -144,7 +132,7 @@ PLANNED_ENDPOINTS = {
     "insurance": "Insurance requirement matching and future quote/provider integrations.",
     "appointments": "Embassy, visa-center, biometrics, submission, and collection timeline tracking.",
     "family-relocation": "Dependent, spouse, children, family funds, insurance, school, and arrival planning.",
-    "settlement": "Post-arrival settlement tasks and future local-service partner slots.",
+    "settlement": "Post-arrival settlement tasks and local-service partner slots.",
     "partners": "Expert review, consultant, courier, insurer, translator, and service-provider integration slots.",
 }
 
@@ -155,29 +143,36 @@ def _flag_value(flag_name: Optional[str]) -> bool:
     return bool(getattr(config, flag_name, False))
 
 
-def _with_flags(module: Dict[str, Any]) -> Dict[str, Any]:
+def _public_module(module: Dict[str, Any]) -> Dict[str, Any]:
     flag = module.get("flag")
     enabled = _flag_value(flag)
+    availability = "available" if enabled else module.get("availability", "coming_soon")
     return {
-        **module,
+        "slug": module.get("slug"),
+        "title": module.get("title"),
+        "category": module.get("category"),
+        "availability": availability,
         "enabled": enabled,
-        "public_status": "available" if enabled else module.get("status", "planned"),
+        "summary": module.get("summary"),
+        "current_support": module.get("current_support"),
     }
 
 
-def _planned_response(slug: str):
+def _module_response(slug: str):
     module = next((item for item in PLATFORM_MODULES if item["slug"] == slug), None)
-    description = PLANNED_ENDPOINTS.get(slug) or (module or {}).get("summary") or "Planned MoveReady platform module."
+    description = MODULE_ENDPOINTS.get(slug) or (module or {}).get("summary") or "MoveReady platform service."
+    public_module = _public_module(module) if module else {"slug": slug, "title": slug.replace("-", " ").title(), "availability": "coming_soon", "enabled": False}
+    availability = public_module.get("availability")
     return jsonify({
         "ok": True,
-        "status": "planned",
-        "module": _with_flags(module) if module else {"slug": slug, "title": slug.replace("-", " ").title(), "enabled": False},
-        "message": "This module is part of the platform architecture but is not active for production use yet.",
+        "availability": availability,
+        "module": public_module,
+        "message": "This service is being prepared for launch and will be available once official-source checks, provider approval, user consent, and audit rules are ready.",
         "description": description,
-        "next_steps": [
-            "Define official-source rules and data model.",
-            "Add user opt-in, audit, and admin review workflow.",
-            "Enable provider integration only after compliance and testing.",
+        "launch_requirements": [
+            "Official-source rules confirmed.",
+            "User opt-in and audit trail ready.",
+            "Provider approval completed where a partner is required.",
         ],
     })
 
@@ -187,17 +182,16 @@ def platform_status():
     return jsonify({
         "ok": True,
         "platform": "MoveReady",
-        "architecture_batch": "2A",
         "modules_enabled": config.PLATFORM_MODULES_ENABLED,
-        "active_mvp_modules": ["countries", "routes", "route_detail", "checklist", "budget_estimate", "scholarships", "insurance_requirements", "reports"],
-        "planned_modules": [_with_flags(module) for module in PLATFORM_MODULES],
+        "available_services": ["countries", "routes", "route_detail", "checklist", "budget_estimate", "scholarships", "insurance_requirements", "reports"],
+        "services": [_public_module(module) for module in PLATFORM_MODULES],
     })
 
 
 @bp.get("/modules")
 def platform_modules():
     category = (request.args.get("category") or "").strip()
-    rows = [_with_flags(module) for module in PLATFORM_MODULES]
+    rows = [_public_module(module) for module in PLATFORM_MODULES]
     if category:
         rows = [row for row in rows if row.get("category") == category]
     return jsonify({"ok": True, "modules": rows})
@@ -208,11 +202,11 @@ def platform_module(slug: str):
     module = next((item for item in PLATFORM_MODULES if item["slug"] == slug), None)
     if not module:
         return jsonify({"ok": False, "error": "module_not_found"}), 404
-    return jsonify({"ok": True, "module": _with_flags(module)})
+    return jsonify({"ok": True, "module": _public_module(module)})
 
 
 @planned_bp.get("/<slug>")
-def planned_module_endpoint(slug: str):
-    if slug not in PLANNED_ENDPOINTS:
-        return jsonify({"ok": False, "error": "planned_endpoint_not_found"}), 404
-    return _planned_response(slug)
+def module_endpoint(slug: str):
+    if slug not in MODULE_ENDPOINTS:
+        return jsonify({"ok": False, "error": "module_endpoint_not_found"}), 404
+    return _module_response(slug)
