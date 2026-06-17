@@ -91,13 +91,14 @@ Rules:
 
 `PATCH /api/watchlist/subscriptions/<subscription_id>`
 
-Allows a user-facing unsubscribe/pause flow later.
+Allows a user-facing unsubscribe/pause flow later. The request must include the subscription email or phone so the backend can avoid changing the wrong record.
 
 Starter body:
 
 ```json
 {
-  "status": "paused"
+  "status": "paused",
+  "email": "user@example.com"
 }
 ```
 
