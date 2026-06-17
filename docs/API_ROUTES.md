@@ -102,7 +102,39 @@ Routes:
 
 - `GET /api/admin/status`
 - `GET /api/admin/review-tasks`
+- `GET /api/admin/service-requests`
+- `PATCH /api/admin/service-requests/<request_id>`
 - `POST /api/admin/trusted-sources`
+
+### Service Request Admin
+
+`GET /api/admin/service-requests`
+
+Optional query params:
+
+- `status=new`
+- `service_slug=courier`
+- `limit=75`
+
+`PATCH /api/admin/service-requests/<request_id>`
+
+Starter body:
+
+```json
+{
+  "status": "contacted"
+}
+```
+
+Allowed statuses:
+
+```text
+new
+reviewing
+contacted
+closed
+spam
+```
 
 ## Report Endpoint
 
