@@ -22,6 +22,7 @@ Implemented foundation:
 - Official opportunities endpoint for lotteries, ballots, invitation pools, caps, and quotas
 - Watchlist subscription endpoint for routes, opportunities, scholarships, countries, and services
 - User relocation profile endpoint with readiness snapshot storage
+- Saved report lookup endpoint by report reference, email, or phone
 - Live readiness tools for name consistency, documents, funds, and refusal risk
 - Optional readiness check persistence
 - Starter readiness report generator
