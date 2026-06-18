@@ -202,6 +202,8 @@ def platform_status():
             "scholarships",
             "insurance_requirements",
             "reports",
+            "report_lookup",
+            "admin_generated_reports",
             "opportunities",
             "watchlist_options",
             "watchlist_subscriptions",
