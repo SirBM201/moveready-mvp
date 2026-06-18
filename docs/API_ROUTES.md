@@ -18,6 +18,8 @@ Base prefix: `/api`
 - `POST /api/profiles`
 - `GET /api/profiles`
 - `PATCH /api/profiles/<profile_id>`
+- `GET /api/reports`
+- `GET /api/reports/<report_ref>`
 - `POST /api/readiness/name-consistency`
 - `POST /api/readiness/document-readiness`
 - `POST /api/readiness/funds-plan`
@@ -176,6 +178,26 @@ Public status update for a user-controlled profile. The request must include the
   "email": "user@example.com"
 }
 ```
+
+## Saved Reports
+
+`GET /api/reports?report_ref=MRR-20260618-ABC123`
+
+Returns saved generated reports matching the report reference.
+
+`GET /api/reports?email=user@example.com`
+
+Returns saved generated reports whose original input payload contains that email.
+
+`GET /api/reports?phone=+96500000000`
+
+Returns saved generated reports whose original input payload contains that phone number.
+
+`GET /api/reports/<report_ref>`
+
+Returns one saved report by report reference.
+
+The public lookup does not list every generated report. A lookup value is required to avoid exposing unrelated user reports.
 
 ## Readiness Tools
 
