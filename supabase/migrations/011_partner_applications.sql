@@ -86,11 +86,6 @@ create index if not exists relocation_partner_applications_status_idx on public.
 create index if not exists relocation_partner_applications_country_idx on public.relocation_partner_applications (country);
 create index if not exists relocation_partner_applications_created_at_idx on public.relocation_partner_applications (created_at desc);
 
-create trigger relocation_partner_applications_set_updated_at
-before update on public.relocation_partner_applications
-for each row
-execute function public.relocation_set_updated_at();
-
 drop trigger if exists relocation_partner_applications_set_updated_at on public.relocation_partner_applications;
 create trigger relocation_partner_applications_set_updated_at
 before update on public.relocation_partner_applications
