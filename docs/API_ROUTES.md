@@ -15,6 +15,9 @@ Base prefix: `/api`
 - `GET /api/watchlist/options`
 - `POST /api/watchlist/subscriptions`
 - `PATCH /api/watchlist/subscriptions/<subscription_id>`
+- `POST /api/profiles`
+- `GET /api/profiles`
+- `PATCH /api/profiles/<profile_id>`
 - `POST /api/readiness/name-consistency`
 - `POST /api/readiness/document-readiness`
 - `POST /api/readiness/funds-plan`
@@ -113,6 +116,66 @@ spam
 ```
 
 The watchlist currently stores consent and preferences. Actual WhatsApp, Telegram, email, or in-app message delivery should only be enabled after provider setup, opt-in flow, and audit logging are approved.
+
+## User Profiles
+
+`POST /api/profiles`
+
+Stores a user's relocation profile after migration `008_user_relocation_profiles.sql` is run. The backend also computes a starter readiness snapshot.
+
+Starter body:
+
+```json
+{
+  "full_name": "Example User",
+  "email": "user@example.com",
+  "phone": "+96500000000",
+  "current_country": "Kuwait",
+  "nationality": "Nigeria",
+  "residence_country": "Kuwait",
+  "target_country": "Estonia",
+  "target_city": "Tallinn",
+  "main_goal": "startup",
+  "route_category": "startup",
+  "timeline_months": 6,
+  "family_members_count": 0,
+  "available_funds_amount": 12000,
+  "available_funds_currency": "EUR",
+  "education_level": "Bachelor",
+  "work_experience_years": 5,
+  "business_stage": "mvp_or_early_traction",
+  "has_previous_refusal": false,
+  "preferred_contact_channel": "whatsapp",
+  "consent_to_contact": true,
+  "source_page": "/dashboard"
+}
+```
+
+Rules:
+
+- Either `email` or `phone` is required.
+- `consent_to_contact` must be `true`.
+- `main_goal` must be one of `study`, `scholarship`, `work`, `startup`, `business`, `digital_nomad`, `family`, `visit`, `opportunity`, or `relocation`.
+- `preferred_contact_channel` must be one of `email`, `whatsapp`, `telegram`, or `phone`.
+
+`GET /api/profiles?email=user@example.com`
+
+Returns the newest matching profile by email.
+
+`GET /api/profiles?phone=+96500000000`
+
+Returns the newest matching profile by phone.
+
+`PATCH /api/profiles/<profile_id>`
+
+Public status update for a user-controlled profile. The request must include the matching email or phone. Public updates are limited to `active` and `closed`.
+
+```json
+{
+  "status": "closed",
+  "email": "user@example.com"
+}
+```
 
 ## Readiness Tools
 
@@ -267,6 +330,8 @@ Routes:
 - `PATCH /api/admin/service-requests/<request_id>`
 - `GET /api/admin/watchlist-subscriptions`
 - `PATCH /api/admin/watchlist-subscriptions/<subscription_id>`
+- `GET /api/admin/user-profiles`
+- `PATCH /api/admin/user-profiles/<profile_id>`
 - `GET /api/admin/readiness-checks`
 - `POST /api/admin/trusted-sources`
 
@@ -333,6 +398,40 @@ closed
 spam
 ```
 
+### User Profile Admin
+
+`GET /api/admin/user-profiles`
+
+Optional query params:
+
+- `status=new`
+- `main_goal=startup`
+- `target_country=Estonia`
+- `limit=75`
+
+Returns saved relocation profiles after migration `008_user_relocation_profiles.sql` is run.
+
+`PATCH /api/admin/user-profiles/<profile_id>`
+
+Starter body:
+
+```json
+{
+  "status": "contacted"
+}
+```
+
+Allowed statuses:
+
+```text
+new
+reviewing
+contacted
+active
+closed
+spam
+```
+
 ### Readiness Check Admin
 
 `GET /api/admin/readiness-checks`
@@ -364,4 +463,4 @@ Starter body:
 }
 ```
 
-The starter report generator creates a structured readiness report without making final legal claims. Later batches should connect this endpoint to approved route versions and source snapshots.
+The starter report generator creates a structured readiness report without making final legal claims. Next work should connect this endpoint more deeply to approved route versions and source snapshots.
