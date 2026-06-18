@@ -29,7 +29,7 @@ Implemented foundation:
 - Supabase schema and seed SQL
 - Service availability endpoints and feature flags
 - Service interest/request capture endpoint
-- Admin endpoints for user profiles, service requests, watchlist subscriptions, and readiness checks
+- Admin endpoints for user profiles, generated reports, service requests, watchlist subscriptions, and readiness checks
 
 ## MVP Mission
 
@@ -51,7 +51,7 @@ See `docs/BATCH_2A_PLATFORM_ARCHITECTURE.md`.
 
 ## API Docs
 
-See `docs/API_ROUTES.md`.
+See `docs/API_ROUTES.md` and `docs/ADMIN_GENERATED_REPORTS.md`.
 
 ## Supabase Setup
 
