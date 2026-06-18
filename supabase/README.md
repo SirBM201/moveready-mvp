@@ -44,6 +44,12 @@ Adds `relocation_readiness_check_runs` so name consistency, document readiness, 
 
 Adds `relocation_watchlist_subscriptions` so users can opt in to route, opportunity, scholarship, country, or service alerts. This stores alert preferences and consent records. Actual WhatsApp, Telegram, email, or in-app message delivery should only be enabled after provider setup, opt-in flow, and audit logging are approved.
 
+## 8. User relocation profiles
+
+`supabase/migrations/008_user_relocation_profiles.sql`
+
+Adds `relocation_user_profiles` so the public dashboard can save a user's relocation profile, target country, route category, timeline, family size, funds, contact preference, previous-refusal flag, notes, and computed readiness snapshot. Admin can review profile records and update follow-up status.
+
 ## Important
 
 The seed data is for MVP testing only. It does not contain final legal or immigration guidance. Detailed route facts should be reviewed and approved from official sources before production use.
