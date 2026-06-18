@@ -210,6 +210,8 @@ def platform_status():
             "funds_plan",
             "refusal_risk",
             "service_interest_requests",
+            "user_profiles",
+            "profile_readiness_snapshot",
         ],
         "services": [_public_module(module) for module in PLATFORM_MODULES],
     })
