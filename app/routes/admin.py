@@ -12,6 +12,7 @@ WATCHLIST_STATUSES = {"active", "paused", "unsubscribed", "closed", "spam"}
 PROFILE_STATUSES = {"new", "reviewing", "contacted", "active", "closed", "spam"}
 REPORT_STATUSES = {"generated", "paid", "delivered", "stale", "refreshed", "archived"}
 SAVED_ROUTE_STATUSES = {"active", "archived", "closed", "spam"}
+TIMELINE_EVENT_STATUSES = {"pending", "in_progress", "done", "missed", "cancelled", "archived"}
 
 
 @bp.get("/status")
@@ -273,6 +274,60 @@ def update_saved_route(saved_route_id: str):
         return jsonify({"ok": True, "saved_route": updated})
     except Exception as exc:
         return jsonify({"ok": False, "error": "saved_route_update_failed", "details": str(exc)}), 500
+
+
+@bp.get("/timeline-events")
+@require_admin_access
+def timeline_events():
+    status = (request.args.get("status") or "").strip()
+    event_type = (request.args.get("event_type") or "").strip()
+    target_country = (request.args.get("target_country") or "").strip()
+    limit = min(max(int(request.args.get("limit") or 50), 1), 100)
+
+    try:
+        query = (
+            get_supabase()
+            .table("relocation_timeline_events")
+            .select("*")
+            .order("due_date", desc=False)
+            .order("created_at", desc=True)
+            .limit(limit)
+        )
+        if status:
+            query = query.eq("status", status)
+        if event_type:
+            query = query.eq("event_type", event_type)
+        if target_country:
+            query = query.ilike("target_country", target_country)
+        response = query.execute()
+        return jsonify({"ok": True, "timeline_events": response.data or []})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "timeline_events_unavailable", "details": str(exc)}), 503
+
+
+@bp.patch("/timeline-events/<event_id>")
+@require_admin_access
+def update_timeline_event(event_id: str):
+    payload = request.get_json(silent=True) or {}
+    status = (payload.get("status") or "").strip()
+
+    if status not in TIMELINE_EVENT_STATUSES:
+        return jsonify({"ok": False, "error": "invalid_status", "allowed_statuses": sorted(TIMELINE_EVENT_STATUSES)}), 400
+
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_timeline_events")
+            .update({"status": status})
+            .eq("id", event_id)
+            .execute()
+        )
+        updated = (response.data or [None])[0]
+        if not updated:
+            return jsonify({"ok": False, "error": "timeline_event_not_found"}), 404
+        return jsonify({"ok": True, "timeline_event": updated})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "timeline_event_update_failed", "details": str(exc)}), 500
 
 
 @bp.get("/user-profiles")
