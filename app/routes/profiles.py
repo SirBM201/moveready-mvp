@@ -87,7 +87,7 @@ def _profile_snapshot(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-@bp.post("")
+@bp.post("/", strict_slashes=False)
 def create_profile():
     payload = request.get_json(silent=True) or {}
     email = _clean_text(payload.get("email"), 255)
@@ -143,7 +143,7 @@ def create_profile():
         return jsonify({"ok": False, "stored": False, "error": "profile_storage_unavailable", "details": str(exc)}), 503
 
 
-@bp.get("")
+@bp.get("/", strict_slashes=False)
 def get_profile():
     email = _clean_text(request.args.get("email"), 255)
     phone = _clean_text(request.args.get("phone"), 80)
