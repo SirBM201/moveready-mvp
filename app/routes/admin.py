@@ -11,6 +11,7 @@ REQUEST_STATUSES = {"new", "reviewing", "contacted", "closed", "spam"}
 WATCHLIST_STATUSES = {"active", "paused", "unsubscribed", "closed", "spam"}
 PROFILE_STATUSES = {"new", "reviewing", "contacted", "active", "closed", "spam"}
 REPORT_STATUSES = {"generated", "paid", "delivered", "stale", "refreshed", "archived"}
+SAVED_ROUTE_STATUSES = {"active", "archived", "closed", "spam"}
 
 
 @bp.get("/status")
@@ -219,6 +220,59 @@ def update_watchlist_subscription(subscription_id: str):
         return jsonify({"ok": True, "watchlist_subscription": updated})
     except Exception as exc:
         return jsonify({"ok": False, "error": "watchlist_subscription_update_failed", "details": str(exc)}), 500
+
+
+@bp.get("/saved-routes")
+@require_admin_access
+def saved_routes():
+    status = (request.args.get("status") or "").strip()
+    save_type = (request.args.get("save_type") or "").strip()
+    target_country = (request.args.get("target_country") or "").strip()
+    limit = min(max(int(request.args.get("limit") or 50), 1), 100)
+
+    try:
+        query = (
+            get_supabase()
+            .table("relocation_saved_routes")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
+        )
+        if status:
+            query = query.eq("status", status)
+        if save_type:
+            query = query.eq("save_type", save_type)
+        if target_country:
+            query = query.ilike("target_country", target_country)
+        response = query.execute()
+        return jsonify({"ok": True, "saved_routes": response.data or []})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "saved_routes_unavailable", "details": str(exc)}), 503
+
+
+@bp.patch("/saved-routes/<saved_route_id>")
+@require_admin_access
+def update_saved_route(saved_route_id: str):
+    payload = request.get_json(silent=True) or {}
+    status = (payload.get("status") or "").strip()
+
+    if status not in SAVED_ROUTE_STATUSES:
+        return jsonify({"ok": False, "error": "invalid_status", "allowed_statuses": sorted(SAVED_ROUTE_STATUSES)}), 400
+
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_saved_routes")
+            .update({"status": status})
+            .eq("id", saved_route_id)
+            .execute()
+        )
+        updated = (response.data or [None])[0]
+        if not updated:
+            return jsonify({"ok": False, "error": "saved_route_not_found"}), 404
+        return jsonify({"ok": True, "saved_route": updated})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "saved_route_update_failed", "details": str(exc)}), 500
 
 
 @bp.get("/user-profiles")
