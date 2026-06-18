@@ -481,3 +481,4 @@ def create_trusted_source():
         return jsonify({"ok": True, "source": (response.data or [None])[0]})
     except Exception as exc:
         return jsonify({"ok": False, "error": "source_create_failed", "details": str(exc)}), 500
+
