@@ -10,6 +10,7 @@ bp = Blueprint("admin", __name__)
 REQUEST_STATUSES = {"new", "reviewing", "contacted", "closed", "spam"}
 WATCHLIST_STATUSES = {"active", "paused", "unsubscribed", "closed", "spam"}
 PROFILE_STATUSES = {"new", "reviewing", "contacted", "active", "closed", "spam"}
+REPORT_STATUSES = {"generated", "paid", "delivered", "stale", "refreshed", "archived"}
 
 
 @bp.get("/status")
@@ -112,6 +113,59 @@ def readiness_checks():
         return jsonify({"ok": True, "readiness_checks": response.data or []})
     except Exception as exc:
         return jsonify({"ok": False, "error": "readiness_checks_unavailable", "details": str(exc)}), 503
+
+
+@bp.get("/generated-reports")
+@require_admin_access
+def generated_reports():
+    status = (request.args.get("status") or "").strip()
+    risk_level = (request.args.get("risk_level") or "").strip()
+    report_ref = (request.args.get("report_ref") or "").strip()
+    limit = min(max(int(request.args.get("limit") or 50), 1), 100)
+
+    try:
+        query = (
+            get_supabase()
+            .table("relocation_generated_reports")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
+        )
+        if status:
+            query = query.eq("status", status)
+        if risk_level:
+            query = query.eq("risk_level", risk_level)
+        if report_ref:
+            query = query.ilike("report_ref", f"%{report_ref}%")
+        response = query.execute()
+        return jsonify({"ok": True, "generated_reports": response.data or []})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "generated_reports_unavailable", "details": str(exc)}), 503
+
+
+@bp.patch("/generated-reports/<report_id>")
+@require_admin_access
+def update_generated_report(report_id: str):
+    payload = request.get_json(silent=True) or {}
+    status = (payload.get("status") or "").strip()
+
+    if status not in REPORT_STATUSES:
+        return jsonify({"ok": False, "error": "invalid_status", "allowed_statuses": sorted(REPORT_STATUSES)}), 400
+
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_generated_reports")
+            .update({"status": status})
+            .eq("id", report_id)
+            .execute()
+        )
+        updated = (response.data or [None])[0]
+        if not updated:
+            return jsonify({"ok": False, "error": "generated_report_not_found"}), 404
+        return jsonify({"ok": True, "generated_report": updated})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "generated_report_update_failed", "details": str(exc)}), 500
 
 
 @bp.get("/watchlist-subscriptions")
