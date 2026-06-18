@@ -13,6 +13,9 @@ PROFILE_STATUSES = {"new", "reviewing", "contacted", "active", "closed", "spam"}
 REPORT_STATUSES = {"generated", "paid", "delivered", "stale", "refreshed", "archived"}
 SAVED_ROUTE_STATUSES = {"active", "archived", "closed", "spam"}
 TIMELINE_EVENT_STATUSES = {"pending", "in_progress", "done", "missed", "cancelled", "archived"}
+TIMELINE_PRIORITIES = {"low", "medium", "high", "critical"}
+PARTNER_APPLICATION_STATUSES = {"new", "screening", "approved", "rejected", "waitlist", "suspended", "spam"}
+PARTNER_PROVIDER_TYPES = {"courier", "insurance", "legalization", "translation", "expert_review", "admission_support", "accommodation", "airport_pickup", "settlement", "other"}
 
 
 @bp.get("/status")
@@ -72,12 +75,11 @@ def update_service_request(request_id: str):
     if status not in REQUEST_STATUSES:
         return jsonify({"ok": False, "error": "invalid_status", "allowed_statuses": sorted(REQUEST_STATUSES)}), 400
 
-    row = {"status": status}
     try:
         response = (
             get_supabase()
             .table("relocation_service_interest_requests")
-            .update(row)
+            .update({"status": status})
             .eq("id", request_id)
             .execute()
         )
@@ -87,6 +89,68 @@ def update_service_request(request_id: str):
         return jsonify({"ok": True, "service_request": updated})
     except Exception as exc:
         return jsonify({"ok": False, "error": "service_request_update_failed", "details": str(exc)}), 500
+
+
+@bp.get("/partner-applications")
+@require_admin_access
+def partner_applications():
+    status = (request.args.get("status") or "").strip()
+    provider_type = (request.args.get("provider_type") or "").strip()
+    country = (request.args.get("country") or "").strip()
+    limit = min(max(int(request.args.get("limit") or 50), 1), 100)
+
+    try:
+        query = (
+            get_supabase()
+            .table("relocation_partner_applications")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
+        )
+        if status:
+            query = query.eq("status", status)
+        if provider_type:
+            query = query.eq("provider_type", provider_type)
+        if country:
+            query = query.ilike("country", country)
+        response = query.execute()
+        return jsonify({"ok": True, "partner_applications": response.data or []})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "partner_applications_unavailable", "details": str(exc)}), 503
+
+
+@bp.patch("/partner-applications/<application_id>")
+@require_admin_access
+def update_partner_application(application_id: str):
+    payload = request.get_json(silent=True) or {}
+    status = (payload.get("status") or "").strip()
+    internal_notes = payload.get("internal_notes")
+
+    update_fields = {}
+    if status:
+        if status not in PARTNER_APPLICATION_STATUSES:
+            return jsonify({"ok": False, "error": "invalid_status", "allowed_statuses": sorted(PARTNER_APPLICATION_STATUSES)}), 400
+        update_fields["status"] = status
+    if internal_notes is not None:
+        update_fields["internal_notes"] = str(internal_notes).strip()[:1200]
+
+    if not update_fields:
+        return jsonify({"ok": False, "error": "no_update_fields"}), 400
+
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_partner_applications")
+            .update(update_fields)
+            .eq("id", application_id)
+            .execute()
+        )
+        updated = (response.data or [None])[0]
+        if not updated:
+            return jsonify({"ok": False, "error": "partner_application_not_found"}), 404
+        return jsonify({"ok": True, "partner_application": updated})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "partner_application_update_failed", "details": str(exc)}), 500
 
 
 @bp.get("/readiness-checks")
@@ -310,15 +374,25 @@ def timeline_events():
 def update_timeline_event(event_id: str):
     payload = request.get_json(silent=True) or {}
     status = (payload.get("status") or "").strip()
+    priority = (payload.get("priority") or "").strip()
+    update_fields = {}
 
-    if status not in TIMELINE_EVENT_STATUSES:
-        return jsonify({"ok": False, "error": "invalid_status", "allowed_statuses": sorted(TIMELINE_EVENT_STATUSES)}), 400
+    if status:
+        if status not in TIMELINE_EVENT_STATUSES:
+            return jsonify({"ok": False, "error": "invalid_status", "allowed_statuses": sorted(TIMELINE_EVENT_STATUSES)}), 400
+        update_fields["status"] = status
+    if priority:
+        if priority not in TIMELINE_PRIORITIES:
+            return jsonify({"ok": False, "error": "invalid_priority", "allowed_priorities": sorted(TIMELINE_PRIORITIES)}), 400
+        update_fields["priority"] = priority
+    if not update_fields:
+        return jsonify({"ok": False, "error": "no_update_fields"}), 400
 
     try:
         response = (
             get_supabase()
             .table("relocation_timeline_events")
-            .update({"status": status})
+            .update(update_fields)
             .eq("id", event_id)
             .execute()
         )
