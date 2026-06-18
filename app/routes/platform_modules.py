@@ -8,7 +8,7 @@ from app.core import config
 from app.services.supabase_client import get_supabase
 
 bp = Blueprint("platform_modules", __name__)
-planned_bp = Blueprint("planned_platform_modules", __name__)
+planned_bp = Blueprint("platform_service_modules", __name__)
 
 PLATFORM_MODULES: List[Dict[str, Any]] = [
     {
@@ -72,7 +72,7 @@ PLATFORM_MODULES: List[Dict[str, Any]] = [
         "availability": "partner_approval_pending",
         "flag": "COURIER_MODULE_ENABLED",
         "summary": "Coordinate trusted passport, certificate, embassy, and notarization courier workflows with tracking and insurance options.",
-        "current_support": "The service request form is live for early interest while trusted provider onboarding is handled.",
+        "current_support": "The service request form and provider application flow are live for early interest and provider screening.",
     },
     {
         "slug": "insurance",
@@ -90,7 +90,7 @@ PLATFORM_MODULES: List[Dict[str, Any]] = [
         "availability": "coming_soon",
         "flag": "APPOINTMENT_TRACKER_ENABLED",
         "summary": "Save embassy, visa center, biometrics, document submission, collection, and deadline events for user reminders.",
-        "current_support": "Users can request this service while manual timeline tracking and reminders are prepared.",
+        "current_support": "Users can save timeline events now. External appointment monitoring requires source permission and approved provider setup.",
     },
     {
         "slug": "family-relocation",
@@ -117,7 +117,7 @@ PLATFORM_MODULES: List[Dict[str, Any]] = [
         "availability": "partner_approval_pending",
         "flag": "PARTNER_MARKETPLACE_ENABLED",
         "summary": "Connect users to vetted experts, document reviewers, couriers, insurers, translators, admission support, and settlement providers.",
-        "current_support": "The app has service request capture and an admin dashboard for reviewing provider/service interest.",
+        "current_support": "Provider application capture and admin screening are available. Public handoff should only use approved providers.",
     },
 ]
 
@@ -207,11 +207,14 @@ def platform_status():
             "opportunities",
             "watchlist_options",
             "watchlist_subscriptions",
+            "saved_routes",
+            "timeline_events",
             "name_consistency",
             "document_readiness",
             "funds_plan",
             "refusal_risk",
             "service_interest_requests",
+            "partner_applications",
             "user_profiles",
             "profile_readiness_snapshot",
         ],
