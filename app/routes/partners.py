@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
 
@@ -23,6 +23,7 @@ PROVIDER_TYPES = [
 
 ALLOWED_PROVIDER_TYPES = {item["code"] for item in PROVIDER_TYPES}
 ALLOWED_CHANNELS = {"email", "whatsapp", "telegram", "phone"}
+PROVIDER_LABELS = {item["code"]: item["label"] for item in PROVIDER_TYPES}
 
 
 def _clean_text(value: Any, limit: int = 500) -> Optional[str]:
@@ -53,9 +54,61 @@ def _clean_list(value: Any, limit: int = 12) -> List[str]:
     return cleaned
 
 
+def _public_provider(row: Dict[str, Any]) -> Dict[str, Any]:
+    provider_type = row.get("provider_type") or "other"
+    return {
+        "id": row.get("id"),
+        "provider_type": provider_type,
+        "provider_label": PROVIDER_LABELS.get(provider_type, "Trusted service"),
+        "business_name": row.get("business_name"),
+        "website_url": row.get("website_url"),
+        "country": row.get("country"),
+        "city": row.get("city"),
+        "service_countries": row.get("service_countries") or [],
+        "service_summary": row.get("service_summary"),
+        "credentials_summary": row.get("credentials_summary"),
+        "preferred_contact_channel": row.get("preferred_contact_channel"),
+        "public_status": "approved",
+        "created_at": row.get("created_at"),
+    }
+
+
 @bp.get("/provider-types")
 def provider_types():
     return jsonify({"ok": True, "provider_types": PROVIDER_TYPES})
+
+
+@bp.get("/approved")
+def approved_providers():
+    provider_type = _clean_text(request.args.get("provider_type"), 80)
+    base_country = _clean_text(request.args.get("country"), 120)
+
+    try:
+        query = (
+            get_supabase()
+            .table("relocation_partner_applications")
+            .select(
+                "id,provider_type,business_name,website_url,country,city,service_countries,"
+                "service_summary,credentials_summary,preferred_contact_channel,created_at"
+            )
+            .eq("status", "approved")
+            .order("created_at", desc=True)
+            .limit(60)
+        )
+        if provider_type in ALLOWED_PROVIDER_TYPES:
+            query = query.eq("provider_type", provider_type)
+        if base_country:
+            query = query.eq("country", base_country)
+
+        response = query.execute()
+        providers = [_public_provider(row) for row in (response.data or [])]
+        return jsonify({"ok": True, "approved_providers": providers})
+    except Exception as exc:
+        return jsonify({
+            "ok": False,
+            "error": "approved_provider_directory_unavailable",
+            "details": str(exc),
+        }), 503
 
 
 @bp.post("/applications")
