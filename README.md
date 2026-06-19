@@ -23,6 +23,7 @@ Implemented foundation:
 - Watchlist subscription endpoint for routes, opportunities, scholarships, countries, and services
 - User relocation profile endpoint with readiness snapshot storage
 - Account email OTP and session-token foundation
+- Authenticated account summary endpoint
 - Saved report lookup endpoint by report reference, email, or phone
 - Live readiness tools for name consistency, documents, funds, and refusal risk
 - Optional readiness check persistence
@@ -66,6 +67,11 @@ Auth endpoints now include:
 - `GET /api/auth/me`
 - `POST /api/auth/logout`
 
+Authenticated account endpoints now include:
+
+- `GET /api/account/health`
+- `GET /api/account/summary`
+
 Email delivery is disabled until an approved provider is configured. Codes and session tokens are stored as hashes.
 
 ## Supabase Setup
@@ -97,7 +103,7 @@ See `supabase/README.md`.
 
 ## Next Backend Work
 
-- Connect authenticated sessions to account-owned records
+- Connect authenticated sessions to account-owned record writes
 - Add approved email provider delivery for OTP codes
 - Add route fact admin CRUD
 - Add source snapshot capture/review flow
