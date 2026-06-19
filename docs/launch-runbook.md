@@ -17,30 +17,27 @@ Run the Supabase migrations in order:
 9. `supabase/migrations/009_saved_routes.sql`
 10. `supabase/migrations/010_timeline_events.sql`
 11. `supabase/migrations/011_partner_applications.sql`
-12. `supabase/migrations/013_seed_finland_d_visa_route_fixed.sql`
+12. `supabase/migrations/014_allow_family_member_document_scope.sql`
+13. `supabase/migrations/013_seed_finland_d_visa_route_fixed.sql`
 
-Use `013_seed_finland_d_visa_route_fixed.sql` for the Finland D visa route. Do not rerun the older broken Finland seed if it contains `applies_to = 'family_member'` for `relocation_document_requirements`.
+Run `014_allow_family_member_document_scope.sql` before rerunning any Finland D visa seed that contains `applies_to = 'family_member'`.
 
-## Finland D visa SQL fix
+## Finland D Visa SQL Note
 
-The schema check constraint for `relocation_document_requirements.applies_to` accepts values such as:
+`014_allow_family_member_document_scope.sql` expands the document requirement scope constraint to support:
 
 - `main_applicant`
 - `spouse`
 - `child`
+- `family_member`
 - `sponsor`
 - `employer`
 - `school`
 - `other`
 
-It does not accept `family_member`.
+This prevents the Finland D visa enrichment from failing when a generic family-member document requirement is inserted.
 
-The fixed Finland migration splits family documents into valid rows:
-
-- `Spouse family-ties documents` with `applies_to = 'spouse'`
-- `Child family-ties documents` with `applies_to = 'child'`
-
-## Backend checks
+## Backend Checks
 
 After Railway deploys, test:
 
@@ -52,6 +49,8 @@ After Railway deploys, test:
 /api/relocation/routes/by-code/EE/startup-founder
 /api/relocation/routes/by-code/FI/d-visa
 /api/watchlist/options
+/api/partners/provider-types
+/api/partners/approved
 /api/platform/status
 ```
 
@@ -61,9 +60,11 @@ Expected behavior:
 - Countries include Portugal, Estonia, and Finland.
 - Estonia startup and Finland D visa route details return live route records after seed SQL is active.
 - Watchlist options return alert types, channels, and watch types.
+- Partner provider types return the supported service categories.
+- Approved providers returns only public-safe approved provider records.
 - Platform status returns public-safe availability labels.
 
-## Frontend checks
+## Frontend Checks
 
 After Vercel deploys, test:
 
@@ -83,6 +84,7 @@ After Vercel deploys, test:
 /timeline
 /readiness
 /services
+/providers
 /courier
 /legalization
 /family-planner
@@ -91,9 +93,10 @@ After Vercel deploys, test:
 /partners/apply
 /my-reports
 /admin
+/admin/reviews
 ```
 
-## Public wording rules
+## Public Wording Rules
 
 Use public-safe labels:
 
@@ -111,11 +114,12 @@ Avoid public UI labels such as:
 
 Those are internal planning terms and should not appear in user-facing product pages.
 
-## Safety rules
+## Safety Rules
 
 - Do not promise visa approval, lottery selection, residence approval, appointment availability, scholarship award, courier success, or provider quality.
 - Use official links for lotteries and ballots.
 - Require opt-in before notifications.
 - Require provider review before any public handoff.
+- Public provider directory must expose only approved provider records and public-safe fields.
 - Keep sensitive-document courier as a trusted service workflow, not a casual booking feature.
 - Treat AI as an explanation layer, not the source of truth.
