@@ -10,6 +10,9 @@ from app.services.supabase_client import get_supabase
 
 bp = Blueprint("relocation_public", __name__)
 
+RISK_WEIGHT = {"low": 1, "medium": 2, "high": 3}
+CONFIDENCE_WEIGHT = {"low": 1, "medium": 2, "high": 3}
+
 
 def _fallback_countries() -> List[Dict[str, Any]]:
     return [
@@ -21,8 +24,6 @@ def _fallback_countries() -> List[Dict[str, Any]]:
 
 def _fallback_routes() -> List[Dict[str, Any]]:
     return [
-
-        
         {"route_code": "study", "route_name": "Study pathway", "route_category": "study", "country_code": "generic", "risk_level": "medium", "last_verified_at": None, "freshness_status": "starter_fallback", "summary": "Compare admission, proof of funds, insurance, accommodation, and family rules before applying."},
         {"route_code": "startup", "route_name": "Startup or business pathway", "route_category": "startup", "country_code": "generic", "risk_level": "medium", "last_verified_at": None, "freshness_status": "starter_fallback", "summary": "Check business eligibility, founder commitment, funds, and local registration expectations."},
         {"route_code": "work", "route_name": "Work pathway", "route_category": "work", "country_code": "generic", "risk_level": "high", "last_verified_at": None, "freshness_status": "starter_fallback", "summary": "Usually depends on job offer, employer eligibility, qualification evidence, and residence rules."},
@@ -115,6 +116,86 @@ def _route_summary_row(route: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _route_summary_rows(country_code: str = "", category: str = "") -> Optional[List[Dict[str, Any]]]:
+    try:
+        query = (
+            get_supabase()
+            .table("relocation_visa_routes")
+            .select(
+                "id,route_code,route_name,route_category,is_public,country_id,active_version_id,"
+                "relocation_countries(country_code,country_name)"
+            )
+            .eq("is_public", True)
+        )
+        if category:
+            query = query.eq("route_category", category)
+        response = query.execute()
+        rows = []
+        for row in response.data or []:
+            row["relocation_route_versions"] = _route_versions(
+                row.get("id"),
+                "id,status,risk_level,route_summary,source_confidence,verified_at,review_due_at,created_at",
+            )
+            rows.append(_route_summary_row(row))
+        if country_code:
+            rows = [row for row in rows if row.get("country_code") == country_code]
+        return rows
+    except Exception:
+        return None
+
+
+def _highest_risk(routes: List[Dict[str, Any]]) -> str:
+    risks = [str(route.get("risk_level") or "").lower() for route in routes if route.get("risk_level")]
+    if not risks:
+        return "review required"
+    return sorted(risks, key=lambda risk: RISK_WEIGHT.get(risk, 0), reverse=True)[0]
+
+
+def _highest_confidence(routes: List[Dict[str, Any]]) -> str:
+    labels = [str(route.get("source_confidence") or "").lower() for route in routes if route.get("source_confidence")]
+    if not labels:
+        return "source review required"
+    return sorted(labels, key=lambda label: CONFIDENCE_WEIGHT.get(label, 0), reverse=True)[0]
+
+
+def _freshness_label(routes: List[Dict[str, Any]]) -> str:
+    statuses = {route.get("freshness_status") for route in routes}
+    if "active" in statuses:
+        return "active route available"
+    if "review_due" in statuses:
+        return "source review due"
+    if "active_unverified" in statuses:
+        return "active source review needed"
+    if routes:
+        return "review route before use"
+    return "no route record yet"
+
+
+def _country_comparison_rows(countries: List[Dict[str, Any]], routes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows = []
+    for country in countries:
+        country_code = country.get("country_code")
+        country_routes = [route for route in routes if route.get("country_code") == country_code]
+        categories = sorted({route.get("route_category") for route in country_routes if route.get("route_category")})
+        verified_dates = sorted(
+            [route.get("verified_at") for route in country_routes if route.get("verified_at")],
+            reverse=True,
+        )
+        rows.append({
+            **country,
+            "routes": country_routes,
+            "route_count": len(country_routes),
+            "route_categories": categories,
+            "risk_label": _highest_risk(country_routes),
+            "source_confidence_label": _highest_confidence(country_routes),
+            "freshness_label": _freshness_label(country_routes),
+            "active_route_count": sum(1 for route in country_routes if route.get("freshness_status") == "active"),
+            "review_due_route_count": sum(1 for route in country_routes if route.get("freshness_status") == "review_due"),
+            "last_verified_at": verified_dates[0] if verified_dates else None,
+        })
+    return rows
+
+
 @bp.get("/countries")
 def countries():
     rows = _select("relocation_countries", "id,country_code,country_name,region,currency_code,official_language_codes,summary,is_active")
@@ -130,35 +211,37 @@ def routes():
     country_code = (request.args.get("country_code") or "").strip().upper()
     category = (request.args.get("category") or "").strip()
 
-    try:
-        query = (
-            get_supabase()
-            .table("relocation_visa_routes")
-            .select(
-                "id,route_code,route_name,route_category,is_public,country_id,active_version_id,"
-                "relocation_countries(country_code,country_name)"
-            )
-            .eq("is_public", True)
-        )
-        if category:
-            query = query.eq("route_category", category)
-        response = query.execute()
-        raw_rows = response.data or []
-        rows = []
-        for row in raw_rows:
-            row["relocation_route_versions"] = _route_versions(
-                row.get("id"),
-                "id,status,risk_level,route_summary,source_confidence,verified_at,review_due_at,created_at",
-            )
-            rows.append(_route_summary_row(row))
-        if country_code:
-            rows = [row for row in rows if row.get("country_code") == country_code]
-    except Exception:
-        rows = None
-
+    rows = _route_summary_rows(country_code, category)
     if rows is None:
         rows = _fallback_routes()
     return jsonify({"ok": True, "routes": rows})
+
+
+@bp.get("/country-comparison")
+def country_comparison():
+    country_code = (request.args.get("country_code") or "").strip().upper()
+    category = (request.args.get("category") or "").strip()
+
+    countries = _select("relocation_countries", "id,country_code,country_name,region,currency_code,official_language_codes,summary,is_active")
+    routes = _route_summary_rows(category=category)
+    source_status = "database_backed"
+
+    if countries is None or routes is None:
+        countries = _fallback_countries()
+        routes = _fallback_routes()
+        source_status = "starter_fallback"
+    else:
+        countries = [country for country in countries if country.get("is_active", True)]
+
+    if country_code:
+        countries = [country for country in countries if country.get("country_code") == country_code]
+        routes = [route for route in routes if route.get("country_code") == country_code]
+
+    return jsonify({
+        "ok": True,
+        "source_status": source_status,
+        "countries": _country_comparison_rows(countries, routes),
+    })
 
 
 @bp.get("/routes/by-code/<country_code>/<route_code>")
