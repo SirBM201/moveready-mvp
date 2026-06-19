@@ -30,6 +30,136 @@ def _fallback_routes() -> List[Dict[str, Any]]:
     ]
 
 
+def _fallback_route_detail(country_code: str, route_code: str) -> Optional[Dict[str, Any]]:
+    country_code = country_code.upper()
+    key = (country_code, route_code)
+
+    route_map: Dict[tuple[str, str], Dict[str, Any]] = {
+        ("EE", "startup-founder"): {
+            "route_name": "Estonia startup founder pathway",
+            "route_category": "startup",
+            "country_name": "Estonia",
+            "summary": "For non-EU founders building a technology-based, innovative, scalable startup with MVP or traction. Startup Committee approval and a unique application code are central before visa or residence permit next steps.",
+            "budget_range": "EUR 1,430 - 5,900",
+            "facts": [
+                ("startup_definition", "Startup definition", "Technology-based, innovative, scalable business with MVP/traction and global growth potential."),
+                ("startup_committee", "Startup Committee approval", "Founder should obtain Startup Committee verification/application code before visa or residence next steps."),
+                ("committee_timeline", "Committee timeline", "Startup Committee review is commonly described as a working-day review process; users should verify current timing before relying on it."),
+                ("d_visa_duration", "D visa duration", "Long-stay D visa may support temporary stay while residence-permit steps are being handled."),
+                ("financial_means", "Financial means", "Prepare evidence of funds, income, company backing, sponsor support, or other official financial means required by the route."),
+            ],
+            "documents": [
+                ("Passport", "required", "Valid passport with enough validity and blank pages for application and travel."),
+                ("Startup Committee evidence", "required", "Startup Committee confirmation, application code, or equivalent route evidence."),
+                ("Business evidence", "required", "Pitch deck, MVP/traction evidence, founder role, company documents, and market plan."),
+                ("Proof of financial means", "required", "Bank statements, income evidence, sponsor support, or company funding evidence."),
+                ("Insurance evidence", "conditional", "Travel or health insurance may be required depending on application stage."),
+            ],
+            "budget_items": [
+                ("Startup preparation", "document", 250, 1500, "EUR", "Pitch deck, business evidence, translation, and document preparation."),
+                ("Visa and residence fees", "visa_fee", 100, 600, "EUR", "Official fees vary by application stage and applicant profile."),
+                ("Insurance", "insurance", 80, 500, "EUR", "Insurance cost depends on period and coverage."),
+                ("Arrival reserve", "accommodation", 1000, 3300, "EUR", "Initial accommodation and first-arrival buffer."),
+            ],
+        },
+        ("FI", "d-visa"): {
+            "route_name": "Finland D visa / fast-track pathway",
+            "route_category": "work",
+            "country_name": "Finland",
+            "summary": "For eligible applicants using Finland residence-permit routes where a D visa can support faster travel after a positive residence-permit decision or in connection with eligible fast-track routes.",
+            "budget_range": "EUR 1,250 - 5,700",
+            "facts": [
+                ("d_visa_scope", "D visa scope", "D visa is connected to eligible Finnish residence-permit processes and should be checked against the applicant's actual permit category."),
+                ("fast_track", "Fast-track route", "Some specialist, startup, manager, and family-related categories may use faster residence processing where eligibility is met."),
+                ("residence_permit_first", "Residence permit context", "The D visa should not be treated as a standalone relocation route separate from the residence-permit basis."),
+                ("family_context", "Family context", "Family members may require separate evidence and route-specific checks."),
+                ("document_handling", "Document handling", "Foreign documents may require legalization, apostille, and translation depending on issuing and receiving authorities."),
+            ],
+            "documents": [
+                ("Passport", "required", "Valid passport and identity evidence for each applicant."),
+                ("Residence permit evidence", "required", "Residence-permit application, positive decision, or official route evidence depending on stage."),
+                ("Purpose evidence", "required", "Employment, startup, study, family, or other qualifying residence-permit basis."),
+                ("Family evidence", "conditional", "Marriage, birth, custody, or dependency evidence where family members are included."),
+                ("Insurance or health coverage evidence", "conditional", "Coverage requirements depend on applicant category and stage."),
+            ],
+            "budget_items": [
+                ("Residence and visa fees", "visa_fee", 120, 800, "EUR", "Official application fees vary by permit type and processing channel."),
+                ("Document preparation", "document", 100, 700, "EUR", "Translation, legalization, apostille, and certified copy costs."),
+                ("Insurance", "insurance", 100, 700, "EUR", "Insurance or health coverage preparation."),
+                ("Initial arrival costs", "accommodation", 900, 3500, "EUR", "Travel, first accommodation, registration, and local setup buffer."),
+            ],
+        },
+        ("PT", "entrepreneur-independent-work"): {
+            "route_name": "Portugal entrepreneur and independent work pathway",
+            "route_category": "business",
+            "country_name": "Portugal",
+            "summary": "For applicants preparing Portugal residency visa evidence for independent professional activity, entrepreneurial activity, or related business-purpose routes. Users should distinguish this from Startup Visa where relevant.",
+            "budget_range": "EUR 1,600 - 6,100",
+            "facts": [
+                ("residency_visa", "Residency visa context", "Portugal national visa guidance includes residency visa documentation for applicants seeking longer residence routes."),
+                ("independent_activity", "Independent professional activity", "Applicants may need evidence of contracts, service activity, qualifications, registration, or professional income depending on route."),
+                ("entrepreneur_evidence", "Entrepreneur evidence", "Business plan, company documents, investment/funds, purpose, and economic activity evidence should be prepared."),
+                ("startup_distinction", "Startup Visa distinction", "Startup Visa is a distinct entrepreneurship route and should not be mixed with general independent-work evidence without review."),
+                ("residence_step", "Residence permit step", "A visa may be followed by residence-permit steps after arrival, depending on the approved pathway."),
+                ("document_legalization", "Document legalization", "Foreign documents may need legalization/apostille and translation before being accepted."),
+            ],
+            "documents": [
+                ("Passport", "required", "Valid passport and identity evidence."),
+                ("Purpose evidence", "required", "Independent activity contracts, business plan, company documents, client evidence, or professional qualification evidence."),
+                ("Proof of financial means", "required", "Bank statements, business income, sponsor support, savings, or other official funds evidence."),
+                ("Accommodation evidence", "conditional", "Accommodation evidence may be requested depending on application stage and consular process."),
+                ("Criminal record / civil documents", "conditional", "Civil or background documents may need legalization/apostille and translation."),
+                ("Insurance evidence", "conditional", "Travel or health insurance may be required depending on the application stage."),
+            ],
+            "budget_items": [
+                ("Visa and application fees", "visa_fee", 90, 450, "EUR", "Official fees vary by consulate, route, and service channel."),
+                ("Document preparation", "document", 150, 900, "EUR", "Translation, apostille/legalization, notary, and certified copies."),
+                ("Business evidence preparation", "business", 250, 1200, "EUR", "Business plan, contracts, company records, and professional evidence."),
+                ("Insurance", "insurance", 80, 550, "EUR", "Travel or health insurance preparation."),
+                ("Initial arrival costs", "accommodation", 1000, 3000, "EUR", "Travel, first accommodation, and arrival setup buffer."),
+            ],
+        },
+    }
+
+    route = route_map.get(key)
+    if not route:
+        return None
+
+    return {
+        "id": None,
+        "route_code": route_code,
+        "route_name": route["route_name"],
+        "route_category": route["route_category"],
+        "is_public": True,
+        "country_id": None,
+        "country_code": country_code,
+        "country_name": route["country_name"],
+        "active_version_id": None,
+        "risk_level": "medium",
+        "source_confidence": "high",
+        "verified_at": None,
+        "review_due_at": None,
+        "freshness_status": "available_starter",
+        "summary": route["summary"],
+        "raw": {"source": "backend_fallback", "budget_range": route["budget_range"]},
+        "facts": [
+            {"fact_key": key, "fact_label": label, "fact_value": value, "fact_payload": {}, "display_order": index * 10}
+            for index, (key, label, value) in enumerate(route["facts"], start=1)
+        ],
+        "documents": [
+            {"document_name": name, "requirement_level": level, "applies_to": "applicant", "details": details, "display_order": index * 10}
+            for index, (name, level, details) in enumerate(route["documents"], start=1)
+        ],
+        "budget_items": [
+            {"item_name": name, "item_category": category, "amount_min": amount_min, "amount_max": amount_max, "currency_code": currency, "is_required": True, "notes": notes}
+            for name, category, amount_min, amount_max, currency, notes in route["budget_items"]
+        ],
+        "insurance_requirements": [
+            {"insurance_type": "Travel or health insurance", "is_required": True, "minimum_coverage_amount": None, "currency_code": "EUR", "details": "Confirm coverage, dates, destination, and minimum amount from the official route or consular instructions before purchase."}
+        ],
+    }
+
+
 def _select(table: str, columns: str = "*", *, limit: Optional[int] = None):
     try:
         query = get_supabase().table(table).select(columns)
@@ -246,6 +376,8 @@ def country_comparison():
 
 @bp.get("/routes/by-code/<country_code>/<route_code>")
 def route_detail_by_code(country_code: str, route_code: str):
+    fallback = _fallback_route_detail(country_code, route_code)
+
     try:
         country_response = (
             get_supabase()
@@ -257,6 +389,8 @@ def route_detail_by_code(country_code: str, route_code: str):
         )
         country = _first_row(country_response)
         if not country:
+            if fallback:
+                return jsonify({"ok": True, "route": fallback})
             return jsonify({"ok": False, "error": "country_not_found"}), 404
 
         route_response = (
@@ -271,10 +405,14 @@ def route_detail_by_code(country_code: str, route_code: str):
         )
         route = _first_row(route_response)
         if not route:
+            if fallback:
+                return jsonify({"ok": True, "route": fallback})
             return jsonify({"ok": False, "error": "route_not_found"}), 404
 
         return route_detail(route.get("id"))
     except Exception as exc:
+        if fallback:
+            return jsonify({"ok": True, "route": fallback, "fallback_reason": str(exc)})
         return jsonify({"ok": False, "error": "route_lookup_unavailable", "details": str(exc)}), 503
 
 
