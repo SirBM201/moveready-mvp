@@ -41,6 +41,10 @@ def create_app() -> Flask:
     origins, supports_credentials = _parse_origins(CORS_ORIGINS)
     CORS(app, resources={r"/*": {"origins": origins}}, supports_credentials=supports_credentials)
 
+    from app.services.account_session_context import attach_verified_session_email_to_json
+
+    app.before_request(attach_verified_session_email_to_json)
+
     from app.routes import account, account_auth, admin, health, opportunities, partners, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_routes, timeline, watchlist
 
     app.register_blueprint(health.bp)
