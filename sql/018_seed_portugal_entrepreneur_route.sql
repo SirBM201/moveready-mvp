@@ -142,5 +142,6 @@ begin
   delete from public.relocation_insurance_requirements where route_version_id = v_version_id;
   insert into public.relocation_insurance_requirements (route_version_id, country_id, insurance_type, is_required, minimum_coverage_amount, currency_code, details)
   values
-    (v_version_id, v_country_id, 'Travel or health', true, null, 'EUR', 'Insurance requirements depend on visa type, consular post, travel date, and residence permit step. Verify before purchase.');
+    (v_version_id, v_country_id, 'travel', true, null, 'EUR', 'Travel insurance may be required depending on visa type, consular post, travel date, and arrival window. Verify before purchase.'),
+    (v_version_id, v_country_id, 'health', true, null, 'EUR', 'Health insurance may be required depending on visa type, consular post, residence permit step, and coverage rules. Verify before purchase.');
 end $$;
