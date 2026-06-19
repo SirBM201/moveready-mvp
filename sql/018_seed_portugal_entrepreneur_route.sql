@@ -121,14 +121,14 @@ begin
   delete from public.relocation_document_requirements where route_version_id = v_version_id;
   insert into public.relocation_document_requirements (route_version_id, document_name, requirement_level, applies_to, details, display_order)
   values
-    (v_version_id, 'Passport', 'required', 'applicant', 'Confirm validity, blank-page rules, consular post instructions, and whether passport submission is required.', 10),
-    (v_version_id, 'National visa application form', 'required', 'applicant', 'Complete the current Portugal national visa form or e-Visa flow used by the responsible consular post.', 20),
-    (v_version_id, 'Entrepreneur or independent work evidence', 'required', 'applicant', 'Prepare service contract, written service proposal, investment evidence, company documents, or Startup Visa evidence depending on selected route.', 30),
-    (v_version_id, 'Proof of financial means', 'required', 'applicant', 'Prepare bank statements, funds source explanation, sponsor evidence, or Portuguese financial means evidence as required.', 40),
-    (v_version_id, 'Criminal record certificate', 'required', 'applicant', 'Check apostille, legalization, translation, and recency rules for the country where the record was issued.', 50),
-    (v_version_id, 'Accommodation or address evidence', 'conditional', 'applicant', 'Prepare lease, invitation, booking, or address evidence according to the consular post instructions.', 60),
-    (v_version_id, 'Travel or health insurance', 'conditional', 'applicant', 'Check insurance coverage, dates, territory, and refundability before purchase.', 70),
-    (v_version_id, 'Family evidence', 'conditional', 'applicant', 'Spouse or child planning requires route-specific civil documents, translations, legalization, and extra funds review.', 80);
+    (v_version_id, 'Passport', 'required', 'main_applicant', 'Confirm validity, blank-page rules, consular post instructions, and whether passport submission is required.', 10),
+    (v_version_id, 'National visa application form', 'required', 'main_applicant', 'Complete the current Portugal national visa form or e-Visa flow used by the responsible consular post.', 20),
+    (v_version_id, 'Entrepreneur or independent work evidence', 'required', 'main_applicant', 'Prepare service contract, written service proposal, investment evidence, company documents, or Startup Visa evidence depending on selected route.', 30),
+    (v_version_id, 'Proof of financial means', 'required', 'main_applicant', 'Prepare bank statements, funds source explanation, sponsor evidence, or Portuguese financial means evidence as required.', 40),
+    (v_version_id, 'Criminal record certificate', 'required', 'main_applicant', 'Check apostille, legalization, translation, and recency rules for the country where the record was issued.', 50),
+    (v_version_id, 'Accommodation or address evidence', 'conditional', 'main_applicant', 'Prepare lease, invitation, booking, or address evidence according to the consular post instructions.', 60),
+    (v_version_id, 'Travel or health insurance', 'conditional', 'main_applicant', 'Check insurance coverage, dates, territory, and refundability before purchase.', 70),
+    (v_version_id, 'Family evidence', 'conditional', 'family_member', 'Spouse or child planning requires route-specific civil documents, translations, legalization, and extra funds review.', 80);
 
   delete from public.relocation_budget_items where route_version_id = v_version_id;
   insert into public.relocation_budget_items (route_version_id, country_id, item_name, item_category, amount_min, amount_max, currency_code, is_required, notes)
