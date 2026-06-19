@@ -53,6 +53,10 @@ See `docs/BATCH_2A_PLATFORM_ARCHITECTURE.md`.
 
 See `docs/API_ROUTES.md` and `docs/ADMIN_GENERATED_REPORTS.md`.
 
+## Account and Login Design
+
+See `docs/ACCOUNT_LOGIN_DESIGN.md` for the phased identity plan: contact-based MVP lookup, email OTP login, and paid account features.
+
 ## Supabase Setup
 
 Run these in order when ready:
