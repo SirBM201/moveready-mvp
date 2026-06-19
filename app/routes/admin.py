@@ -25,6 +25,8 @@ REVIEW_TASK_TYPES = {"source_review", "route_review", "scholarship_review", "ins
 REVIEW_TASK_STATUSES = {"open", "in_progress", "approved", "rejected", "dismissed"}
 REVIEW_TASK_PRIORITIES = {"low", "medium", "high", "urgent"}
 FINAL_REVIEW_TASK_STATUSES = {"approved", "rejected", "dismissed"}
+OPPORTUNITY_STATUSES = {"open", "closed", "monitoring", "results_open", "paused", "unknown"}
+OPPORTUNITY_TYPES = {"lottery", "ballot", "invitation_pool", "annual_quota", "country_cap", "first_come_quota", "seasonal_intake"}
 
 
 def _now_iso() -> str:
@@ -33,6 +35,13 @@ def _now_iso() -> str:
 
 def _review_due_iso(days: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+
+
+def _bounded_int(value, default: int, min_value: int, max_value: int) -> int:
+    try:
+        return max(min_value, min(int(value), max_value))
+    except (TypeError, ValueError):
+        return default
 
 
 @bp.get("/status")
@@ -209,6 +218,103 @@ def update_trusted_source(source_id: str):
         return jsonify({"ok": True, "trusted_source": updated})
     except Exception as exc:
         return jsonify({"ok": False, "error": "trusted_source_update_failed", "details": str(exc)}), 500
+
+
+@bp.get("/opportunities")
+@require_admin_access
+def admin_opportunities():
+    status = (request.args.get("status") or "").strip()
+    opportunity_type = (request.args.get("opportunity_type") or "").strip()
+    country_code = (request.args.get("country_code") or "").strip().upper()
+    review_due = (request.args.get("review_due") or "").strip().lower() in {"1", "true", "yes"}
+    search = (request.args.get("q") or "").strip()
+    limit = min(max(int(request.args.get("limit") or 75), 1), 100)
+
+    try:
+        query = (
+            get_supabase()
+            .table("relocation_opportunities")
+            .select("*")
+            .order("next_review_due_at", desc=False)
+            .order("country_name", desc=False)
+            .limit(limit)
+        )
+        if status:
+            query = query.eq("availability_status", status)
+        if opportunity_type:
+            query = query.eq("opportunity_type", opportunity_type)
+        if country_code:
+            query = query.eq("country_code", country_code)
+        if review_due:
+            query = query.lte("next_review_due_at", _now_iso())
+        if search:
+            query = query.or_(f"opportunity_code.ilike.%{search}%,country_name.ilike.%{search}%,opportunity_name.ilike.%{search}%,summary.ilike.%{search}%")
+        response = query.execute()
+        return jsonify({"ok": True, "opportunities": response.data or []})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "admin_opportunities_unavailable", "details": str(exc)}), 503
+
+
+@bp.patch("/opportunities/<opportunity_id>")
+@require_admin_access
+def update_admin_opportunity(opportunity_id: str):
+    payload = request.get_json(silent=True) or {}
+    update_fields = {}
+
+    status = (payload.get("availability_status") or payload.get("status") or "").strip()
+    opportunity_type = (payload.get("opportunity_type") or "").strip()
+    source_confidence = (payload.get("source_confidence") or "").strip()
+    review_frequency_days = _bounded_int(payload.get("review_frequency_days"), 30, 1, 365)
+
+    if status:
+        if status not in OPPORTUNITY_STATUSES:
+            return jsonify({"ok": False, "error": "invalid_status", "allowed_statuses": sorted(OPPORTUNITY_STATUSES)}), 400
+        update_fields["availability_status"] = status
+    if opportunity_type:
+        if opportunity_type not in OPPORTUNITY_TYPES:
+            return jsonify({"ok": False, "error": "invalid_opportunity_type", "allowed_opportunity_types": sorted(OPPORTUNITY_TYPES)}), 400
+        update_fields["opportunity_type"] = opportunity_type
+    if source_confidence:
+        if source_confidence not in SOURCE_RELIABILITY_LEVELS:
+            return jsonify({"ok": False, "error": "invalid_source_confidence", "allowed_source_confidence": sorted(SOURCE_RELIABILITY_LEVELS)}), 400
+        update_fields["source_confidence"] = source_confidence
+
+    for text_field in (
+        "official_url",
+        "result_check_url",
+        "summary",
+        "eligibility_summary",
+        "application_window_summary",
+        "safety_notes",
+    ):
+        if text_field in payload:
+            value = str(payload.get(text_field) or "").strip()
+            update_fields[text_field] = value or None
+
+    if "is_public" in payload:
+        update_fields["is_public"] = bool(payload.get("is_public"))
+
+    if payload.get("mark_checked"):
+        update_fields["last_verified_at"] = _now_iso()
+        update_fields["next_review_due_at"] = _review_due_iso(review_frequency_days)
+
+    if not update_fields:
+        return jsonify({"ok": False, "error": "no_update_fields"}), 400
+
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_opportunities")
+            .update(update_fields)
+            .eq("id", opportunity_id)
+            .execute()
+        )
+        updated = (response.data or [None])[0]
+        if not updated:
+            return jsonify({"ok": False, "error": "opportunity_not_found"}), 404
+        return jsonify({"ok": True, "opportunity": updated})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "opportunity_update_failed", "details": str(exc)}), 500
 
 
 @bp.get("/service-requests")
@@ -646,10 +752,7 @@ def create_trusted_source():
     if status not in SOURCE_STATUSES:
         return jsonify({"ok": False, "error": "invalid_status", "allowed_statuses": sorted(SOURCE_STATUSES)}), 400
 
-    try:
-        review_frequency_days = max(1, min(int(payload.get("review_frequency_days") or 30), 365))
-    except (TypeError, ValueError):
-        review_frequency_days = 30
+    review_frequency_days = _bounded_int(payload.get("review_frequency_days"), 30, 1, 365)
 
     row = {
         "source_name": payload["source_name"].strip(),
