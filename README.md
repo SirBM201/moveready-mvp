@@ -22,6 +22,7 @@ Implemented foundation:
 - Official opportunities endpoint for lotteries, ballots, invitation pools, caps, and quotas
 - Watchlist subscription endpoint for routes, opportunities, scholarships, countries, and services
 - User relocation profile endpoint with readiness snapshot storage
+- Account email OTP and session-token foundation
 - Saved report lookup endpoint by report reference, email, or phone
 - Live readiness tools for name consistency, documents, funds, and refusal risk
 - Optional readiness check persistence
@@ -57,6 +58,16 @@ See `docs/API_ROUTES.md` and `docs/ADMIN_GENERATED_REPORTS.md`.
 
 See `docs/ACCOUNT_LOGIN_DESIGN.md` for the phased identity plan: contact-based MVP lookup, email OTP login, and paid account features.
 
+Auth endpoints now include:
+
+- `GET /api/auth/health`
+- `POST /api/auth/request-code`
+- `POST /api/auth/verify-code`
+- `GET /api/auth/me`
+- `POST /api/auth/logout`
+
+Email delivery is disabled until an approved provider is configured. Codes and session tokens are stored as hashes.
+
 ## Supabase Setup
 
 Run these in order when ready:
@@ -69,6 +80,7 @@ Run these in order when ready:
 6. `supabase/migrations/006_readiness_check_runs.sql`
 7. `supabase/migrations/007_watchlist_alert_subscriptions.sql`
 8. `supabase/migrations/008_user_relocation_profiles.sql`
+9. `supabase/migrations/019_account_login_otp.sql`
 
 See `supabase/README.md`.
 
@@ -85,7 +97,8 @@ See `supabase/README.md`.
 
 ## Next Backend Work
 
-- Add auth/session flow
+- Connect authenticated sessions to account-owned records
+- Add approved email provider delivery for OTP codes
 - Add route fact admin CRUD
 - Add source snapshot capture/review flow
 - Add report sections persistence
