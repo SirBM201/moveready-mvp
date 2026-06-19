@@ -50,6 +50,12 @@ Adds `relocation_watchlist_subscriptions` so users can opt in to route, opportun
 
 Adds `relocation_user_profiles` so the public dashboard can save a user's relocation profile, target country, route category, timeline, family size, funds, contact preference, previous-refusal flag, notes, and computed readiness snapshot. Admin can review profile records and update follow-up status.
 
+## 19. Account email OTP login
+
+`supabase/migrations/019_account_login_otp.sql`
+
+Adds `relocation_auth_login_codes` and `relocation_user_sessions` for backend-managed email OTP login. Codes and session tokens are stored as hashes. Email delivery remains disabled until an approved provider is configured.
+
 ## Important
 
 The seed data is for MVP testing only. It does not contain final legal or immigration guidance. Detailed route facts should be reviewed and approved from official sources before production use.
