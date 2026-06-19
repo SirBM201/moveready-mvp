@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Optional
 
 from flask import request
 
@@ -20,7 +20,7 @@ def _is_account_write_request() -> bool:
     return any(path.startswith(prefix) for prefix in ACCOUNT_WRITE_PREFIXES)
 
 
-def _verified_email() -> str | None:
+def _verified_email() -> Optional[str]:
     try:
         from app.routes import account_auth
 
