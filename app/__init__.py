@@ -45,7 +45,7 @@ def create_app() -> Flask:
 
     app.before_request(attach_verified_session_email_to_json)
 
-    from app.routes import account, account_auth, admin, health, opportunities, partners, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_routes, timeline, watchlist
+    from app.routes import account, account_auth, admin, health, opportunities, partners, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, timeline, watchlist
 
     app.register_blueprint(health.bp)
     app.register_blueprint(relocation_public.bp, url_prefix=f"{API_PREFIX}/relocation")
@@ -55,6 +55,7 @@ def create_app() -> Flask:
     app.register_blueprint(readiness_tools.bp, url_prefix=f"{API_PREFIX}/readiness")
     app.register_blueprint(watchlist.bp, url_prefix=f"{API_PREFIX}/watchlist")
     app.register_blueprint(saved_routes.bp, url_prefix=f"{API_PREFIX}/saved-routes")
+    app.register_blueprint(saved_route_reports.bp, url_prefix=f"{API_PREFIX}/saved-route-reports")
     app.register_blueprint(timeline.bp, url_prefix=f"{API_PREFIX}/timeline")
     app.register_blueprint(partners.bp, url_prefix=f"{API_PREFIX}/partners")
     app.register_blueprint(profiles.bp, url_prefix=f"{API_PREFIX}/profiles")
