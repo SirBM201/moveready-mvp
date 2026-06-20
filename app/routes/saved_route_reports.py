@@ -108,7 +108,7 @@ def _report_input(saved_route: Dict[str, Any], profile: Dict[str, Any], payload:
         "saved_route_title": saved_route.get("saved_title"),
         "saved_route_code": saved_route.get("route_code"),
         "generated_from": "saved_route_report_endpoint",
-        "trust_notice": "advisory_only_no_approval_guarantee",
+        "trust_notice": "planning_guidance_only",
     }
     return {
         "full_name": _pick(payload.get("full_name"), saved_route.get("full_name"), profile.get("full_name"), fallback=""),
@@ -141,6 +141,7 @@ def _minimal_report_row(report: Dict[str, Any], report_input: Dict[str, Any]) ->
         "status": "generated",
         "report_title": report["report_title"],
         "risk_level": report["risk_level"],
+        "email": (str(report_input.get("email") or "").strip().lower() or None),
         "route_version_id": report_input.get("route_version_id"),
         "input_payload": report_input,
         "report_payload": report,
