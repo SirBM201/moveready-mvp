@@ -10,6 +10,7 @@ ACCOUNT_WRITE_PREFIXES = (
     "/api/watchlist/subscriptions",
     "/api/timeline",
     "/api/platform/service-interest",
+    "/api/relocation/reports",
 )
 
 
