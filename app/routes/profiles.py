@@ -114,6 +114,7 @@ def create_profile():
         "residence_country": _clean_text(payload.get("residence_country"), 120),
         "target_country": _clean_text(payload.get("target_country"), 120),
         "target_city": _clean_text(payload.get("target_city"), 120),
+        "goal": main_goal,
         "main_goal": main_goal,
         "route_category": _clean_text(payload.get("route_category"), 80),
         "timeline_months": _clean_int(payload.get("timeline_months")),
