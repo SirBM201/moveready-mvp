@@ -24,6 +24,7 @@ Implemented foundation:
 - User relocation profile endpoint with readiness snapshot storage
 - Account email OTP and session-token foundation
 - Authenticated account summary endpoint
+- Session-token ownership attachment for account-owned writes
 - Saved report lookup endpoint by report reference, email, or phone
 - Live readiness tools for name consistency, documents, funds, and refusal risk
 - Optional readiness check persistence
@@ -87,6 +88,9 @@ Run these in order when ready:
 7. `supabase/migrations/007_watchlist_alert_subscriptions.sql`
 8. `supabase/migrations/008_user_relocation_profiles.sql`
 9. `supabase/migrations/019_account_login_otp.sql`
+10. `supabase/migrations/020_account_workspace_repairs.sql`
+
+Migration 020 keeps legacy `goal` profile schemas compatible with the current `main_goal` payload and creates the account timeline-events table used by Account Center summaries.
 
 See `supabase/README.md`.
 
@@ -103,8 +107,7 @@ See `supabase/README.md`.
 
 ## Next Backend Work
 
-- Connect authenticated sessions to account-owned record writes
-- Add approved email provider delivery for OTP codes
+- Configure approved email provider delivery for OTP codes
 - Add route fact admin CRUD
 - Add source snapshot capture/review flow
 - Add report sections persistence
