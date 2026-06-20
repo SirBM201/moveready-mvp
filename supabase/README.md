@@ -56,6 +56,12 @@ Adds `relocation_user_profiles` so the public dashboard can save a user's reloca
 
 Adds `relocation_auth_login_codes` and `relocation_user_sessions` for backend-managed email OTP login. Codes and session tokens are stored as hashes. Email delivery remains disabled until an approved provider is configured.
 
+## 20. Account workspace repairs
+
+`supabase/migrations/020_account_workspace_repairs.sql`
+
+Keeps old profile schemas compatible with the current app by making the legacy `goal` column optional/defaulted and aligned with `main_goal`. Also creates `relocation_timeline_events`, which powers Account Center summary and Timeline records.
+
 ## Important
 
 The seed data is for MVP testing only. It does not contain final legal or immigration guidance. Detailed route facts should be reviewed and approved from official sources before production use.
