@@ -26,9 +26,10 @@ Implemented foundation:
 - Authenticated account summary endpoint
 - Session-token ownership attachment for account-owned writes
 - Saved report lookup endpoint by report reference, email, or phone
+- Deterministic readiness report generator with score, risk flags, route-fit questions, document gaps, funds pressure, and action plan
+- Report account ownership fields and report-section persistence
 - Live readiness tools for name consistency, documents, funds, and refusal risk
 - Optional readiness check persistence
-- Starter readiness report generator
 - Supabase schema and seed SQL
 - Service availability endpoints and feature flags
 - Service interest/request capture endpoint
@@ -89,8 +90,11 @@ Run these in order when ready:
 8. `supabase/migrations/008_user_relocation_profiles.sql`
 9. `supabase/migrations/019_account_login_otp.sql`
 10. `supabase/migrations/020_account_workspace_repairs.sql`
+11. `supabase/migrations/022_report_account_fields_and_sections.sql`
 
 Migration 020 keeps legacy `goal` profile schemas compatible with the current `main_goal` payload and creates the account timeline-events table used by Account Center summaries.
+
+Migration 022 adds direct generated-report account fields and syncs report sections from `report_payload.sections` into `relocation_report_sections`.
 
 See `supabase/README.md`.
 
@@ -110,6 +114,5 @@ See `supabase/README.md`.
 - Configure approved email provider delivery for OTP codes
 - Add route fact admin CRUD
 - Add source snapshot capture/review flow
-- Add report sections persistence
 - Add PDF report export
 - Add payment/report purchase flow later
