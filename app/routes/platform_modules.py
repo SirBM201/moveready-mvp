@@ -153,6 +153,11 @@ def _clean_text(value: Any, limit: int = 500) -> Optional[str]:
     return cleaned[:limit]
 
 
+def _payload_metadata(payload: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = payload.get("metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
 def _public_module(module: Dict[str, Any]) -> Dict[str, Any]:
     flag = module.get("flag")
     enabled = _flag_value(flag)
@@ -255,6 +260,12 @@ def create_service_interest():
         return jsonify({"ok": False, "error": "contact_consent_required"}), 400
 
     module = next((item for item in PLATFORM_MODULES if item["slug"] == service_slug), None)
+    metadata = {
+        **_payload_metadata(payload),
+        "user_agent": request.headers.get("User-Agent"),
+        "remote_addr": request.headers.get("X-Forwarded-For") or request.remote_addr,
+        "module_availability": (module or {}).get("availability"),
+    }
     row = {
         "service_slug": service_slug,
         "service_title": _clean_text(payload.get("service_title"), 180) or (module or {}).get("title"),
@@ -268,11 +279,7 @@ def create_service_interest():
         "message": _clean_text(payload.get("message"), 1200),
         "consent_to_contact": consent_to_contact,
         "source_page": _clean_text(payload.get("source_page"), 240),
-        "metadata": {
-            "user_agent": request.headers.get("User-Agent"),
-            "remote_addr": request.headers.get("X-Forwarded-For") or request.remote_addr,
-            "module_availability": (module or {}).get("availability"),
-        },
+        "metadata": metadata,
     }
 
     try:
