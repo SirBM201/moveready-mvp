@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from flask import Blueprint, jsonify, request
 
@@ -10,7 +11,6 @@ from app.utils.admin_auth import require_admin_access
 
 bp = Blueprint("admin_review_queue", __name__)
 
-ACTIVE_USER_REVIEW = {"new", "reviewing", "generated", "active", "pending", "in_progress", "screening"}
 HIGH_PRIORITIES = {"high", "critical", "urgent"}
 HIGH_RISKS = {"high", "medium"}
 
@@ -88,6 +88,41 @@ def _safe_select(table: str, *, limit: int, order_by: str = "created_at", desc: 
         return {"ok": False, "rows": [], "error": str(exc)}
 
 
+def _summary(row: Dict[str, Any], payload: Dict[str, Any]) -> Optional[str]:
+    for field in ("notes", "message", "summary", "description", "internal_notes"):
+        value = _safe_text(row.get(field))
+        if value:
+            return value[:600]
+    sections = payload.get("sections") if isinstance(payload.get("sections"), list) else []
+    if sections:
+        first = sections[0] if isinstance(sections[0], dict) else {}
+        value = _safe_text(first.get("section_content") or first.get("body"))
+        if value:
+            return value[:600]
+    return None
+
+
+def _detail_href(kind: str, row: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    if kind == "generated_report":
+        ref = _safe_text(row.get("report_ref") or payload.get("report_ref"))
+        return f"/report-detail?ref={quote(ref)}" if ref else "/my-reports"
+    if kind == "service_request":
+        return "/service-requests"
+    if kind == "saved_route":
+        return "/saved-routes"
+    if kind == "watchlist":
+        return "/watchlist"
+    if kind == "timeline_event":
+        return "/timeline"
+    if kind == "user_profile":
+        return "/dashboard#profile-dashboard"
+    if kind == "partner_application":
+        return "/admin#partner-applications"
+    if kind == "review_task":
+        return "/admin#review-queue"
+    return "/admin"
+
+
 def _compact(kind: str, row: Dict[str, Any]) -> Dict[str, Any]:
     payload = row.get("report_payload") if isinstance(row.get("report_payload"), dict) else {}
     input_payload = row.get("input_payload") if isinstance(row.get("input_payload"), dict) else {}
@@ -112,6 +147,7 @@ def _compact(kind: str, row: Dict[str, Any]) -> Dict[str, Any]:
     phone = row.get("phone") or input_payload.get("phone")
     target_country = row.get("target_country") or input_payload.get("target_country") or input_payload.get("targetCountry")
     route_category = row.get("route_category") or row.get("main_goal") or input_payload.get("route_category") or input_payload.get("main_goal")
+    report_ref = row.get("report_ref") or payload.get("report_ref")
 
     return {
         "kind": kind,
@@ -120,15 +156,19 @@ def _compact(kind: str, row: Dict[str, Any]) -> Dict[str, Any]:
         "status": row.get("status") or row.get("availability_status") or "unknown",
         "priority": row.get("priority") or row.get("risk_level") or payload.get("risk_level") or "medium",
         "risk_level": row.get("risk_level") or payload.get("risk_level"),
+        "report_ref": report_ref,
         "full_name": full_name,
         "email": email,
         "phone": phone,
         "target_country": target_country,
         "route_category": route_category,
+        "country_code": row.get("country_code") or input_payload.get("country_code"),
+        "source_page": row.get("source_page") or input_payload.get("source_page"),
         "created_at": _created_at(row),
         "age_hours": _age_hours(row),
         "score": _priority_score(kind, row),
-        "summary": row.get("notes") or row.get("message") or row.get("summary") or payload.get("sections", [{}])[0].get("section_content") if isinstance(payload.get("sections"), list) and payload.get("sections") else row.get("notes") or row.get("message") or row.get("summary"),
+        "summary": _summary(row, payload),
+        "detail_href": _detail_href(kind, row, payload),
         "record": row,
     }
 
