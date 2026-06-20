@@ -62,6 +62,12 @@ Adds `relocation_auth_login_codes` and `relocation_user_sessions` for backend-ma
 
 Keeps old profile schemas compatible with the current app by making the legacy `goal` column optional/defaulted and aligned with `main_goal`. Also creates `relocation_timeline_events`, which powers Account Center summary and Timeline records.
 
+## 22. Generated report account fields and sections
+
+`supabase/migrations/022_report_account_fields_and_sections.sql`
+
+Adds direct report ownership fields (`email`, `phone`), readiness summary fields, report lookup indexes, and trigger-based sync from `report_payload.sections` into `relocation_report_sections`.
+
 ## Important
 
 The seed data is for MVP testing only. It does not contain final legal or immigration guidance. Detailed route facts should be reviewed and approved from official sources before production use.
