@@ -160,6 +160,25 @@ def _report_row(report: Dict[str, Any], report_input: Dict[str, Any], saved_rout
     }
 
 
+def _ownership_report_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "report_ref": row["report_ref"],
+        "status": row["status"],
+        "report_title": row["report_title"],
+        "risk_level": row["risk_level"],
+        "route_version_id": row.get("route_version_id"),
+        "input_payload": row["input_payload"],
+        "report_payload": row["report_payload"],
+        "email": row.get("email"),
+        "phone": row.get("phone"),
+        "full_name": row.get("full_name"),
+        "readiness_score": row.get("readiness_score"),
+        "readiness_level": row.get("readiness_level"),
+        "source_status": row.get("source_status"),
+        "source_confidence": row.get("source_confidence"),
+    }
+
+
 def _minimal_report_row(row: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "report_ref": row["report_ref"],
@@ -170,6 +189,16 @@ def _minimal_report_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "input_payload": row["input_payload"],
         "report_payload": row["report_payload"],
     }
+
+
+def _insert_report(row: Dict[str, Any]) -> Any:
+    try:
+        return get_supabase().table("relocation_generated_reports").insert(row).execute()
+    except Exception:
+        try:
+            return get_supabase().table("relocation_generated_reports").insert(_ownership_report_row(row)).execute()
+        except Exception:
+            return get_supabase().table("relocation_generated_reports").insert(_minimal_report_row(row)).execute()
 
 
 @bp.post("/<saved_route_id>")
@@ -189,11 +218,7 @@ def create_from_saved_route(saved_route_id: str):
         report_input = _report_input(saved_route, profile, payload)
         report = build_readiness_report(report_input)
         row = _report_row(report, report_input, saved_route)
-
-        try:
-            response = get_supabase().table("relocation_generated_reports").insert(row).execute()
-        except Exception:
-            response = get_supabase().table("relocation_generated_reports").insert(_minimal_report_row(row)).execute()
+        response = _insert_report(row)
 
         stored = (response.data or [None])[0]
         report["stored"] = bool(stored)
