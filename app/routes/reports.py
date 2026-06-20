@@ -30,6 +30,9 @@ def _public_report(row: Dict[str, Any]) -> Dict[str, Any]:
         "route_version_id": row.get("route_version_id"),
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
+        "generated_at": row.get("generated_at"),
+        "email": row.get("email") or input_payload.get("email"),
+        "phone": row.get("phone") or input_payload.get("phone"),
         "goal": input_payload.get("goal") or input_payload.get("main_goal"),
         "route_category": input_payload.get("route_category"),
         "current_country": input_payload.get("current_country"),
@@ -37,16 +40,27 @@ def _public_report(row: Dict[str, Any]) -> Dict[str, Any]:
         "available_funds_amount": input_payload.get("available_funds_amount"),
         "available_funds_currency": input_payload.get("available_funds_currency") or input_payload.get("currency"),
         "family_members_count": input_payload.get("family_members_count"),
+        "readiness_score": row.get("readiness_score") or payload.get("readiness_score"),
+        "readiness_level": row.get("readiness_level") or payload.get("readiness_level"),
+        "source_status": row.get("source_status") or payload.get("source_status"),
+        "source_confidence": row.get("source_confidence") or payload.get("source_confidence"),
         "report_payload": payload,
     }
 
 
 def _contact_matches(row: Dict[str, Any], *, email: Optional[str], phone: Optional[str]) -> bool:
     payload = row.get("input_payload") or {}
-    if email and str(payload.get("email") or "").strip().lower() == email.lower():
-        return True
-    if phone and str(payload.get("phone") or "").strip() == phone:
-        return True
+    if email:
+        lookup_email = email.lower()
+        if str(row.get("email") or "").strip().lower() == lookup_email:
+            return True
+        if str(payload.get("email") or "").strip().lower() == lookup_email:
+            return True
+    if phone:
+        if str(row.get("phone") or "").strip() == phone:
+            return True
+        if str(payload.get("phone") or "").strip() == phone:
+            return True
     return False
 
 
