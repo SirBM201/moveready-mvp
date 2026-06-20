@@ -18,6 +18,7 @@ This applies to:
 - `POST /api/timeline`
 - `PATCH /api/timeline/<id>`
 - `POST /api/platform/service-interest`
+- `POST /api/relocation/reports`
 
 The older contact-based flow remains useful for MVP lookup, but verified sessions should be treated as the safer owner identity.
 
