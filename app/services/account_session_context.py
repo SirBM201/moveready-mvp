@@ -7,6 +7,7 @@ from flask import request
 ACCOUNT_WRITE_PREFIXES = (
     "/api/profiles",
     "/api/saved-routes",
+    "/api/saved-route-reports",
     "/api/watchlist/subscriptions",
     "/api/timeline",
     "/api/platform/service-interest",
