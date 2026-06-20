@@ -45,17 +45,35 @@ def _safe_rows(table: str, email: str, *, status: Optional[str] = None, limit: i
 
 
 def _report_matches_email(row: Dict[str, Any], email: str) -> bool:
+    lookup = email.lower()
     direct_email = str(row.get("email") or "").strip().lower()
-    if direct_email and direct_email == email.lower():
+    if direct_email and direct_email == lookup:
         return True
     payload = row.get("input_payload") or {}
-    return str(payload.get("email") or "").strip().lower() == email.lower()
+    if str(payload.get("email") or "").strip().lower() == lookup:
+        return True
+    report_payload = row.get("report_payload") or {}
+    summary = report_payload.get("input_summary") or {}
+    return str(summary.get("email") or "").strip().lower() == lookup
+
+
+def _dedupe_reports(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen = set()
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        key = row.get("id") or row.get("report_ref")
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
 
 
 def _reports_for_email(email: str, limit: int = 10) -> Dict[str, Any]:
     try:
+        rows: List[Dict[str, Any]] = []
         try:
-            response = (
+            direct_response = (
                 get_supabase()
                 .table("relocation_generated_reports")
                 .select("*")
@@ -64,24 +82,24 @@ def _reports_for_email(email: str, limit: int = 10) -> Dict[str, Any]:
                 .limit(limit)
                 .execute()
             )
-            rows = [_public_report(row) for row in response.data or []]
-            return {"ok": True, "rows": rows, "count": len(rows)}
+            rows.extend(direct_response.data or [])
         except Exception:
-            response = (
-                get_supabase()
-                .table("relocation_generated_reports")
-                .select("*")
-                .order("created_at", desc=True)
-                .limit(100)
-                .execute()
-            )
-            rows = []
-            for row in response.data or []:
-                if _report_matches_email(row, email):
-                    rows.append(_public_report(row))
-                if len(rows) >= limit:
-                    break
-            return {"ok": True, "rows": rows, "count": len(rows)}
+            pass
+
+        scan_response = (
+            get_supabase()
+            .table("relocation_generated_reports")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+        for row in scan_response.data or []:
+            if _report_matches_email(row, email):
+                rows.append(row)
+
+        rows = _dedupe_reports(rows)[:limit]
+        return {"ok": True, "rows": [_public_report(row) for row in rows], "count": len(rows)}
     except Exception as exc:
         return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
 
