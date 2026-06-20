@@ -44,24 +44,44 @@ def _safe_rows(table: str, email: str, *, status: Optional[str] = None, limit: i
         return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
 
 
+def _report_matches_email(row: Dict[str, Any], email: str) -> bool:
+    direct_email = str(row.get("email") or "").strip().lower()
+    if direct_email and direct_email == email.lower():
+        return True
+    payload = row.get("input_payload") or {}
+    return str(payload.get("email") or "").strip().lower() == email.lower()
+
+
 def _reports_for_email(email: str, limit: int = 10) -> Dict[str, Any]:
     try:
-        response = (
-            get_supabase()
-            .table("relocation_generated_reports")
-            .select("*")
-            .order("created_at", desc=True)
-            .limit(100)
-            .execute()
-        )
-        rows = []
-        for row in response.data or []:
-            payload = row.get("input_payload") or {}
-            if str(payload.get("email") or "").strip().lower() == email.lower():
-                rows.append(_public_report(row))
-            if len(rows) >= limit:
-                break
-        return {"ok": True, "rows": rows, "count": len(rows)}
+        try:
+            response = (
+                get_supabase()
+                .table("relocation_generated_reports")
+                .select("*")
+                .eq("email", email)
+                .order("created_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            rows = [_public_report(row) for row in response.data or []]
+            return {"ok": True, "rows": rows, "count": len(rows)}
+        except Exception:
+            response = (
+                get_supabase()
+                .table("relocation_generated_reports")
+                .select("*")
+                .order("created_at", desc=True)
+                .limit(100)
+                .execute()
+            )
+            rows = []
+            for row in response.data or []:
+                if _report_matches_email(row, email):
+                    rows.append(_public_report(row))
+                if len(rows) >= limit:
+                    break
+            return {"ok": True, "rows": rows, "count": len(rows)}
     except Exception as exc:
         return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
 
