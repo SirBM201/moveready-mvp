@@ -44,6 +44,15 @@ def _safe_rows(table: str, email: str, *, status: Optional[str] = None, limit: i
         return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
 
 
+def _profiles_for_email(email: str, limit: int = 5) -> Dict[str, Any]:
+    try:
+        rows = _select_for_email("relocation_user_profiles", email, limit=25)
+        visible_rows = [row for row in rows if str(row.get("status") or "new").lower() != "closed"][:limit]
+        return {"ok": True, "rows": visible_rows, "count": len(visible_rows)}
+    except Exception as exc:
+        return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
+
+
 def _report_matches_email(row: Dict[str, Any], email: str) -> bool:
     lookup = email.lower()
     direct_email = str(row.get("email") or "").strip().lower()
@@ -127,7 +136,7 @@ def account_summary():
     if not email:
         return jsonify({"ok": False, "error": "session_email_missing"}), 401
 
-    profiles = _safe_rows("relocation_user_profiles", email, limit=5)
+    profiles = _profiles_for_email(email, limit=5)
     saved_routes = _safe_rows("relocation_saved_routes", email, status="active", limit=10)
     watchlist = _safe_rows("relocation_watchlist_subscriptions", email, status="active", limit=10)
     timeline = _safe_rows("relocation_timeline_events", email, limit=10)
@@ -155,10 +164,10 @@ def account_summary():
         "latest_profile": latest_profile,
         "sections": sections,
         "next_actions": [
-            "Create or update relocation profile.",
-            "Save at least one serious route or country option.",
+            "Choose the profile you want to use now.",
+            "Run route checker with the active profile.",
             "Generate a readiness report from the route checker.",
+            "Save at least one serious route or country option.",
             "Create opt-in watchlist alerts for deadline or source changes.",
-            "Add timeline events for documents, appointments, and reminders.",
         ],
     })
