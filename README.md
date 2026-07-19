@@ -91,10 +91,13 @@ Run these in order when ready:
 9. `supabase/migrations/019_account_login_otp.sql`
 10. `supabase/migrations/020_account_workspace_repairs.sql`
 11. `supabase/migrations/022_report_account_fields_and_sections.sql`
+12. `sql/026_generated_reports_account_owner.sql`
 
 Migration 020 keeps legacy `goal` profile schemas compatible with the current `main_goal` payload and creates the account timeline-events table used by Account Center summaries.
 
 Migration 022 adds direct generated-report account fields and syncs report sections from `report_payload.sections` into `relocation_report_sections`.
+
+SQL 026 backfills generated-report account ownership fields from stored input/report payloads and adds indexes for account report lookup.
 
 See `supabase/README.md`.
 
