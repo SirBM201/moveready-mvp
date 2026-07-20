@@ -21,6 +21,7 @@ Implemented foundation:
 - Stable route detail by country and route code
 - Official opportunities endpoint for lotteries, ballots, invitation pools, caps, and quotas
 - Watchlist subscription endpoint for routes, opportunities, scholarships, countries, and services
+- Visa Power API for passport-index and existing-visa travel-benefit checks
 - User relocation profile endpoint with readiness snapshot storage
 - Account email OTP and session-token foundation
 - Authenticated account summary endpoint
@@ -37,17 +38,17 @@ Implemented foundation:
 
 ## MVP Mission
 
-Help users compare realistic relocation pathways, understand document and proof-of-funds requirements, estimate costs, and generate source-backed relocation readiness reports.
+Help users compare realistic relocation pathways, understand document and proof-of-funds requirements, estimate costs, check visa/travel benefits they may already have, and generate source-backed relocation readiness reports.
 
 ## Core Principle
 
 AI is not the source of truth.
 
-Approved source records, route versions, and admin-reviewed facts are the source of truth. AI may explain those facts, summarize them, and generate reports, but sensitive answers must be tied to approved source versions and freshness rules.
+Approved source records, route versions, visa-benefit rules, and admin-reviewed facts are the source of truth. AI may explain those facts, summarize them, and generate reports, but sensitive answers must be tied to approved source versions and freshness rules.
 
 ## Platform Direction
 
-MoveReady is designed as a global relocation readiness and opportunity monitoring platform. The service architecture includes official ballots/quota opportunities, watchlists, alerts, document checks, proof-of-funds planning, refusal analysis, legalization, courier, appointments, family planning, settlement, and partner services.
+MoveReady is designed as a global relocation readiness and opportunity monitoring platform. The service architecture includes official ballots/quota opportunities, passport-index and Visa Power checks, watchlists, alerts, document checks, proof-of-funds planning, refusal analysis, legalization, courier, appointments, family planning, settlement, and partner services.
 
 Services that require provider approval, user opt-in, or additional compliance checks return launch-safe availability labels until they are ready.
 
@@ -55,7 +56,12 @@ See `docs/BATCH_2A_PLATFORM_ARCHITECTURE.md`.
 
 ## API Docs
 
-See `docs/API_ROUTES.md` and `docs/ADMIN_GENERATED_REPORTS.md`.
+See `docs/API_ROUTES.md`, `docs/VISA_POWER_API.md`, and `docs/ADMIN_GENERATED_REPORTS.md`.
+
+Visa Power endpoints now include:
+
+- `GET /api/visa-power/options`
+- `POST /api/visa-power/check`
 
 ## Account and Login Design
 
@@ -98,24 +104,3 @@ Migration 020 keeps legacy `goal` profile schemas compatible with the current `m
 Migration 022 adds direct generated-report account fields and syncs report sections from `report_payload.sections` into `relocation_report_sections`.
 
 SQL 026 backfills generated-report account ownership fields from stored input/report payloads and adds indexes for account report lookup.
-
-See `supabase/README.md`.
-
-## Approval-Gated Services
-
-- Live courier booking
-- Flight, hotel, or taxi booking
-- Full consultant marketplace
-- Full document vault
-- Automated embassy appointment monitoring
-- Legal representation
-- WhatsApp message delivery
-- Partner insurance quotes
-
-## Next Backend Work
-
-- Configure approved email provider delivery for OTP codes
-- Add route fact admin CRUD
-- Add source snapshot capture/review flow
-- Add PDF report export
-- Add payment/report purchase flow later
