@@ -87,6 +87,30 @@ def _profile_snapshot(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _profile_owner_filter(query: Any, email: Optional[str], phone: Optional[str]) -> Any:
+    if email:
+        return query.eq("email", email)
+    if phone:
+        return query.eq("phone", phone)
+    return query
+
+
+def _reset_other_active_profiles(email: Optional[str], phone: Optional[str]) -> None:
+    """Keep only one active profile for the same contact identity.
+
+    Hidden/closed profiles stay closed. Only previously active visible profiles
+    are moved back to "new" before the selected profile becomes active.
+    """
+    try:
+        query = get_supabase().table("relocation_user_profiles").update({"status": "new"}).eq("status", "active")
+        query = _profile_owner_filter(query, email, phone)
+        query.execute()
+    except Exception:
+        # The selected profile update below should still run. The account summary
+        # will still prefer active profiles and the admin can clean duplicates later.
+        pass
+
+
 @bp.post("/", strict_slashes=False)
 def create_profile():
     payload = request.get_json(silent=True) or {}
@@ -157,6 +181,7 @@ def get_profile():
             get_supabase()
             .table("relocation_user_profiles")
             .select("*")
+            .order("status", desc=False)
             .order("created_at", desc=True)
             .limit(1)
         )
@@ -165,7 +190,8 @@ def get_profile():
         if phone:
             query = query.eq("phone", phone)
         response = query.execute()
-        profile = (response.data or [None])[0]
+        profiles = [row for row in (response.data or []) if str(row.get("status") or "new").lower() != "closed"]
+        profile = (profiles or [None])[0]
         if not profile:
             return jsonify({"ok": False, "error": "profile_not_found"}), 404
         return jsonify({"ok": True, "profile": profile})
@@ -186,11 +212,11 @@ def update_profile_status(profile_id: str):
         return jsonify({"ok": False, "error": "contact_required"}), 400
 
     try:
+        if status == "active":
+            _reset_other_active_profiles(email, phone)
+
         query = get_supabase().table("relocation_user_profiles").update({"status": status}).eq("id", profile_id)
-        if email:
-            query = query.eq("email", email)
-        if phone:
-            query = query.eq("phone", phone)
+        query = _profile_owner_filter(query, email, phone)
         response = query.execute()
         updated = (response.data or [None])[0]
         if not updated:
