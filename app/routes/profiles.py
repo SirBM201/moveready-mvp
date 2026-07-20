@@ -95,6 +95,11 @@ def _profile_owner_filter(query: Any, email: Optional[str], phone: Optional[str]
     return query
 
 
+def _profile_status_priority(row: Dict[str, Any]) -> int:
+    status = str(row.get("status") or "new").lower()
+    return 0 if status == "active" else 1
+
+
 def _reset_other_active_profiles(email: Optional[str], phone: Optional[str]) -> None:
     """Keep only one active profile for the same contact identity.
 
@@ -181,9 +186,8 @@ def get_profile():
             get_supabase()
             .table("relocation_user_profiles")
             .select("*")
-            .order("status", desc=False)
             .order("created_at", desc=True)
-            .limit(1)
+            .limit(25)
         )
         if email:
             query = query.eq("email", email)
@@ -191,6 +195,7 @@ def get_profile():
             query = query.eq("phone", phone)
         response = query.execute()
         profiles = [row for row in (response.data or []) if str(row.get("status") or "new").lower() != "closed"]
+        profiles.sort(key=_profile_status_priority)
         profile = (profiles or [None])[0]
         if not profile:
             return jsonify({"ok": False, "error": "profile_not_found"}), 404
