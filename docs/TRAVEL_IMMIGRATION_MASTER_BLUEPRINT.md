@@ -1,305 +1,95 @@
 # Travel & Immigration Guide – Master Feature Blueprint
 
-This document locks the long-term MoveReady/Travel Guide feature vision into the product roadmap. The goal is not to turn MoveReady into a generic travel blog. The goal is to build an AI-powered travel, immigration, relocation, study-abroad, and settlement platform that helps users discover options, compare routes, prepare safely, travel confidently, and settle with trusted support.
+This document locks the long-term product blueprint for MoveReady as an AI-powered Travel, Immigration, and Relocation Platform.
 
-## Product positioning
+The goal is not to build a generic travel website. The goal is to help users discover realistic routes, compare countries, prepare documents, plan finances, travel safely, relocate, settle, and access trusted partners through optional referral or service workflows.
 
-MoveReady should remain an advisory planning assistant. It must not promise visa approval, admission approval, job approval, lottery selection, ballot selection, citizenship approval, permanent residence approval, or guaranteed entry at a border.
-
-The system should always show official sources, last verified dates, confidence labels, risk notes, and clear disclaimers before users spend money, upload sensitive documents, book travel, or request provider support.
-
-## Recommended rollout logic
-
-1. Build source-backed planning tools first.
-2. Add account, report, saved route, alert, and timeline memory.
-3. Add premium decision tools such as Visa Power, Passport Index, route comparison, points calculators, and personalized roadmaps.
-4. Add trusted provider marketplace only after consent, review, vetting, and handoff controls are ready.
-5. Add booking and affiliate referrals only where they support the user's verified plan.
-
----
-
-## Module 1 – Travel & Immigration Information
-
-1. Country immigration guide
-2. Tourist visa guidance
-3. Work visa guidance
-4. Student visa guidance
-5. Business visa guidance
-6. Family sponsorship guidance
-7. Permanent Residency (PR) pathways
-8. Citizenship pathways where applicable
-9. Digital Nomad Visa information
-10. Retirement visa information
-11. Investment/Golden Visa information
-12. Transit visa requirements
-13. Visa extension information
-14. Visa renewal information
-15. Change of status information
-16. Appeal and reconsideration guidance where available
-17. Official embassy and immigration links
-18. Official government source references
-19. Immigration glossary and terminology
-
-## Module 2 – Student Admission & Study Abroad
-
-20. Study abroad country comparison
-21. University search
-22. College search
-23. Scholarship information
-24. Admission requirements
-25. Application deadlines
-26. Tuition fee comparison
-27. Cost of living comparison
-28. Program search
-29. Degree comparison
-30. Admission checklist generator
-31. Document checklist
-32. SOP or Statement of Purpose guidance
-33. Personal Statement guidance
-34. CV/Resume guidance
-35. Recommendation letter guidance
-36. Interview preparation
-37. English language requirement guide such as IELTS and TOEFL
-38. Student visa document preparation guide
-39. Study-to-Work pathway
-40. Study-to-PR pathway
-
-## Module 3 – PR & Relocation Intelligence
-
-41. PR pathway comparison
-42. Skilled worker pathways
-43. Employer-sponsored pathways
-44. Provincial or State nomination pathways
-45. Occupation shortage lists
-46. Points calculator where applicable
-47. PR eligibility self-assessment
-48. Immigration profile analyzer
-49. Country recommendation engine
-50. Estimated migration timeline
-51. Estimated migration cost
-52. Processing time comparison
-53. PR difficulty rating
-54. Risk indicator
-55. Common rejection reasons
-
-## Module 4 – Passport & Visa Intelligence
-
-56. Passport Index
-57. Passport strength ranking
-58. Visa-free countries
-59. Visa-on-arrival countries
-60. eVisa countries
-61. Visa-required countries
-62. Passport validity checker
-63. Passport renewal reminders
-64. Visa expiry reminders
-65. Travel history tracker
-
-### Visa Power & Travel Benefits sub-feature
-
-This is a premium feature that allows a user to enter visas they already hold, such as Canada, U.S., UK, Schengen, Australia, or Japan visas. MoveReady then shows possible extra travel benefits, destinations that may not require another visa, simplified entry conditions, maximum-stay notes, official sources, last verified dates, and confidence levels.
-
-The feature must always say that the result is planning guidance only. Users must still check the official destination source, airline rules, border conditions, passport validity, visa validity, multiple-entry requirements, previous-use requirements, proof of funds, ticket, accommodation address, and personal immigration history.
-
-## Module 5 – Travel Planning
-
-66. Trip planner
-67. Personalized travel itinerary
-68. Travel timeline
-69. Countdown to departure
-70. Pre-departure checklist
-71. Arrival checklist
-72. Post-arrival checklist
-73. Packing checklist
-74. Family travel planner
-75. Business travel planner
-76. Solo traveler planner
-
-## Module 6 – Booking & Referral Marketplace
-
-77. Hotel booking
-78. Airbnb booking
-79. Hostel booking
-80. Apartment booking
-81. Flight booking
-82. Airport transfer booking
-83. Taxi booking
-84. Car rental
-85. Bus booking
-86. Train booking
-87. Ferry booking
-88. Local transport recommendations
-89. Travel insurance referrals
-90. eSIM/SIM recommendations
-91. Currency exchange partner referrals
-92. International money transfer referrals
-93. Tour package referrals
-94. Attraction ticket referrals
-95. Visa photo service referrals
-96. Courier/document delivery referrals
-
-## Module 7 – Cost & Financial Planning
-
-97. Cost of living calculator
-98. Tuition calculator
-99. Proof of funds estimator
-100. Visa fee calculator
-101. Monthly living budget estimator
-102. Currency converter
-103. Salary comparison
-104. Tax overview by country
-105. Average rent guide
-106. Utility cost guide
-107. Healthcare cost guide
-
-## Module 8 – AI Travel Assistant
-
-108. AI chat assistant
-109. Personalized recommendations
-110. Country comparison assistant
-111. Visa pathway recommendation
-112. Document review assistant
-113. Travel planning assistant
-114. Immigration Q&A
-115. Study abroad Q&A
-116. Travel preparation guidance
-
-## Module 9 – Safety & Compliance
-
-117. Travel advisory alerts
-118. Scam alerts
-119. Fake agent awareness
-120. Fake university detection tips
-121. Fake visa warning signs
-122. Embassy fraud alerts
-123. Country safety ratings
-124. Emergency contacts
-125. Police numbers
-126. Hospital locator
-127. Embassy locator
-128. Local emergency guide
-
-## Module 10 – Culture & Survival Guide
-
-129. Local customs
-130. Cultural etiquette
-131. Local laws visitors commonly overlook
-132. Public transport guide
-133. Local emergency phrases
-134. Currency guide
-135. Weather guide
-136. Time zone information
-137. Public holiday calendar
-138. Local food guide
-139. Shopping guide
-140. Tipping guide
-
-## Module 11 – Language Integration
-
-141. Essential travel phrases
-142. Airport conversation practice
-143. Hotel conversation practice
-144. Restaurant conversation practice
-145. Emergency conversation practice
-146. Offline phrasebook
-147. One-tap translation
-148. Integration with the Language Tutor platform
-
-## Module 12 – Personalized User Profile
-
-149. Nationality profile
-150. Residence profile
-151. Education profile
-152. Employment profile
-153. Family profile
-154. Travel goals
-155. Budget profile
-156. Saved favorite countries
-157. Saved documents
-158. Saved applications
-
-## Module 13 – Notifications & Alerts
-
-159. Visa policy updates
-160. Immigration law updates
-161. Scholarship alerts
-162. University admission alerts
-163. PR program updates
-164. Travel restriction alerts
-165. Embassy announcements
-166. Passport expiry reminders
-167. Visa expiry reminders
-168. Travel reminders
-
-## Module 14 – Community & Reviews
-
-169. Country reviews
-170. City reviews
-171. University reviews
-172. Accommodation reviews
-173. Employer reviews where legally appropriate
-174. Traveler experiences
-175. Student experiences
-176. Immigration success stories
-177. Verified community discussions
-
-## Module 15 – Premium Decision Tools
-
-178. Best country recommendation engine
-179. Career-to-country matching
-180. Salary potential comparison
-181. Family relocation planner
-182. Child education planner
-183. Healthcare comparison
-184. Quality-of-life comparison
-185. Climate comparison
-186. Long-term settlement planner
-
-## Module 16 – Future Enterprise Features
-
-187. AI document scanner
-188. OCR document reader
-189. Secure document vault
-190. AI eligibility scoring
-191. AI interview simulator
-192. AI travel budget planner
-193. AI relocation roadmap
-194. Family migration planner
-195. Business expansion guide
-196. Country opportunity dashboard
-197. Official source verification engine
-198. Multi-country comparison dashboard
-199. Personalized migration roadmap
-200. Referral and affiliate management system
-
----
-
-## Long-term vision
+## Product vision
 
 MoveReady should support the full user journey:
 
-- Discover destinations and opportunities.
-- Compare visas, study options, work routes, business routes, and PR pathways.
-- Prepare documents, finances, timelines, and travel plans.
-- Travel with confidence using verified information.
-- Relocate and settle with practical guidance.
-- Access trusted partners through optional referral links only after consent and review controls are ready.
+1. Discover destinations, visas, admissions, work routes, PR paths, and official opportunities.
+2. Compare routes before spending money.
+3. Prepare documents, funds, timelines, language, and travel plans.
+4. Travel with confidence using source-reviewed guidance.
+5. Relocate and settle with practical support.
+6. Use trusted partners only with consent, review, and clear advisory disclaimers.
 
-## Monetization direction
+MoveReady must remain source-first and advisory. It must not promise visa approval, admission, job approval, lottery selection, ballot selection, PR approval, border entry, or citizenship approval.
 
-The strongest model is freemium plus premium tools plus vetted service referrals.
+## Locked modules
 
-Free users can access basic route checking, starter reports, basic country pages, and limited saved records. Paid users can access deeper reports, Visa Power, Passport Index, full alerts, document vault, source-refresh tracking, family planning, cost tools, and priority support. Referral and affiliate revenue can come from insurance, accommodation, flights, airport transfers, SIM/eSIM, money transfer, document courier, translations, document review, and settlement services.
+1. Travel and Immigration Information: country guides, tourist/work/student/business/family/PR/citizenship/digital nomad/retirement/investment/transit/extension/renewal/change-of-status guidance, official links, and glossary.
+2. Student Admission and Study Abroad: university and college search, scholarships, requirements, deadlines, tuition, cost of living, program search, checklists, SOP, personal statement, CV, recommendation letters, interviews, IELTS/TOEFL, student visa prep, study-to-work, and study-to-PR.
+3. PR and Relocation Intelligence: skilled worker, employer-sponsored, nomination, occupation shortage, points calculators, profile analyzer, country recommendation, timeline, cost, processing time, difficulty, risk, and rejection reasons.
+4. Passport and Visa Intelligence: Passport Index, passport strength, visa-free, visa-on-arrival, eVisa, visa-required countries, passport validity, passport renewal reminders, visa expiry reminders, and travel history tracker.
+5. Travel Planning: trip planner, itinerary, travel timeline, countdown, pre-departure, arrival, post-arrival, packing, family, business, and solo traveler planning.
+6. Booking and Referral Marketplace: hotels, Airbnb/short-stays, hostels, apartments, flights, airport transfer, taxi, car rental, bus, train, ferry, local transport, insurance, eSIM/SIM, currency exchange, money transfer, tours, attraction tickets, visa photos, courier, and document delivery.
+7. Cost and Financial Planning: cost of living, tuition, proof of funds, visa fee, monthly budget, currency converter, salary comparison, tax overview, rent, utilities, and healthcare costs.
+8. AI Travel Assistant: AI chat, recommendations, country comparison, visa pathway recommendation, document review, travel planning, immigration Q&A, study abroad Q&A, and preparation guidance.
+9. Safety and Compliance: travel advisory alerts, scam alerts, fake agent awareness, fake university tips, fake visa warning signs, embassy fraud alerts, safety ratings, emergency contacts, police numbers, hospital locator, embassy locator, and local emergency guide.
+10. Culture and Survival Guide: customs, etiquette, local laws, public transport, emergency phrases, currency, weather, time zone, holidays, food, shopping, and tipping.
+11. Language Integration: travel phrases, airport/hotel/restaurant/emergency conversation practice, offline phrasebook, one-tap translation, and Language Tutor integration.
+12. Personalized User Profile: nationality, residence, education, employment, family, goals, budget, favorite countries, saved documents, and saved applications.
+13. Notifications and Alerts: visa policy, immigration law, scholarships, admissions, PR programs, travel restrictions, embassy announcements, passport expiry, visa expiry, and travel reminders.
+14. Community and Reviews: country, city, university, accommodation, employer where legally appropriate, traveler experiences, student experiences, success stories, and verified discussions.
+15. Premium Decision Tools: best country recommendation, career-to-country matching, salary potential, family relocation, child education, healthcare, quality of life, climate, and long-term settlement planning.
+16. Future Enterprise Features: AI document scanner, OCR, secure document vault, AI eligibility scoring, AI interview simulator, AI travel budget planner, AI relocation roadmap, family migration planner, business expansion guide, country opportunity dashboard, official source verification engine, multi-country comparison dashboard, personalized migration roadmap, and referral/affiliate management.
 
-## Safety requirements
+## Recommended rollout order
 
-Every sensitive module must preserve these rules:
+### MVP and near-term
 
-- Use official sources as the source of truth.
-- Show last verified date and confidence level.
-- Avoid approval promises.
-- Require user consent before alerts, support requests, provider handoff, or marketing contact.
-- Keep user records private.
-- Separate planning guidance from paid provider services.
-- Review provider applications before listing or handoff.
-- Keep scam warnings visible where users may spend money.
+1. Start guide
+2. Account and active profile
+3. Route checker
+4. Readiness report
+5. Reports lookup
+6. Saved routes
+7. Alerts/watchlist
+8. Support requests
+9. Opportunities
+10. Visa Power and Travel Benefits
+
+### Phase 2
+
+1. Passport Index expansion
+2. Student admission module
+3. PR pathway comparison
+4. Cost calculators
+5. Timeline and task center
+6. Document vault planning
+7. Insurance, courier, translation, and accommodation referrals
+
+### Phase 3
+
+1. AI assistant connected to verified source records
+2. Full marketplace/referral management
+3. Language Tutor integration
+4. Community stories and verified reviews
+5. Enterprise and partner dashboards
+
+## Monetization model
+
+1. Free tier: basic route checker, starter report, limited saved routes, and public guides.
+2. Premium tier: unlimited reports, advanced comparison, Visa Power, Passport Index, PR scoring, alerts, and task center.
+3. Service commission: document review, expert review, courier, translation, insurance, accommodation, transport, and settlement support.
+4. Referral income: hotels, flights, eSIM, money transfer, insurance, tours, and booking partners.
+5. B2B/enterprise: relocation tools for HR teams, schools, agencies, and service providers.
+
+## Product safety rules
+
+1. MoveReady must always use official sources where possible.
+2. Every result should show source status, last verified date, and confidence level.
+3. Users must be told that guidance is not approval.
+4. Sensitive documents require clear consent and secure handling.
+5. Partner handoff must happen only after provider review and user consent.
+6. Alerts are reminders, not guarantees.
+7. Community content must be moderated.
+8. AI must not invent laws, fees, requirements, or eligibility rules.
+
+## Final positioning
+
+MoveReady is an AI-powered travel, immigration, relocation, and settlement readiness platform.
+
+It helps users move from confusion to a practical plan by combining country guides, route checks, reports, alerts, cost planning, visa intelligence, student guidance, PR intelligence, support services, and trusted referral partners in one easy-to-use workspace.
