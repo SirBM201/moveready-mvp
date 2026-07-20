@@ -44,22 +44,22 @@ def _safe_rows(table: str, email: str, *, status: Optional[str] = None, limit: i
         return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
 
 
-def _profile_sort_key(row: Dict[str, Any]) -> Tuple[int, str]:
-    """Put the backend active profile first, then newest saved profiles.
+def _profile_status_priority(row: Dict[str, Any]) -> int:
+    """Put the backend active profile first while preserving newest-first order.
 
-    Supabase already returns rows in created_at desc order. This key preserves that
-    order inside each status group while moving the selected active profile to the
-    top so every frontend page can use the same account-owned profile.
+    Supabase returns rows in created_at desc order. Python sorting is stable, so
+    sorting only by active/non-active keeps newest profiles first inside each
+    group and moves the chosen account profile to the top.
     """
     status = str(row.get("status") or "new").lower()
-    return (0 if status == "active" else 1, str(row.get("created_at") or ""))
+    return 0 if status == "active" else 1
 
 
 def _profiles_for_email(email: str, limit: int = 5) -> Dict[str, Any]:
     try:
         rows = _select_for_email("relocation_user_profiles", email, limit=50)
         visible_rows = [row for row in rows if str(row.get("status") or "new").lower() != "closed"]
-        visible_rows.sort(key=_profile_sort_key)
+        visible_rows.sort(key=_profile_status_priority)
         return {"ok": True, "rows": visible_rows[:limit], "count": len(visible_rows)}
     except Exception as exc:
         return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
