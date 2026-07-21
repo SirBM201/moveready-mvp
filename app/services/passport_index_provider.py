@@ -96,16 +96,20 @@ def next_sync_due_iso(from_dt: Optional[datetime] = None) -> str:
 
 
 def provider_status_payload() -> Dict[str, Any]:
+    provider_configured = bool(PASSPORT_INDEX_PROVIDER_URL and PASSPORT_INDEX_PROVIDER_KEY)
     return {
         "provider_enabled": bool(PASSPORT_INDEX_PROVIDER_ENABLED),
-        "provider_configured": bool(PASSPORT_INDEX_PROVIDER_URL and PASSPORT_INDEX_PROVIDER_KEY),
+        "provider_configured": provider_configured,
         "provider_name": PASSPORT_INDEX_PROVIDER_NAME,
+        "provider_url_configured": bool(PASSPORT_INDEX_PROVIDER_URL),
+        "provider_key_configured": bool(PASSPORT_INDEX_PROVIDER_KEY),
         "sync_frequency": _sync_frequency_label(),
         "sync_weekdays": PASSPORT_INDEX_SYNC_WEEKDAYS,
         "cache_max_days": PASSPORT_INDEX_CACHE_MAX_DAYS,
         "country_code_format": PASSPORT_INDEX_PROVIDER_COUNTRY_CODE_FORMAT,
         "auth_header": PASSPORT_INDEX_PROVIDER_AUTH_HEADER,
         "host_header_configured": bool(PASSPORT_INDEX_PROVIDER_HOST_HEADER),
+        "ready_to_sync": bool(PASSPORT_INDEX_PROVIDER_ENABLED and provider_configured),
         "safety_note": "Passport access changes. MoveReady uses cached provider data plus official-source review fields instead of calling paid APIs on every user click.",
     }
 
@@ -143,17 +147,30 @@ def _get_nested(payload: Dict[str, Any], *keys: str) -> Any:
     return current
 
 
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    raw = clean_text(value, 120)
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
 def normalize_access_bucket(value: Any) -> str:
     raw = clean_text(value, 120).lower().replace("-", "_").replace(" ", "_")
     if raw in ACCESS_BUCKETS:
         return raw
-    if "arrival" in raw or "voa" in raw:
+    if "arrival" in raw or "voa" in raw or "on_arrival" in raw:
         return "visa_on_arrival"
-    if "electronic" in raw or "evisa" in raw or "eta" in raw or "e_visa" in raw:
+    if "electronic" in raw or "evisa" in raw or "eta" in raw or "e_visa" in raw or "online" in raw:
         return "evisa"
-    if "free" in raw or "exempt" in raw or "no_visa" in raw or "not_required" in raw:
+    if "free" in raw or "exempt" in raw or "no_visa" in raw or "not_required" in raw or "visa_not_required" in raw or "freedom" in raw:
         return "visa_free"
-    if "required" in raw or "visa" in raw:
+    if "required" in raw or "visa" in raw or "consular" in raw:
         return "visa_required"
     return "visa_required"
 
@@ -163,13 +180,56 @@ def _row_destination(row: Dict[str, Any]) -> str:
         row.get("destination")
         or row.get("country")
         or row.get("destination_country")
+        or row.get("destination_country_name")
         or row.get("destination_name")
+        or row.get("to_country")
+        or row.get("toCountry")
+        or row.get("country_name")
         or row.get("name")
         or row.get("to")
     )
     if isinstance(destination, dict):
-        destination = destination.get("name") or destination.get("country") or destination.get("common")
+        destination = destination.get("name") or destination.get("country") or destination.get("common") or destination.get("label")
     return clean_text(destination, 180)
+
+
+def _row_stay_text(row: Dict[str, Any], primary_rule: Dict[str, Any], secondary_rule: Dict[str, Any]) -> str:
+    value = (
+        row.get("maximum_stay")
+        or row.get("stay")
+        or row.get("duration")
+        or row.get("max_stay")
+        or row.get("maxStay")
+        or row.get("allowed_stay")
+        or row.get("stay_duration")
+        or row.get("period_of_stay")
+        or row.get("days")
+        or primary_rule.get("duration")
+        or secondary_rule.get("duration")
+    )
+    if isinstance(value, (int, float)):
+        return f"{int(value)} days"
+    return clean_text(value, 240)
+
+
+def _row_conditions(row: Dict[str, Any]) -> str:
+    pieces = [
+        row.get("conditions"),
+        row.get("condition"),
+        row.get("notes"),
+        row.get("note"),
+        row.get("description"),
+        row.get("details"),
+        row.get("remarks"),
+        row.get("additional_info"),
+        row.get("additionalInfo"),
+    ]
+    output: List[str] = []
+    for item in pieces:
+        text = clean_text(item, 500)
+        if text and text not in output:
+            output.append(text)
+    return clean_text(" ".join(output), 1000)
 
 
 def normalize_destination_rows(provider_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -178,14 +238,21 @@ def normalize_destination_rows(provider_payload: Dict[str, Any]) -> List[Dict[st
     candidates = [
         provider_payload.get("destination_access_rows"),
         provider_payload.get("destinations"),
+        provider_payload.get("countries"),
         provider_payload.get("requirements"),
         provider_payload.get("results"),
+        provider_payload.get("items"),
         provider_payload.get("map"),
+        provider_payload.get("visa_map"),
+        provider_payload.get("visaMap"),
         _get_nested(provider_payload, "data", "destination_access_rows"),
         _get_nested(provider_payload, "data", "destinations"),
+        _get_nested(provider_payload, "data", "countries"),
         _get_nested(provider_payload, "data", "requirements"),
         _get_nested(provider_payload, "data", "results"),
+        _get_nested(provider_payload, "data", "items"),
         _get_nested(provider_payload, "data", "map"),
+        _get_nested(provider_payload, "response", "results"),
         _get_nested(provider_payload, "passport_index", "destination_access_rows"),
         _get_nested(provider_payload, "passport_index", "destinations"),
     ]
@@ -195,12 +262,12 @@ def normalize_destination_rows(provider_payload: Dict[str, Any]) -> List[Dict[st
             break
 
     grouped_rows: List[Tuple[str, Any]] = []
-    grouped_sources = [provider_payload, provider_payload.get("data"), provider_payload.get("passport_index")]
+    grouped_sources = [provider_payload, provider_payload.get("data"), provider_payload.get("passport_index"), provider_payload.get("response")]
     grouped_keys = {
-        "visa_free": ["visa_free", "visa_free_countries", "visaFree", "Visa-free", "visa_free_examples"],
-        "visa_on_arrival": ["visa_on_arrival", "visa_on_arrival_countries", "visaOnArrival", "Visa on arrival", "visa_on_arrival_examples"],
-        "evisa": ["evisa", "evisa_countries", "eVisa", "eTA", "eta", "evisa_examples"],
-        "visa_required": ["visa_required", "visa_required_countries", "visaRequired", "Visa required", "visa_required_examples"],
+        "visa_free": ["visa_free", "visa_free_countries", "visaFree", "visaFreeCountries", "Visa-free", "Visa not required", "visa_free_examples"],
+        "visa_on_arrival": ["visa_on_arrival", "visa_on_arrival_countries", "visaOnArrival", "visaOnArrivalCountries", "Visa on arrival", "visa_on_arrival_examples"],
+        "evisa": ["evisa", "evisa_countries", "eVisa", "eVisaCountries", "eTA", "eta", "eta_countries", "evisa_examples"],
+        "visa_required": ["visa_required", "visa_required_countries", "visaRequired", "visaRequiredCountries", "Visa required", "visa_required_examples"],
     }
     if not direct_rows:
         for source in grouped_sources:
@@ -229,25 +296,42 @@ def normalize_destination_rows(provider_payload: Dict[str, Any]) -> List[Dict[st
             continue
         primary_rule = row.get("primary_rule") if isinstance(row.get("primary_rule"), dict) else {}
         secondary_rule = row.get("secondary_rule") if isinstance(row.get("secondary_rule"), dict) else {}
-        bucket_source = row.get("access_bucket") or row.get("visa_requirement") or row.get("requirement") or row.get("access_type") or row.get("type") or primary_rule.get("name")
+        bucket_source = (
+            row.get("access_bucket")
+            or row.get("visa_requirement")
+            or row.get("visaRequirement")
+            or row.get("requirement")
+            or row.get("visa")
+            or row.get("visa_type")
+            or row.get("visaType")
+            or row.get("visa_status")
+            or row.get("visaStatus")
+            or row.get("access_type")
+            or row.get("access")
+            or row.get("type")
+            or row.get("category")
+            or primary_rule.get("name")
+            or primary_rule.get("slug")
+        )
         bucket = normalize_access_bucket(bucket_source)
         key = (destination.lower(), bucket)
         if key in seen:
             continue
         seen.add(key)
 
+        source_url = row.get("official_source_url") or row.get("source_url") or row.get("url") or row.get("link") or row.get("officialUrl") or secondary_rule.get("link")
         output.append(
             {
                 "destination": destination,
                 "destination_region": clean_text(row.get("destination_region") or row.get("region") or row.get("continent"), 120),
                 "access_bucket": bucket,
                 "access_label": ACCESS_LABELS.get(bucket, bucket),
-                "access_type": clean_text(row.get("access_type") or row.get("visa_requirement") or row.get("requirement") or primary_rule.get("name") or ACCESS_LABELS.get(bucket), 240),
-                "maximum_stay": clean_text(row.get("maximum_stay") or row.get("stay") or row.get("duration") or row.get("max_stay") or primary_rule.get("duration") or secondary_rule.get("duration"), 240),
-                "conditions": clean_text(row.get("conditions") or row.get("condition") or row.get("notes") or row.get("description"), 1000),
-                "official_source_name": clean_text(row.get("official_source_name") or row.get("source_name") or row.get("source"), 240),
-                "official_source_url": clean_text(row.get("official_source_url") or row.get("source_url") or row.get("url") or row.get("link") or secondary_rule.get("link"), 700),
-                "last_verified": clean_text(row.get("last_verified") or row.get("last_reviewed") or row.get("updated_at"), 120),
+                "access_type": clean_text(row.get("access_type") or row.get("visa_requirement") or row.get("requirement") or row.get("visa") or primary_rule.get("name") or ACCESS_LABELS.get(bucket), 240),
+                "maximum_stay": _row_stay_text(row, primary_rule, secondary_rule),
+                "conditions": _row_conditions(row),
+                "official_source_name": clean_text(row.get("official_source_name") or row.get("source_name") or row.get("source") or row.get("authority"), 240),
+                "official_source_url": clean_text(source_url, 700),
+                "last_verified": clean_text(row.get("last_verified") or row.get("last_reviewed") or row.get("updated_at") or row.get("updatedAt"), 120),
                 "confidence": clean_text(row.get("confidence") or row.get("source_status") or "provider_cache_pending_admin_review", 120),
                 "source_status": clean_text(row.get("source_status") or row.get("confidence") or "provider_cache_pending_admin_review", 120),
                 "provider_payload": row,
@@ -258,7 +342,9 @@ def normalize_destination_rows(provider_payload: Dict[str, Any]) -> List[Dict[st
 
 def _category_count(source: Dict[str, Any], *keys: str) -> Optional[int]:
     categories = source.get("categories") if isinstance(source.get("categories"), dict) else {}
-    lookup_sources = [source, categories]
+    stats = source.get("stats") if isinstance(source.get("stats"), dict) else {}
+    counts = source.get("counts") if isinstance(source.get("counts"), dict) else {}
+    lookup_sources = [source, categories, stats, counts]
     for lookup in lookup_sources:
         for key in keys:
             value = lookup.get(key) if isinstance(lookup, dict) else None
@@ -269,12 +355,12 @@ def _category_count(source: Dict[str, Any], *keys: str) -> Optional[int]:
 
 
 def _extract_passport_index(provider_payload: Dict[str, Any], requested_country: str, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
-    passport_index = _first_dict(provider_payload.get("passport_index"), provider_payload.get("data"), provider_payload)
+    passport_index = _first_dict(provider_payload.get("passport_index"), provider_payload.get("data"), provider_payload.get("response"), provider_payload)
     counts = {
-        "visa_free_count": _category_count(passport_index, "visa_free_count", "visaFreeCount", "visa_free", "Visa-free", "Visa not required", "Freedom of movement"),
-        "visa_on_arrival_count": _category_count(passport_index, "visa_on_arrival_count", "visaOnArrivalCount", "visa_on_arrival", "Visa on arrival"),
+        "visa_free_count": _category_count(passport_index, "visa_free_count", "visaFreeCount", "visa_free", "visaFree", "Visa-free", "Visa not required", "Freedom of movement"),
+        "visa_on_arrival_count": _category_count(passport_index, "visa_on_arrival_count", "visaOnArrivalCount", "visa_on_arrival", "visaOnArrival", "Visa on arrival"),
         "evisa_count": _category_count(passport_index, "evisa_count", "eVisaCount", "eta_count", "evisa", "eVisa", "eTA", "Tourist card"),
-        "visa_required_count": _category_count(passport_index, "visa_required_count", "visaRequiredCount", "visa_required", "Visa required"),
+        "visa_required_count": _category_count(passport_index, "visa_required_count", "visaRequiredCount", "visa_required", "visaRequired", "Visa required"),
     }
     if not any(value is not None for value in counts.values()) and rows:
         counts = {
@@ -287,7 +373,9 @@ def _extract_passport_index(provider_payload: Dict[str, Any], requested_country:
     explicit_score = _safe_int(
         passport_index.get("passport_opportunity_score")
         or passport_index.get("mobility_score")
+        or passport_index.get("mobilityScore")
         or passport_index.get("passport_power_score")
+        or passport_index.get("passportPowerScore")
         or passport_index.get("score")
     )
     if explicit_score is None:
@@ -295,12 +383,12 @@ def _extract_passport_index(provider_payload: Dict[str, Any], requested_country:
         explicit_score = min(100, max(10, round(open_count / 2))) if open_count else None
 
     return {
-        "country": clean_text(passport_index.get("country") or passport_index.get("passport_country") or requested_country, 160),
-        "country_key": country_key(passport_index.get("country") or passport_index.get("passport_country") or requested_country),
+        "country": clean_text(passport_index.get("country") or passport_index.get("passport_country") or passport_index.get("passportCountry") or requested_country, 160),
+        "country_key": country_key(passport_index.get("country") or passport_index.get("passport_country") or passport_index.get("passportCountry") or requested_country),
         "region": clean_text(passport_index.get("region"), 120),
-        "passport_rank": _safe_int(passport_index.get("passport_rank") or passport_index.get("rank") or passport_index.get("global_rank")),
+        "passport_rank": _safe_int(passport_index.get("passport_rank") or passport_index.get("passportRank") or passport_index.get("rank") or passport_index.get("global_rank") or passport_index.get("globalRank")),
         "passport_opportunity_score": explicit_score,
-        "passport_strength_band": clean_text(passport_index.get("passport_strength_band") or passport_index.get("strength_band") or "provider_cache", 120),
+        "passport_strength_band": clean_text(passport_index.get("passport_strength_band") or passport_index.get("strength_band") or passport_index.get("band") or "provider_cache", 120),
         "summary": clean_text(passport_index.get("summary") or passport_index.get("description") or "Passport access loaded from provider cache. Confirm destination official rules before booking.", 1200),
         "visa_free_count": counts.get("visa_free_count"),
         "visa_on_arrival_count": counts.get("visa_on_arrival_count"),
@@ -359,6 +447,26 @@ def _provider_request_payload(passport_country: str) -> Dict[str, str]:
     }
 
 
+def provider_request_preview(passport_country: str) -> Dict[str, Any]:
+    payload = _provider_request_payload(passport_country)
+    try:
+        url = PASSPORT_INDEX_PROVIDER_URL.format(**payload) if PASSPORT_INDEX_PROVIDER_URL else ""
+    except Exception as exc:
+        url = ""
+        payload["url_format_error"] = str(exc)
+    return {
+        "method": PASSPORT_INDEX_PROVIDER_METHOD or "GET",
+        "url_configured": bool(PASSPORT_INDEX_PROVIDER_URL),
+        "url_preview": url,
+        "query_or_body_payload": payload,
+        "headers_configured": {
+            "auth_header": PASSPORT_INDEX_PROVIDER_AUTH_HEADER,
+            "rapidapi_host": bool(PASSPORT_INDEX_PROVIDER_HOST_HEADER),
+            "extra_headers": bool(PASSPORT_INDEX_PROVIDER_EXTRA_HEADERS_JSON and PASSPORT_INDEX_PROVIDER_EXTRA_HEADERS_JSON != "{}"),
+        },
+    }
+
+
 def fetch_provider_payload(passport_country: str) -> Dict[str, Any]:
     if not PASSPORT_INDEX_PROVIDER_ENABLED:
         raise RuntimeError("passport_provider_disabled")
@@ -367,7 +475,11 @@ def fetch_provider_payload(passport_country: str) -> Dict[str, Any]:
 
     country = clean_text(passport_country, 160)
     payload = _provider_request_payload(country)
-    url = PASSPORT_INDEX_PROVIDER_URL.format(**payload)
+    try:
+        url = PASSPORT_INDEX_PROVIDER_URL.format(**payload)
+    except Exception as exc:
+        raise RuntimeError(f"passport_provider_url_format_error: {exc}") from exc
+
     headers = _provider_headers()
     method = PASSPORT_INDEX_PROVIDER_METHOD or "GET"
     timeout = max(5, min(PASSPORT_INDEX_PROVIDER_TIMEOUT_SECONDS, 60))
@@ -375,11 +487,19 @@ def fetch_provider_payload(passport_country: str) -> Dict[str, Any]:
         response = requests.post(url, headers=headers, json=payload, timeout=timeout)
     else:
         response = requests.get(url, headers=headers, params=payload, timeout=timeout)
-    response.raise_for_status()
+
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        detail = clean_text(response.text, 600)
+        raise RuntimeError(f"passport_provider_http_{response.status_code}: {detail}") from exc
+
     data = response.json()
-    if not isinstance(data, dict):
-        raise RuntimeError("passport_provider_payload_not_json_object")
-    return data
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list):
+        return {"results": data, "provider_payload_type": "list"}
+    raise RuntimeError("passport_provider_payload_not_json_object_or_list")
 
 
 def normalize_provider_payload(passport_country: str, provider_payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -441,6 +561,16 @@ def read_cached_destination_rows(country: str) -> List[Dict[str, Any]]:
     return rows
 
 
+def _cache_is_fresh(cache_row: Dict[str, Any] | None) -> bool:
+    if not cache_row:
+        return False
+    last_synced = _parse_iso_datetime(cache_row.get("last_synced_at"))
+    if not last_synced:
+        return False
+    max_days = max(1, PASSPORT_INDEX_CACHE_MAX_DAYS)
+    return now_utc() - last_synced < timedelta(days=max_days)
+
+
 def write_cache(passport_country: str, normalized: Dict[str, Any], provider_payload: Dict[str, Any]) -> Dict[str, Any]:
     key = country_key(passport_country)
     passport_index = dict(normalized.get("passport_index") or {})
@@ -499,6 +629,49 @@ def write_cache(passport_country: str, normalized: Dict[str, Any], provider_payl
         supabase.table("relocation_passport_destination_access").insert(db_rows).execute()
 
     return {"country_key": key, "row_count": len(db_rows), "last_synced_at": synced_at, "next_sync_due_at": next_due}
+
+
+def ensure_cached_passport_fresh(passport_country: str) -> Dict[str, Any]:
+    """Refresh provider cache only when missing or stale.
+
+    This keeps RapidAPI usage low. Normal user clicks read the database cache;
+    only the first missing/stale country triggers a provider request.
+    """
+    country = clean_text(passport_country, 160)
+    if not country:
+        return {"attempted": False, "synced": False, "status": "skipped_missing_country"}
+
+    status = provider_status_payload()
+    if not status["provider_enabled"] or not status["provider_configured"]:
+        return {"attempted": False, "synced": False, "status": "skipped_provider_not_configured", "provider_status": status}
+
+    existing = read_cached_passport(country)
+    if _cache_is_fresh(existing):
+        return {
+            "attempted": False,
+            "synced": False,
+            "status": "cache_fresh",
+            "country_key": country_key(country),
+            "last_synced_at": existing.get("last_synced_at") if existing else None,
+            "next_sync_due_at": existing.get("next_sync_due_at") if existing else next_sync_due_iso(),
+        }
+
+    provider_payload = fetch_provider_payload(country)
+    normalized = normalize_provider_payload(country, provider_payload)
+    written = write_cache(country, normalized, provider_payload)
+    refresh_status = "cache_created" if not existing else "cache_refreshed"
+    result = {"attempted": True, "synced": True, "status": refresh_status, **written}
+    log_sync_run(refresh_status, result)
+    return result
+
+
+def compact_payload_preview(payload: Dict[str, Any], max_rows: int = 5) -> Dict[str, Any]:
+    rows = normalize_destination_rows(payload)
+    return {
+        "payload_keys": sorted([str(key) for key in payload.keys()])[:40],
+        "normalized_row_count": len(rows),
+        "sample_rows": rows[:max_rows],
+    }
 
 
 def log_sync_run(status: str, details: Dict[str, Any]) -> None:
