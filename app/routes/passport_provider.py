@@ -18,11 +18,14 @@ from app.routes.visa_power import (
 from app.services.passport_index_provider import (
     ACCESS_LABELS,
     clean_text,
+    compact_payload_preview,
     country_key,
+    ensure_cached_passport_fresh,
     fetch_provider_payload,
     log_sync_run,
     next_sync_due_iso,
     normalize_provider_payload,
+    provider_request_preview,
     provider_status_payload,
     read_cached_destination_rows,
     read_cached_passport,
@@ -35,6 +38,10 @@ bp = Blueprint("passport_provider", __name__)
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_error(exc: Exception) -> str:
+    return str(exc).replace("\n", " ")[:500]
 
 
 def _fallback_destination_rows(passport_index: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -79,7 +86,7 @@ def _cache_status_from_row(cache_row: Dict[str, Any] | None) -> Dict[str, Any]:
             "source_provider": "MoveReady starter records",
             "last_synced_at": None,
             "next_sync_due_at": next_sync_due_iso(),
-            "sync_frequency": "twice weekly after provider setup",
+            "sync_frequency": "weekly after provider setup",
             "source_status": "starter_pending_provider_connection",
         }
     return {
@@ -87,14 +94,30 @@ def _cache_status_from_row(cache_row: Dict[str, Any] | None) -> Dict[str, Any]:
         "source_provider": cache_row.get("source_provider") or "Configured passport provider",
         "last_synced_at": cache_row.get("last_synced_at"),
         "next_sync_due_at": cache_row.get("next_sync_due_at") or next_sync_due_iso(),
-        "sync_frequency": "twice weekly",
+        "sync_frequency": "weekly",
         "source_status": cache_row.get("source_status") or cache_row.get("confidence") or "provider_cache_pending_admin_review",
     }
+
+
+def _try_refresh_provider_cache(passport_country: str) -> Dict[str, Any]:
+    try:
+        return ensure_cached_passport_fresh(passport_country)
+    except Exception as exc:
+        details = {
+            "attempted": True,
+            "synced": False,
+            "status": "provider_refresh_failed",
+            "country_key": country_key(passport_country),
+            "error": _safe_error(exc),
+        }
+        log_sync_run("provider_refresh_failed", details)
+        return details
 
 
 def _build_public_passport_response(passport_country: str) -> Dict[str, Any]:
     fallback = _passport_record(passport_country)
     fallback_rows = _fallback_destination_rows(fallback)
+    provider_refresh = _try_refresh_provider_cache(passport_country)
 
     try:
         cache_row = read_cached_passport(passport_country)
@@ -107,7 +130,7 @@ def _build_public_passport_response(passport_country: str) -> Dict[str, Any]:
                 "source_provider": "MoveReady starter records",
                 "data_source": "starter_fallback_database_unavailable",
                 "last_synced_at": None,
-                "sync_frequency": "twice weekly after provider setup",
+                "sync_frequency": "weekly after provider setup",
                 "next_sync_due_at": next_sync_due_iso(),
             }
         )
@@ -119,7 +142,8 @@ def _build_public_passport_response(passport_country: str) -> Dict[str, Any]:
             "source_status": fallback_index.get("confidence"),
             "cache_status": _cache_status_from_row(None),
             "provider_status": provider_status_payload(),
-            "warning": f"Provider cache table is not ready yet: {exc}",
+            "provider_refresh": provider_refresh,
+            "warning": f"Provider cache table is not ready yet: {_safe_error(exc)}",
             "safety_note": "Passport access can change quickly. Confirm official destination rules, airline checks, passport validity, funds, return ticket, and personal history before travel.",
         }
 
@@ -139,7 +163,7 @@ def _build_public_passport_response(passport_country: str) -> Dict[str, Any]:
                 "source_provider": cache_row.get("source_provider"),
                 "last_synced_at": cache_row.get("last_synced_at"),
                 "next_sync_due_at": cache_row.get("next_sync_due_at") or next_sync_due_iso(),
-                "sync_frequency": "twice weekly",
+                "sync_frequency": "weekly",
                 "data_source": "provider_cache",
             }
         )
@@ -154,6 +178,7 @@ def _build_public_passport_response(passport_country: str) -> Dict[str, Any]:
             "source_status": cached_index.get("confidence") or cache_row.get("confidence"),
             "cache_status": _cache_status_from_row(cache_row),
             "provider_status": provider_status_payload(),
+            "provider_refresh": provider_refresh,
             "safety_note": "Passport access can change quickly. Confirm official destination rules, airline checks, passport validity, funds, return ticket, and personal history before travel.",
         }
 
@@ -164,7 +189,7 @@ def _build_public_passport_response(passport_country: str) -> Dict[str, Any]:
             "source_provider": "MoveReady starter records",
             "data_source": "starter_fallback",
             "last_synced_at": None,
-            "sync_frequency": "twice weekly after provider setup",
+            "sync_frequency": "weekly after provider setup",
             "next_sync_due_at": next_sync_due_iso(),
         }
     )
@@ -176,6 +201,7 @@ def _build_public_passport_response(passport_country: str) -> Dict[str, Any]:
         "source_status": fallback_index.get("confidence"),
         "cache_status": _cache_status_from_row(None),
         "provider_status": provider_status_payload(),
+        "provider_refresh": provider_refresh,
         "safety_note": "Passport access can change quickly. Confirm official destination rules, airline checks, passport validity, funds, return ticket, and personal history before travel.",
     }
 
@@ -185,6 +211,52 @@ def provider_status():
     payload = provider_status_payload()
     payload["ok"] = True
     return jsonify(payload)
+
+
+@bp.post("/provider/test")
+@require_admin_access
+def test_provider_connection():
+    payload = request.get_json(silent=True) or {}
+    requested_country = clean_text(payload.get("passport_country") or "Nigeria", 160)
+    status = provider_status_payload()
+    preview = provider_request_preview(requested_country)
+    if not status["provider_enabled"] or not status["provider_configured"]:
+        return jsonify(
+            {
+                "ok": False,
+                "status": "provider_not_configured",
+                "message": "Set PASSPORT_INDEX_PROVIDER_ENABLED, PASSPORT_INDEX_PROVIDER_URL, and PASSPORT_INDEX_PROVIDER_KEY, then redeploy or restart Railway.",
+                "provider_status": status,
+                "request_preview": preview,
+            }
+        ), 400
+
+    try:
+        provider_payload = fetch_provider_payload(requested_country)
+        normalized = normalize_provider_payload(requested_country, provider_payload)
+        return jsonify(
+            {
+                "ok": True,
+                "status": "provider_test_success",
+                "country": requested_country,
+                "provider_status": status,
+                "request_preview": preview,
+                "normalized_row_count": len(normalized.get("destination_access_rows") or []),
+                "passport_index_preview": normalized.get("passport_index"),
+                "provider_payload_preview": compact_payload_preview(provider_payload),
+            }
+        )
+    except Exception as exc:
+        return jsonify(
+            {
+                "ok": False,
+                "status": "provider_test_failed",
+                "country": requested_country,
+                "provider_status": status,
+                "request_preview": preview,
+                "error": _safe_error(exc),
+            }
+        ), 502
 
 
 @bp.post("/provider/sync")
@@ -211,9 +283,9 @@ def sync_provider_cache():
             provider_payload = fetch_provider_payload(country)
             normalized = normalize_provider_payload(country, provider_payload)
             written = write_cache(country, normalized, provider_payload)
-            results.append({"country": country, **written})
+            results.append({"country": country, "normalized_row_count": len(normalized.get("destination_access_rows") or []), **written})
         except Exception as exc:
-            errors.append({"country": country, "error": str(exc)[:500]})
+            errors.append({"country": country, "error": _safe_error(exc)})
 
     run_status = "completed_with_errors" if errors else "completed"
     details = {"results": results, "errors": errors, "synced_at": _now_iso(), "next_sync_due_at": next_sync_due_iso()}
@@ -273,6 +345,7 @@ def visa_power_check_live():
             "passport_index": passport_record,
             "cache_status": passport_response.get("cache_status"),
             "provider_status": passport_response.get("provider_status"),
+            "provider_refresh": passport_response.get("provider_refresh"),
             "matches": matched_rules,
             "next_actions": [
                 "Open the official destination source before booking or paying anyone.",
