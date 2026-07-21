@@ -5,7 +5,16 @@ from typing import Any, Dict, List
 
 from flask import Blueprint, jsonify, request
 
-from app.routes.visa_power import PASSPORT_INDEX_RECORDS, _passport_options, _passport_record
+from app.routes.visa_power import (
+    PASSPORT_INDEX_RECORDS,
+    _clean_visa_codes,
+    _combined_score,
+    _destination_count,
+    _matched_rules,
+    _passport_options,
+    _passport_record,
+    _visa_benefit_score,
+)
 from app.services.passport_index_provider import (
     ACCESS_LABELS,
     clean_text,
@@ -232,3 +241,45 @@ def passport_index_check_live():
     payload = request.get_json(silent=True) or {}
     passport_country = clean_text(payload.get("passport_country"), 120)
     return jsonify(_build_public_passport_response(passport_country))
+
+
+@bp.post("/check")
+def visa_power_check_live():
+    payload = request.get_json(silent=True) or {}
+    passport_country = clean_text(payload.get("passport_country"), 120)
+    held_visas = _clean_visa_codes(payload.get("held_visas"))
+    multiple_entry_confirmed = bool(payload.get("multiple_entry_confirmed"))
+    visa_used_before_confirmed = bool(payload.get("visa_used_before_confirmed"))
+
+    passport_response = _build_public_passport_response(passport_country)
+    passport_record = passport_response.get("passport_index") or _passport_record(passport_country)
+    matched_rules = _matched_rules(held_visas, multiple_entry_confirmed, visa_used_before_confirmed)
+    visa_score = _visa_benefit_score(matched_rules, held_visas)
+    passport_score = int(passport_record.get("passport_opportunity_score") or 0)
+    combined_score = _combined_score(passport_record, matched_rules, held_visas)
+
+    return jsonify(
+        {
+            "ok": True,
+            "feature": "visa_power_and_travel_benefits_provider_ready",
+            "passport_country": passport_record.get("country"),
+            "held_visas": held_visas,
+            "multiple_entry_confirmed": multiple_entry_confirmed,
+            "visa_used_before_confirmed": visa_used_before_confirmed,
+            "passport_only_score": passport_score,
+            "visa_opportunity_score": visa_score,
+            "combined_opportunity_score": combined_score,
+            "matched_destination_count": _destination_count(matched_rules),
+            "passport_index": passport_record,
+            "cache_status": passport_response.get("cache_status"),
+            "provider_status": passport_response.get("provider_status"),
+            "matches": matched_rules,
+            "next_actions": [
+                "Open the official destination source before booking or paying anyone.",
+                "Check passport validity, blank pages, funds, return ticket, and accommodation evidence.",
+                "Confirm visa conditions such as multiple-entry, previous use, remaining validity, and travel purpose.",
+                "Save this route or create an alert if you want MoveReady to remind you to re-check later.",
+            ],
+            "safety_note": "This result is not permission to travel. Entry depends on current official rules, airline checks, border officers, document validity, travel purpose, funds, ticket, and personal history.",
+        }
+    )
