@@ -2,8 +2,9 @@ name: MoveReady Passport Index Sync
 
 on:
   schedule:
-    # Twice weekly provider refresh: Tuesday and Friday at 06:00 UTC.
-    - cron: "0 6 * * 2,5"
+    # Launch mode: one weekly provider-cache refresh every Friday at 06:00 UTC.
+    # After production traffic starts, change this back to Tuesday and Friday: "0 6 * * 2,5".
+    - cron: "0 6 * * 5"
   workflow_dispatch:
 
 jobs:
@@ -14,9 +15,11 @@ jobs:
         env:
           MOVEREADY_API_BASE: ${{ secrets.MOVEREADY_API_BASE }}
           MOVEREADY_ADMIN_API_KEY: ${{ secrets.MOVEREADY_ADMIN_API_KEY }}
+          MOVEREADY_PASSPORT_SYNC_COUNTRY: ${{ secrets.MOVEREADY_PASSPORT_SYNC_COUNTRY }}
         run: |
           set -euo pipefail
           API_BASE="${MOVEREADY_API_BASE:-https://moveready-mvp-production.up.railway.app}"
+          PASSPORT_COUNTRY="${MOVEREADY_PASSPORT_SYNC_COUNTRY:-Nigeria}"
           if [ -z "${MOVEREADY_ADMIN_API_KEY:-}" ]; then
             echo "MOVEREADY_ADMIN_API_KEY secret is required for passport sync."
             exit 1
@@ -25,5 +28,5 @@ jobs:
             --request POST \
             --header "Content-Type: application/json" \
             --header "X-MoveReady-Admin-Key: ${MOVEREADY_ADMIN_API_KEY}" \
-            --data '{"source":"github_actions_twice_weekly"}' \
+            --data "{\"source\":\"github_actions_weekly_launch\",\"passport_country\":\"${PASSPORT_COUNTRY}\"}" \
             "${API_BASE%/}/api/visa-power/provider/sync"
