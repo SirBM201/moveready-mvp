@@ -22,6 +22,8 @@ Implemented foundation:
 - Official opportunities endpoint for lotteries, ballots, invitation pools, caps, and quotas
 - Watchlist subscription endpoint for routes, opportunities, scholarships, countries, and services
 - Visa Power API for passport-index and existing-visa travel-benefit checks
+- Provider-ready Passport Index cache with twice-weekly sync design
+- Passport rating, passport opportunity score, access buckets, source status, and last-synced fields
 - User relocation profile endpoint with readiness snapshot storage
 - Account email OTP and session-token foundation
 - Authenticated account summary endpoint
@@ -44,7 +46,7 @@ Help users compare realistic relocation pathways, understand document and proof-
 
 AI is not the source of truth.
 
-Approved source records, route versions, visa-benefit rules, and admin-reviewed facts are the source of truth. AI may explain those facts, summarize them, and generate reports, but sensitive answers must be tied to approved source versions and freshness rules.
+Approved source records, route versions, visa-benefit rules, passport provider cache records, and admin-reviewed facts are the source of truth. AI may explain those facts, summarize them, and generate reports, but sensitive answers must be tied to approved source versions and freshness rules.
 
 ## Platform Direction
 
@@ -61,7 +63,36 @@ See `docs/API_ROUTES.md`, `docs/VISA_POWER_API.md`, and `docs/ADMIN_GENERATED_RE
 Visa Power endpoints now include:
 
 - `GET /api/visa-power/options`
+- `GET /api/visa-power/provider/status`
+- `POST /api/visa-power/provider/sync`
+- `GET /api/visa-power/passport-index/options`
+- `POST /api/visa-power/passport-index/check`
 - `POST /api/visa-power/check`
+
+## Passport Provider Cache
+
+MoveReady is provider-ready without forcing paid API calls on every user click.
+
+Recommended launch behaviour:
+
+1. A twice-weekly scheduled job calls `POST /api/visa-power/provider/sync`.
+2. The backend fetches passport access data from the configured provider.
+3. The backend stores the provider payload, normalized passport rating, country access buckets, source fields, and sync timestamps in Supabase.
+4. Public users click **Check my passport** and read cached results immediately.
+5. If no provider is configured yet, MoveReady safely falls back to starter guidance and clearly labels it as starter/pending review.
+
+Required provider environment variables when a paid/free provider is selected:
+
+- `PASSPORT_INDEX_PROVIDER_ENABLED=true`
+- `PASSPORT_INDEX_PROVIDER_NAME=Provider name`
+- `PASSPORT_INDEX_PROVIDER_URL=https://provider-endpoint.example/path/{country_key}`
+- `PASSPORT_INDEX_PROVIDER_KEY=provider-secret-key`
+- `PASSPORT_INDEX_PROVIDER_METHOD=GET` or `POST`
+
+GitHub Actions workflow `.github/workflows/passport-index-sync.yml` runs Tuesday and Friday at 06:00 UTC. Add repository secrets:
+
+- `MOVEREADY_ADMIN_API_KEY`
+- Optional: `MOVEREADY_API_BASE` if the Railway URL changes.
 
 ## Account and Login Design
 
@@ -98,9 +129,12 @@ Run these in order when ready:
 10. `supabase/migrations/020_account_workspace_repairs.sql`
 11. `supabase/migrations/022_report_account_fields_and_sections.sql`
 12. `sql/026_generated_reports_account_owner.sql`
+13. `supabase/migrations/027_passport_index_provider_cache.sql`
 
 Migration 020 keeps legacy `goal` profile schemas compatible with the current `main_goal` payload and creates the account timeline-events table used by Account Center summaries.
 
 Migration 022 adds direct generated-report account fields and syncs report sections from `report_payload.sections` into `relocation_report_sections`.
 
 SQL 026 backfills generated-report account ownership fields from stored input/report payloads and adds indexes for account report lookup.
+
+Migration 027 adds the provider-cache tables for passport ratings, destination access buckets, provider payloads, source review fields, and sync-run logs.
