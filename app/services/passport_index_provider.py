@@ -227,14 +227,15 @@ def normalize_destination_rows(provider_payload: Dict[str, Any]) -> List[Dict[st
         destination = _row_destination(row)
         if not destination:
             continue
-        bucket = normalize_access_bucket(row.get("access_bucket") or row.get("visa_requirement") or row.get("requirement") or row.get("access_type") or row.get("type") or row.get("primary_rule", {}).get("name") if isinstance(row.get("primary_rule"), dict) else row.get("access_bucket"))
+        primary_rule = row.get("primary_rule") if isinstance(row.get("primary_rule"), dict) else {}
+        secondary_rule = row.get("secondary_rule") if isinstance(row.get("secondary_rule"), dict) else {}
+        bucket_source = row.get("access_bucket") or row.get("visa_requirement") or row.get("requirement") or row.get("access_type") or row.get("type") or primary_rule.get("name")
+        bucket = normalize_access_bucket(bucket_source)
         key = (destination.lower(), bucket)
         if key in seen:
             continue
         seen.add(key)
 
-        primary_rule = row.get("primary_rule") if isinstance(row.get("primary_rule"), dict) else {}
-        secondary_rule = row.get("secondary_rule") if isinstance(row.get("secondary_rule"), dict) else {}
         output.append(
             {
                 "destination": destination,
