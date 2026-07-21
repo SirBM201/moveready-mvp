@@ -1,0 +1,29 @@
+name: MoveReady Passport Index Sync
+
+on:
+  schedule:
+    # Twice weekly provider refresh: Tuesday and Friday at 06:00 UTC.
+    - cron: "0 6 * * 2,5"
+  workflow_dispatch:
+
+jobs:
+  sync-passport-index:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call MoveReady passport provider sync endpoint
+        env:
+          MOVEREADY_API_BASE: ${{ secrets.MOVEREADY_API_BASE }}
+          MOVEREADY_ADMIN_API_KEY: ${{ secrets.MOVEREADY_ADMIN_API_KEY }}
+        run: |
+          set -euo pipefail
+          API_BASE="${MOVEREADY_API_BASE:-https://moveready-mvp-production.up.railway.app}"
+          if [ -z "${MOVEREADY_ADMIN_API_KEY:-}" ]; then
+            echo "MOVEREADY_ADMIN_API_KEY secret is required for passport sync."
+            exit 1
+          fi
+          curl --fail-with-body \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --header "X-MoveReady-Admin-Key: ${MOVEREADY_ADMIN_API_KEY}" \
+            --data '{"source":"github_actions_twice_weekly"}' \
+            "${API_BASE%/}/api/visa-power/provider/sync"
