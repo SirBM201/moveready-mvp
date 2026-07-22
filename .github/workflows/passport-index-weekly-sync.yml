@@ -98,7 +98,7 @@ jobs:
             -H "Content-Type: application/json" \
             -H "X-MoveReady-Admin-Key: ${ADMIN_KEY}" \
             --data-binary @request.json \
-            "${API_BASE%/}/api/visa-power/provider/sync" \
+            "${API_BASE%/}/api/visa-power/provider/scheduled-sync" \
             -o sync-result.json
 
           python - <<'PY'
@@ -114,7 +114,7 @@ jobs:
 
           if not payload.get("ok"):
               raise SystemExit(f"Provider sync returned ok=false: {payload}")
-          if status != "completed":
+          if status != "scheduled_sync_completed":
               raise SystemExit(f"Unexpected provider sync status: {status}")
           if errors:
               raise SystemExit(f"Provider sync completed with errors: {errors}")
