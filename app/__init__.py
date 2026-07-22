@@ -50,6 +50,7 @@ def create_app() -> Flask:
     apply_patch()
 
     from app.routes import account, account_auth, admin, admin_review_queue, health, opportunities, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, timeline, visa_power, watchlist
+    from app.routes.visa_power_safety import visa_power_check_safe
 
     app.register_blueprint(health.bp)
     app.register_blueprint(relocation_public.bp, url_prefix=f"{API_PREFIX}/relocation")
@@ -72,6 +73,10 @@ def create_app() -> Flask:
     app.register_blueprint(platform_modules.planned_bp, url_prefix=API_PREFIX)
     app.register_blueprint(admin.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(admin_review_queue.bp, url_prefix=f"{API_PREFIX}/admin")
+
+    # Keep the public /api/visa-power/check URL stable while replacing its
+    # original handler with the server-side refusal and visa-validity safety gate.
+    app.view_functions["passport_provider.visa_power_check_live"] = visa_power_check_safe
 
     @app.get("/")
     def root():
