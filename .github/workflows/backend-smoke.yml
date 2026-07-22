@@ -1,0 +1,103 @@
+name: Backend Smoke Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "requirements.txt"
+      - ".github/workflows/backend-smoke.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "requirements.txt"
+      - ".github/workflows/backend-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FLASK_ENV: development
+      ENV_MODE: development
+      SECRET_KEY: github-actions-smoke-test-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Compile Python files
+        run: python -m compileall -q app
+
+      - name: Import Flask app and verify routes
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          required = {
+              "/api/visa-power/provider/status",
+              "/api/visa-power/provider/sync",
+              "/api/visa-power/passport-index/check",
+              "/api/visa-power/passport-index/destination/status",
+              "/api/visa-power/passport-index/destination/check",
+              "/api/visa-power/provider/destination/test",
+          }
+          missing = sorted(required - routes)
+          if missing:
+              raise SystemExit(f"Missing required routes: {missing}")
+          print(f"Registered routes: {len(routes)}")
+          for route in sorted(required):
+              print(route)
+          PY
+
+      - name: Test TravelBuddy map normalization without network
+        run: |
+          python - <<'PY'
+          from app import create_app
+          from app.services.passport_index_provider import normalize_provider_payload
+
+          create_app()
+          payload = {
+              "data": {
+                  "passport": "NG",
+                  "colors": {
+                      "green": "GH,BJ",
+                      "blue": "KE,UG",
+                      "yellow": "SC",
+                      "red": "CA,NG",
+                  },
+              },
+              "meta": {
+                  "version": "2.0",
+                  "generated_at": "2026-07-23T00:00:00+00:00",
+              },
+          }
+          normalized = normalize_provider_payload("Nigeria", payload)
+          rows = normalized.get("destination_access_rows") or []
+          assert len(rows) == 6, rows
+          destinations = {row["destination"] for row in rows}
+          assert "Nigeria" not in destinations
+          assert "Ghana" in destinations
+          assert "Canada" in destinations
+          assert normalized["passport_index"]["visa_free_count"] == 2
+          assert normalized["passport_index"]["visa_required_count"] == 1
+          print("TravelBuddy map normalization smoke test passed.")
+          PY
