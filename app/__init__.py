@@ -45,6 +45,10 @@ def create_app() -> Flask:
 
     app.before_request(attach_verified_session_email_to_json)
 
+    from app.services.passport_index_provider_travelbuddy_patch import apply_patch
+
+    apply_patch()
+
     from app.routes import account, account_auth, admin, admin_review_queue, health, opportunities, partners, passport_provider, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, timeline, visa_power, watchlist
 
     app.register_blueprint(health.bp)
