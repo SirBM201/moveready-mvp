@@ -49,7 +49,7 @@ def create_app() -> Flask:
 
     apply_patch()
 
-    from app.routes import account, account_auth, admin, admin_review_queue, health, opportunities, partners, passport_provider, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, timeline, visa_power, watchlist
+    from app.routes import account, account_auth, admin, admin_review_queue, health, opportunities, partners, passport_destination_detail, passport_provider, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, timeline, visa_power, watchlist
 
     app.register_blueprint(health.bp)
     app.register_blueprint(relocation_public.bp, url_prefix=f"{API_PREFIX}/relocation")
@@ -66,6 +66,7 @@ def create_app() -> Flask:
     app.register_blueprint(account_auth.bp, url_prefix=f"{API_PREFIX}/auth")
     app.register_blueprint(account.bp, url_prefix=f"{API_PREFIX}/account")
     app.register_blueprint(passport_provider.bp, url_prefix=f"{API_PREFIX}/visa-power")
+    app.register_blueprint(passport_destination_detail.bp, url_prefix=f"{API_PREFIX}/visa-power")
     app.register_blueprint(visa_power.bp, url_prefix=f"{API_PREFIX}/visa-power")
     app.register_blueprint(platform_modules.planned_bp, url_prefix=API_PREFIX)
     app.register_blueprint(admin.bp, url_prefix=f"{API_PREFIX}/admin")
