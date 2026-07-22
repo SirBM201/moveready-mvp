@@ -75,7 +75,7 @@ def destination_detail_admin_test():
             destination,
             force_refresh=bool(payload.get("force_refresh", True)),
         )
-        return jsonify({"ok": True, "status": "destination_detail_test_success", **result})
+        return jsonify({**result, "ok": True, "test_status": "destination_detail_test_success"})
     except Exception as exc:
         return jsonify(
             {
