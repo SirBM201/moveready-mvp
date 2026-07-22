@@ -19,6 +19,7 @@ from app.services.passport_index_provider import (
     provider_status_payload,
     write_cache,
 )
+from app.services.supabase_client import get_supabase
 from app.utils.admin_auth import require_admin_access
 
 
@@ -44,12 +45,51 @@ def _configured_countries() -> List[str]:
     return output[:PASSPORT_INDEX_MAX_COUNTRIES_PER_SYNC]
 
 
+def _last_scheduled_sync_summary() -> Dict[str, Any] | None:
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_passport_provider_sync_runs")
+            .select("status,details,created_at")
+            .order("created_at", desc=True)
+            .limit(12)
+            .execute()
+        )
+        for row in response.data or []:
+            status = clean_text(row.get("status"), 100)
+            if not status.startswith("scheduled_sync_"):
+                continue
+            details = row.get("details") if isinstance(row.get("details"), dict) else {}
+            results = details.get("results") if isinstance(details.get("results"), list) else []
+            errors = details.get("errors") if isinstance(details.get("errors"), list) else []
+            countries = details.get("countries_requested") if isinstance(details.get("countries_requested"), list) else []
+            return {
+                "status": status,
+                "created_at": row.get("created_at"),
+                "countries_requested": countries,
+                "result_count": len(results),
+                "error_count": len(errors),
+                "row_counts": [
+                    {
+                        "country": item.get("country"),
+                        "row_count": int(item.get("row_count") or item.get("normalized_row_count") or 0),
+                    }
+                    for item in results
+                    if isinstance(item, dict)
+                ],
+            }
+    except Exception:
+        return None
+    return None
+
+
 def schedule_status_payload() -> Dict[str, Any]:
     return {
         "scheduled_countries": _configured_countries(),
         "max_countries_per_sync": PASSPORT_INDEX_MAX_COUNTRIES_PER_SYNC,
         "sync_weekdays": PASSPORT_INDEX_SYNC_WEEKDAYS,
         "next_sync_due_at": next_sync_due_iso(),
+        "last_scheduled_run": _last_scheduled_sync_summary(),
         "cost_guardrail": "The scheduled endpoint processes no more than the configured maximum number of passport countries per run.",
         "provider_status": provider_status_payload(),
     }
