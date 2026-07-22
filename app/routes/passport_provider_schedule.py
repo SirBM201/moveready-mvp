@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from flask import Blueprint, jsonify, request
@@ -8,13 +8,14 @@ from flask import Blueprint, jsonify, request
 from app.core.config import (
     PASSPORT_INDEX_MAX_COUNTRIES_PER_SYNC,
     PASSPORT_INDEX_SCHEDULED_COUNTRIES,
+    PASSPORT_INDEX_SYNC_HOUR_UTC,
+    PASSPORT_INDEX_SYNC_MINUTE_UTC,
     PASSPORT_INDEX_SYNC_WEEKDAYS,
 )
 from app.services.passport_index_provider import (
     clean_text,
     fetch_provider_payload,
     log_sync_run,
-    next_sync_due_iso,
     normalize_provider_payload,
     provider_status_payload,
     write_cache,
@@ -28,6 +29,50 @@ bp = Blueprint("passport_provider_schedule", __name__)
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _next_scheduled_run_iso(from_dt: datetime | None = None) -> str:
+    base = from_dt or datetime.now(timezone.utc)
+    if base.tzinfo is None:
+        base = base.replace(tzinfo=timezone.utc)
+    else:
+        base = base.astimezone(timezone.utc)
+
+    configured = [
+        item.strip().upper()
+        for item in (PASSPORT_INDEX_SYNC_WEEKDAYS or "FRI").split(",")
+        if item.strip()
+    ]
+    weekday_map = {
+        "MON": 0,
+        "TUE": 1,
+        "WED": 2,
+        "THU": 3,
+        "FRI": 4,
+        "SAT": 5,
+        "SUN": 6,
+    }
+    target_days = sorted({weekday_map[item] for item in configured if item in weekday_map}) or [4]
+
+    for offset in range(0, 8):
+        candidate_date = (base + timedelta(days=offset)).date()
+        candidate = datetime(
+            candidate_date.year,
+            candidate_date.month,
+            candidate_date.day,
+            PASSPORT_INDEX_SYNC_HOUR_UTC,
+            PASSPORT_INDEX_SYNC_MINUTE_UTC,
+            tzinfo=timezone.utc,
+        )
+        if candidate.weekday() in target_days and candidate > base:
+            return candidate.isoformat()
+
+    return (base + timedelta(days=7)).replace(
+        hour=PASSPORT_INDEX_SYNC_HOUR_UTC,
+        minute=PASSPORT_INDEX_SYNC_MINUTE_UTC,
+        second=0,
+        microsecond=0,
+    ).isoformat()
 
 
 def _safe_error(exc: Exception) -> str:
@@ -88,7 +133,9 @@ def schedule_status_payload() -> Dict[str, Any]:
         "scheduled_countries": _configured_countries(),
         "max_countries_per_sync": PASSPORT_INDEX_MAX_COUNTRIES_PER_SYNC,
         "sync_weekdays": PASSPORT_INDEX_SYNC_WEEKDAYS,
-        "next_sync_due_at": next_sync_due_iso(),
+        "sync_hour_utc": PASSPORT_INDEX_SYNC_HOUR_UTC,
+        "sync_minute_utc": PASSPORT_INDEX_SYNC_MINUTE_UTC,
+        "next_sync_due_at": _next_scheduled_run_iso(),
         "last_scheduled_run": _last_scheduled_sync_summary(),
         "cost_guardrail": "The scheduled endpoint processes no more than the configured maximum number of passport countries per run.",
         "provider_status": provider_status_payload(),
@@ -145,7 +192,7 @@ def scheduled_provider_sync():
         "results": results,
         "errors": errors,
         "synced_at": _now_iso(),
-        "next_sync_due_at": next_sync_due_iso(),
+        "next_sync_due_at": _next_scheduled_run_iso(),
         "max_countries_per_sync": PASSPORT_INDEX_MAX_COUNTRIES_PER_SYNC,
     }
     log_sync_run(run_status, details)
