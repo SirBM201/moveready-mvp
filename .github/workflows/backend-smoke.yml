@@ -63,6 +63,7 @@ jobs:
               "/api/visa-power/passport-index/destination/status",
               "/api/visa-power/passport-index/destination/check",
               "/api/visa-power/provider/destination/test",
+              "/api/visa-power/check",
           }
           missing = sorted(required - routes)
           if missing:
@@ -86,6 +87,49 @@ jobs:
           assert payload["scheduled_countries"] == ["Nigeria"], payload
           assert payload["max_countries_per_sync"] == 1, payload
           print("Scheduled-sync cost guard smoke test passed.")
+          PY
+
+      - name: Test server-side Visa Power safety gate
+        run: |
+          python - <<'PY'
+          from app import create_app
+          import app.routes.visa_power_safety as safety
+
+          safety._build_public_passport_response = lambda country: {
+              "passport_index": {
+                  "country": country,
+                  "passport_opportunity_score": 40,
+                  "passport_strength_band": "provider_cache",
+              },
+              "cache_status": {"data_source": "provider_cache"},
+              "provider_status": {"ready_to_sync": True},
+              "provider_refresh": {"status": "cache_fresh"},
+          }
+
+          app = create_app()
+          client = app.test_client()
+          response = client.post(
+              "/api/visa-power/check",
+              json={
+                  "passport_country": "Nigeria",
+                  "held_visas": ["canada_visitor"],
+                  "multiple_entry_confirmed": True,
+                  "visa_used_before_confirmed": False,
+                  "prior_entry_refusal_declared": True,
+                  "visa_cancelled_or_revoked_declared": True,
+              },
+          )
+          assert response.status_code == 200, response.get_data(as_text=True)
+          payload = response.get_json()
+          assert payload["feature"].endswith("safety_gate"), payload
+          assert payload["eligibility_gate"]["status"] == "blocked_pending_validity_confirmation", payload
+          assert payload["usable_held_visas"] == [], payload
+          assert payload["blocked_visa_codes"] == ["canada_visitor"], payload
+          assert payload["matched_destination_count"] == 0, payload
+          assert payload["visa_opportunity_score"] == 0, payload
+          assert payload["combined_opportunity_score"] == 40, payload
+          assert len(payload["travel_history_warnings"]) >= 2, payload
+          print("Visa Power safety gate smoke test passed.")
           PY
 
       - name: Test TravelBuddy map normalization without network
