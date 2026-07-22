@@ -204,7 +204,54 @@ def _patched_read_cached_destination_rows(country: str) -> List[Dict[str, Any]]:
             row["access_label"] = "eTA / visa-waiver registration"
         elif "visa required, online visa required, or not admitted" in access_type:
             row["access_label"] = "Visa required / restricted"
+        elif "evisa" in access_type or "eta" in access_type:
+            row["access_label"] = "eVisa / ETA"
+        elif "arrival" in access_type:
+            row["access_label"] = "Visa on arrival"
+        elif "free" in access_type or "freedom" in access_type:
+            row["access_label"] = "Visa-free"
     return rows
+
+
+def _existing_destination_details(passport_country: str) -> Dict[str, Dict[str, Any]]:
+    """Read destination-detail caches before the weekly map rows are replaced."""
+    try:
+        response = (
+            provider.get_supabase()
+            .table("relocation_passport_destination_access")
+            .select("destination,provider_payload")
+            .eq("country_key", provider.country_key(passport_country))
+            .execute()
+        )
+    except Exception:
+        return {}
+
+    output: Dict[str, Dict[str, Any]] = {}
+    for row in response.data or []:
+        destination = provider.clean_text(row.get("destination"), 180).lower()
+        provider_payload = row.get("provider_payload")
+        if not destination or not isinstance(provider_payload, dict):
+            continue
+        detail = provider_payload.get("destination_detail")
+        if isinstance(detail, dict):
+            output[destination] = detail
+    return output
+
+
+def _preserve_destination_details(passport_country: str, rows: List[Dict[str, Any]]) -> None:
+    existing = _existing_destination_details(passport_country)
+    if not existing:
+        return
+
+    for row in rows:
+        destination = provider.clean_text(row.get("destination"), 180).lower()
+        detail = existing.get(destination)
+        if not detail:
+            continue
+        row_payload = row.get("provider_payload")
+        merged_payload = dict(row_payload) if isinstance(row_payload, dict) else {}
+        merged_payload["destination_detail"] = detail
+        row["provider_payload"] = merged_payload
 
 
 def _patched_write_cache(
@@ -217,6 +264,12 @@ def _patched_write_cache(
         raise RuntimeError(
             "passport_provider_zero_rows_cache_write_blocked: provider returned data but no destination rows were normalized"
         )
+
+    _preserve_destination_details(passport_country, rows)
+    normalized["destination_access_rows"] = rows
+    passport_index = dict(normalized.get("passport_index") or {})
+    passport_index["destination_access_rows"] = rows
+    normalized["passport_index"] = passport_index
     return _ORIGINAL_WRITE_CACHE(passport_country, normalized, provider_payload)
 
 
