@@ -2,14 +2,14 @@ name: Passport Index Weekly Sync
 
 on:
   schedule:
-    # Fridays at 06:17 UTC. The offset avoids the busiest top-of-hour window.
+    # Fridays at 06:17 UTC. Launch mode makes one map-provider call for Nigeria.
     - cron: "17 6 * * 5"
   workflow_dispatch:
     inputs:
       passport_country:
-        description: "Optional single passport country. Leave blank to sync every configured passport."
+        description: "Passport country to sync. Launch default is Nigeria so each run uses one map API call."
         required: false
-        default: ""
+        default: "Nigeria"
 
 concurrency:
   group: passport-index-weekly-sync
@@ -25,7 +25,7 @@ jobs:
     env:
       API_BASE: ${{ vars.MOVEREADY_API_BASE || 'https://moveready-mvp-production.up.railway.app' }}
       ADMIN_KEY: ${{ secrets.MOVEREADY_ADMIN_KEY }}
-      REQUESTED_COUNTRY: ${{ github.event.inputs.passport_country || '' }}
+      REQUESTED_COUNTRY: ${{ github.event.inputs.passport_country || 'Nigeria' }}
 
     steps:
       - name: Validate configuration
@@ -38,6 +38,10 @@ jobs:
           fi
           if [ -z "${API_BASE}" ]; then
             echo "MOVEREADY_API_BASE is empty."
+            exit 1
+          fi
+          if [ -z "${REQUESTED_COUNTRY}" ]; then
+            echo "A single passport country is required."
             exit 1
           fi
 
@@ -67,7 +71,7 @@ jobs:
           print(json.dumps(payload, indent=2, sort_keys=True))
           PY
 
-      - name: Run protected provider sync
+      - name: Run protected one-passport provider sync
         shell: bash
         run: |
           set -euo pipefail
@@ -76,8 +80,8 @@ jobs:
           import json
           import os
 
-          country = os.getenv("REQUESTED_COUNTRY", "").strip()
-          print(json.dumps({"passport_country": country} if country else {}))
+          country = os.environ["REQUESTED_COUNTRY"].strip()
+          print(json.dumps({"passport_country": country}))
           PY
 
           curl \
@@ -110,22 +114,19 @@ jobs:
 
           if not payload.get("ok"):
               raise SystemExit(f"Provider sync returned ok=false: {payload}")
-          if status not in {"completed", "completed_with_errors"}:
+          if status != "completed":
               raise SystemExit(f"Unexpected provider sync status: {status}")
           if errors:
               raise SystemExit(f"Provider sync completed with errors: {errors}")
-          if not results:
-              raise SystemExit("Provider sync returned no country results.")
+          if len(results) != 1:
+              raise SystemExit(f"Expected exactly one passport sync result, received {len(results)}")
 
-          zero_rows = [
-              item.get("country")
-              for item in results
-              if int(item.get("row_count") or item.get("normalized_row_count") or 0) <= 0
-          ]
-          if zero_rows:
-              raise SystemExit(f"Provider sync produced zero rows for: {zero_rows}")
+          item = results[0]
+          row_count = int(item.get("row_count") or item.get("normalized_row_count") or 0)
+          if row_count <= 0:
+              raise SystemExit(f"Provider sync produced zero rows: {item}")
 
-          print(f"Successful passport syncs: {len(results)}")
+          print(f"Successful passport sync: {item.get('country')} ({row_count} rows)")
           PY
 
       - name: Publish job summary
@@ -136,13 +137,10 @@ jobs:
             echo "## MoveReady Passport Index Weekly Sync"
             echo
             echo "- Schedule: Fridays at 06:17 UTC"
+            echo "- Cost guardrail: one map-provider call per scheduled run"
             echo "- API base: ${API_BASE}"
             echo "- Trigger: ${{ github.event_name }}"
-            if [ -n "${REQUESTED_COUNTRY}" ]; then
-              echo "- Requested passport: ${REQUESTED_COUNTRY}"
-            else
-              echo "- Requested passports: all configured starter passports"
-            fi
+            echo "- Requested passport: ${REQUESTED_COUNTRY}"
             if [ -f sync-result.json ]; then
               echo
               echo '```json'
