@@ -5,27 +5,48 @@
 MoveReady uses two provider layers:
 
 1. **Weekly passport map overview**
-   - Endpoint: `POST /v2/visa/map`
+   - Provider endpoint: `POST /v2/visa/map`
+   - MoveReady endpoint: `POST /api/visa-power/provider/scheduled-sync`
    - Stored in:
      - `relocation_passport_index_cache`
      - `relocation_passport_destination_access`
    - Scheduled by `.github/workflows/passport-index-weekly-sync.yml`
    - Default schedule: Friday at 06:17 UTC
-   - The workflow syncs every passport configured in `PASSPORT_INDEX_RECORDS` when no country is supplied.
+   - Launch default: Nigeria only
+   - Launch provider cost: one map request per scheduled run
 
 2. **Destination-specific detail**
-   - Endpoint: `POST /v2/visa/check`
+   - Provider endpoint: `POST /v2/visa/check`
    - MoveReady calls it only when a user opens a destination's detailed rule.
    - The normalized result is stored inside that destination row's `provider_payload.destination_detail` object.
    - Default detail cache: seven days.
    - Weekly map replacement preserves existing destination-detail caches.
+
+## Cost controls
+
+The production defaults are:
+
+```env
+PASSPORT_INDEX_SYNC_WEEKDAYS=FRI
+PASSPORT_INDEX_SCHEDULED_COUNTRIES=Nigeria
+PASSPORT_INDEX_MAX_COUNTRIES_PER_SYNC=1
+PASSPORT_INDEX_CACHE_MAX_DAYS=7
+PASSPORT_INDEX_DETAIL_CACHE_MAX_DAYS=7
+```
+
+The protected scheduled-sync endpoint limits each run to the configured maximum number of passports. During launch, this means one weekly Nigeria map call.
+
+Normal Passport Index page views read Supabase and do not call RapidAPI while the overview cache is fresh. Destination detail requests are made only when a user opens a destination whose detail cache is missing or stale.
 
 ## Safety controls
 
 - A provider response that normalizes to zero rows cannot overwrite the destination cache.
 - Blue, yellow, and red map categories remain labelled as combined provider categories until a destination-specific check is completed.
 - Detailed rules keep the provider-generated timestamp, primary rule, secondary rule, exception rule, mandatory registration, stay duration, passport-validity requirement, and supplied source link.
-- All public responses retain a warning to confirm destination government, embassy or consulate, airline document checker, and current entry conditions.
+- Weekly map replacement preserves fresh destination-detail records.
+- Visa Power blocks benefits when the user declares that a selected visa may be cancelled or revoked.
+- A prior refusal or denied admission triggers additional personal-history warnings and is not treated as successful previous use.
+- All public responses retain a warning to confirm destination government, embassy or consulate, airline document checker, visa validity, and current entry conditions.
 
 ## Required one-time GitHub Actions configuration
 
@@ -39,7 +60,7 @@ In the backend repository settings:
    - Name: `MOVEREADY_API_BASE`
    - Value: `https://moveready-mvp-production.up.railway.app`
 
-The API base variable is optional because the workflow already uses that production URL as its default.
+The API base variable is optional because the workflow already uses the production URL as its default.
 
 Never put the admin key in a repository variable, workflow file, issue, commit, or chat message.
 
@@ -48,8 +69,9 @@ Never put the admin key in a repository variable, workflow file, issue, commit, 
 1. Open the backend repository's **Actions** tab.
 2. Select **Passport Index Weekly Sync**.
 3. Choose **Run workflow**.
-4. Leave `passport_country` empty to sync all configured passports, or enter `Nigeria` for a one-country verification.
-5. Confirm all steps are green and the job summary shows non-zero rows with no errors.
+4. Leave the default `Nigeria` value for the launch verification.
+5. Confirm all steps are green.
+6. Confirm the job summary shows exactly one country result, non-zero rows, and no errors.
 
 ## API verification commands
 
@@ -61,6 +83,23 @@ Invoke-RestMethod `
   -Uri "https://moveready-mvp-production.up.railway.app/api/visa-power/provider/status" |
   ConvertTo-Json -Depth 20
 ```
+
+### Scheduled-sync status
+
+```powershell
+Invoke-RestMethod `
+  -Method Get `
+  -Uri "https://moveready-mvp-production.up.railway.app/api/visa-power/provider/schedule/status" |
+  ConvertTo-Json -Depth 30
+```
+
+Expected launch markers include:
+
+- `scheduled_countries: ["Nigeria"]`
+- `max_countries_per_sync: 1`
+- `sync_weekdays: FRI`
+- `next_sync_due_at`
+- `last_scheduled_run` after the first workflow run
 
 ### Destination-detail status
 
@@ -119,17 +158,12 @@ Invoke-RestMethod `
 
 The first successful uncached request should return `detail_cache_refreshed`. The second should return `detail_cache_hit`, confirming that another RapidAPI request was not needed.
 
-## Quota strategy
-
-- Weekly map sync of seven starter passports uses about seven provider requests per week.
-- Destination details are requested only for destinations users actually open.
-- Each passport-destination detail is cached for seven days.
-- Normal Passport Index page views read Supabase and do not call RapidAPI while the overview cache is fresh.
-
 ## Failure handling
 
 - GitHub Actions fails if the admin secret is missing.
 - The workflow retries while Railway wakes from an idle state.
-- The workflow fails if the API reports errors, returns no results, or writes zero rows.
+- The workflow fails if the API reports errors, returns anything other than one country result, or writes zero rows.
+- The backend endpoint also enforces the configured per-run passport limit.
 - Existing destination details are retained across weekly map refreshes.
-- Provider failures are logged in `relocation_passport_provider_sync_runs` where available.
+- Scheduled results are logged in `relocation_passport_provider_sync_runs`.
+- The public schedule-status endpoint exposes only a sanitized last-run summary and never exposes provider or admin secrets.
