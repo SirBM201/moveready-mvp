@@ -28,6 +28,8 @@ jobs:
       SUPABASE_URL: https://example.supabase.co
       SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
       PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+      PASSPORT_INDEX_SCHEDULED_COUNTRIES: Nigeria
+      PASSPORT_INDEX_MAX_COUNTRIES_PER_SYNC: "1"
 
     steps:
       - name: Checkout
@@ -55,6 +57,8 @@ jobs:
           required = {
               "/api/visa-power/provider/status",
               "/api/visa-power/provider/sync",
+              "/api/visa-power/provider/schedule/status",
+              "/api/visa-power/provider/scheduled-sync",
               "/api/visa-power/passport-index/check",
               "/api/visa-power/passport-index/destination/status",
               "/api/visa-power/passport-index/destination/check",
@@ -66,6 +70,22 @@ jobs:
           print(f"Registered routes: {len(routes)}")
           for route in sorted(required):
               print(route)
+          PY
+
+      - name: Test scheduled-sync status cost guard
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          client = app.test_client()
+          response = client.get("/api/visa-power/provider/schedule/status")
+          assert response.status_code == 200, response.get_data(as_text=True)
+          payload = response.get_json()
+          assert payload["ok"] is True
+          assert payload["scheduled_countries"] == ["Nigeria"], payload
+          assert payload["max_countries_per_sync"] == 1, payload
+          print("Scheduled-sync cost guard smoke test passed.")
           PY
 
       - name: Test TravelBuddy map normalization without network
