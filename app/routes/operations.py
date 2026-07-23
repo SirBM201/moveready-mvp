@@ -167,35 +167,38 @@ def _operational_assessment(checks: List[Dict[str, Any]], configuration: Dict[st
     blockers: List[str] = []
     controlled: List[str] = []
 
-    if not configuration["supabase_configured"]:
+    if not configuration.get("supabase_configured"):
         blockers.append("Supabase credentials are not configured.")
-    if not configuration["admin_key_configured"]:
+    if not configuration.get("admin_key_configured"):
         blockers.append("MoveReady admin API key is not configured.")
     for item in critical_missing:
         blockers.append(f"Required schema is unavailable for {item['required_for']}: run {item['migration']}.")
     for item in optional_missing:
         controlled.append(f"Feature remains fail-closed for {item['required_for']}: run {item['migration']}.")
 
-    if configuration["email_otp_delivery_enabled"] and not configuration["email_otp_delivery_configured"]:
+    email_enabled = bool(configuration.get("email_otp_delivery_enabled"))
+    email_configured = bool(configuration.get("email_otp_delivery_configured"))
+    if email_enabled and not email_configured:
+        missing = configuration.get("email_otp_missing_configuration") or []
         blockers.append(
             "OTP email delivery is enabled but incomplete. Missing configuration: "
-            + ", ".join(configuration["email_otp_missing_configuration"])
+            + (", ".join(missing) if missing else "provider credentials or sender")
             + "."
         )
-    elif not configuration["email_otp_delivery_enabled"]:
+    elif not email_enabled:
         controlled.append("Production email OTP delivery is disabled; verified public account login must remain in controlled rollout.")
 
-    if configuration["otp_dev_mode_requested"] and config.ENV_MODE.lower() != "development":
+    if configuration.get("otp_dev_mode_requested") and config.ENV_MODE.lower() != "development":
         blockers.append("AUTH_OTP_DEV_MODE is set outside development. Remove it from production configuration.")
-    if configuration["passport_provider_enabled"] and not configuration["passport_provider_credentials_present"]:
+    if configuration.get("passport_provider_enabled") and not configuration.get("passport_provider_credentials_present"):
         controlled.append("Passport provider is enabled without a complete provider URL and key; provider sync remains unavailable.")
-    if configuration["payment_links_enabled"] and not configuration["commercial_quotes_enabled"]:
+    if configuration.get("payment_links_enabled") and not configuration.get("commercial_quotes_enabled"):
         blockers.append("Payment links cannot be enabled while commercial quotes are disabled.")
-    if not configuration["payment_links_enabled"]:
+    if not configuration.get("payment_links_enabled"):
         controlled.append("Checkout links are disabled; quote acceptance and manual verified payment records remain separate.")
-    if not configuration["opportunity_alerts_enabled"]:
+    if not configuration.get("opportunity_alerts_enabled"):
         controlled.append("External email opportunity alerts are disabled; verified in-app alerts remain available.")
-    if not configuration["whatsapp_alerts_enabled"]:
+    if not configuration.get("whatsapp_alerts_enabled"):
         controlled.append("WhatsApp alerts are disabled until credentials, templates, opt-in, and delivery audit are approved.")
 
     if blockers:
@@ -225,14 +228,14 @@ def public_operations_status():
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "public_capabilities": {
                 "verified_email_login": bool(
-                    configuration["email_otp_delivery_enabled"]
-                    and configuration["email_otp_delivery_configured"]
+                    configuration.get("email_otp_delivery_enabled")
+                    and configuration.get("email_otp_delivery_configured")
                 ),
-                "commercial_quote_requests": configuration["commercial_quotes_enabled"],
-                "online_checkout": configuration["payment_links_enabled"],
+                "commercial_quote_requests": bool(configuration.get("commercial_quotes_enabled")),
+                "online_checkout": bool(configuration.get("payment_links_enabled")),
                 "in_app_alerts": True,
-                "external_email_alerts": configuration["opportunity_alerts_enabled"],
-                "whatsapp_alerts": configuration["whatsapp_alerts_enabled"],
+                "external_email_alerts": bool(configuration.get("opportunity_alerts_enabled")),
+                "whatsapp_alerts": bool(configuration.get("whatsapp_alerts_enabled")),
                 "provider_publication": "fail_closed_until_schema_and_admin_review_pass",
                 "provider_handoffs": "consent_required_and_fail_closed_until_schema_passes",
             },
