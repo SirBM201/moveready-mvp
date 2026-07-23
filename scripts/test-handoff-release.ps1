@@ -78,11 +78,12 @@ Write-Host "`n=== 1. PUBLIC OPERATIONS STATUS ===" -ForegroundColor Cyan
 $Operations = Invoke-MoveReadyJson -Method GET -Path "/api/operations/status"
 $Operations | ConvertTo-Json -Depth 30
 Assert-True -Condition ($Operations.ok -eq $true) -Message "Operations status returned ok=false."
-Assert-True -Condition ($Operations.public_capabilities.provider_handoff -like "fail_closed*") -Message "Provider handoff is not marked fail-closed."
-Assert-True -Condition ($Operations.public_capabilities.support_cases -eq "verified_account_only_after_migration_025") -Message "Support-case access status is incorrect."
+Assert-True -Condition ($Operations.public_capabilities.provider_handoffs -like "consent_required*") -Message "Provider handoffs are not marked consent-controlled and fail-closed."
+Assert-True -Condition ($Operations.public_capabilities.provider_publication -eq "fail_closed_until_schema_and_admin_review_pass") -Message "Provider publication is not marked fail-closed."
 
 Write-Host "`n=== 2. PRIVATE HANDOFF ENDPOINTS ===" -ForegroundColor Cyan
 Assert-Unauthorized -Method GET -Path "/api/handoffs"
+Assert-Unauthorized -Method GET -Path "/api/service-handoffs"
 Assert-Unauthorized -Method GET -Path "/api/handoffs/support-cases"
 Assert-Unauthorized -Method POST -Path "/api/handoffs/MRH-TEST/consent" -Body @{
     confirm_share = $true
@@ -92,7 +93,7 @@ Assert-Unauthorized -Method POST -Path "/api/handoffs/MRH-TEST/consent" -Body @{
     no_unlisted_documents_understood = $true
 }
 Assert-Unauthorized -Method POST -Path "/api/handoffs/MRH-TEST/decline" -Body @{ reason = "Release test" }
-Write-Host "Verified-account handoff endpoints reject anonymous requests." -ForegroundColor Green
+Write-Host "Verified-account handoff endpoints and compatibility alias reject anonymous requests." -ForegroundColor Green
 
 Write-Host "`n=== 3. PROTECTED ADMIN HANDOFF ENDPOINTS ===" -ForegroundColor Cyan
 Assert-Unauthorized -Method GET -Path "/api/admin/service-handoffs"
@@ -110,5 +111,5 @@ Assert-True -Condition ($Providers.ok -eq $true) -Message "Provider directory sh
 Assert-True -Condition (@("publication_controls_active", "publication_controls_pending_or_unavailable") -contains $Providers.source_status) -Message "Unexpected provider publication source status."
 
 Write-Host "`n=== HANDOFF AND SUPPORT RELEASE TEST PASSED ===" -ForegroundColor Green
-Write-Host "Public operations status, account protection, admin protection, and provider publication behavior are responding correctly."
-Write-Host "Apply migration 025 before testing real handoff creation, exact-field consent, delivery references, complaints, refunds, disputes, or case resolution."
+Write-Host "Public operations status, account protection, admin protection, handoff aliases, and provider publication behavior are responding correctly."
+Write-Host "Apply migrations 025 and 026 before testing real handoff creation, exact-field consent, delivery references, complaints, refunds, disputes, or terminal case resolution."
