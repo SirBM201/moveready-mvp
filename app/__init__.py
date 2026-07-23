@@ -49,7 +49,7 @@ def create_app() -> Flask:
 
     apply_patch()
 
-    from app.routes import account, account_auth, admin, admin_review_queue, billing, billing_admin, education_planner, health, journey_planner, opportunities, operations, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, service_handoffs, timeline, travel_planner, visa_power, watchlist
+    from app.routes import account, account_auth, admin, admin_review_queue, billing, billing_admin, education_planner, health, journey_planner, opportunities, operations, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, service_handoff_safety, service_handoffs, timeline, travel_planner, visa_power, watchlist
     from app.routes.visa_power_safety import visa_power_check_safe
     from app.services.journey_module_patch import apply_journey_module_patch
     from app.services.travel_provider_publication import apply_travel_provider_publication_patch
@@ -76,7 +76,16 @@ def create_app() -> Flask:
     app.register_blueprint(profiles.bp, url_prefix=f"{API_PREFIX}/profiles")
     app.register_blueprint(account_auth.bp, url_prefix=f"{API_PREFIX}/auth")
     app.register_blueprint(account.bp, url_prefix=f"{API_PREFIX}/account")
-    app.register_blueprint(service_handoffs.user_bp, url_prefix=f"{API_PREFIX}/service-handoffs")
+
+    # `/api/handoffs` is the established frontend contract. The more explicit
+    # `/api/service-handoffs` path is retained as a compatibility alias.
+    app.register_blueprint(service_handoffs.user_bp, url_prefix=f"{API_PREFIX}/handoffs")
+    app.register_blueprint(
+        service_handoffs.user_bp,
+        url_prefix=f"{API_PREFIX}/service-handoffs",
+        name="service_handoffs_alias",
+    )
+
     app.register_blueprint(passport_provider.bp, url_prefix=f"{API_PREFIX}/visa-power")
     app.register_blueprint(passport_provider_schedule.bp, url_prefix=f"{API_PREFIX}/visa-power")
     app.register_blueprint(passport_destination_detail.bp, url_prefix=f"{API_PREFIX}/visa-power")
@@ -88,9 +97,10 @@ def create_app() -> Flask:
     app.register_blueprint(service_handoffs.admin_bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(operations.admin_bp, url_prefix=f"{API_PREFIX}/admin")
 
-    # Keep the public /api/visa-power/check URL stable while replacing its
-    # original handler with the server-side refusal and visa-validity safety gate.
+    # Keep stable URLs while replacing legacy handlers with stricter safety gates.
     app.view_functions["passport_provider.visa_power_check_live"] = visa_power_check_safe
+    app.view_functions["service_handoffs_admin.update_handoff_status"] = service_handoff_safety.safe_update_handoff_status
+    app.view_functions["service_handoffs_admin.update_support_case"] = service_handoff_safety.safe_update_support_case
 
     @app.get("/")
     def root():
