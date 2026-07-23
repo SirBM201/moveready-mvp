@@ -1,0 +1,238 @@
+name: Auth and Provider Handoff Integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/__init__.py"
+      - "app/core/config.py"
+      - "app/routes/account.py"
+      - "app/routes/account_auth.py"
+      - "app/routes/admin_review_queue.py"
+      - "app/routes/operations.py"
+      - "app/routes/service_handoffs.py"
+      - "app/services/email_delivery.py"
+      - "supabase/migrations/019_account_login_otp.sql"
+      - "supabase/migrations/024_private_backend_tables_rls.sql"
+      - "supabase/migrations/025_service_handoffs_and_support_cases.sql"
+      - "supabase/migrations/026_commercial_and_handoff_invariants.sql"
+      - ".github/workflows/auth-handoff-integration.yml"
+  pull_request:
+    paths:
+      - "app/__init__.py"
+      - "app/core/config.py"
+      - "app/routes/account.py"
+      - "app/routes/account_auth.py"
+      - "app/routes/admin_review_queue.py"
+      - "app/routes/operations.py"
+      - "app/routes/service_handoffs.py"
+      - "app/services/email_delivery.py"
+      - "supabase/migrations/019_account_login_otp.sql"
+      - "supabase/migrations/024_private_backend_tables_rls.sql"
+      - "supabase/migrations/025_service_handoffs_and_support_cases.sql"
+      - "supabase/migrations/026_commercial_and_handoff_invariants.sql"
+      - ".github/workflows/auth-handoff-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FLASK_ENV: development
+      ENV_MODE: development
+      SECRET_KEY: github-actions-auth-handoff-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      MOVEREADY_ADMIN_API_KEY: smoke-admin-key
+      AUTH_OTP_DEV_MODE: "false"
+      EMAIL_OTP_DELIVERY_ENABLED: "false"
+      COMMERCIAL_QUOTES_ENABLED: "true"
+      PAYMENT_LINKS_ENABLED: "false"
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Verify auth, handoff, case, account, and operations routes
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          required = {
+              "/api/auth/health",
+              "/api/auth/request-code",
+              "/api/auth/verify-code",
+              "/api/auth/me",
+              "/api/auth/logout",
+              "/api/account/summary",
+              "/api/service-handoffs",
+              "/api/service-handoffs/<handoff_ref>/consent",
+              "/api/service-handoffs/<handoff_ref>/decline",
+              "/api/service-handoffs/support-cases",
+              "/api/admin/service-handoffs",
+              "/api/admin/service-handoffs/<handoff_id>/mark-shared",
+              "/api/admin/service-handoffs/<handoff_id>",
+              "/api/admin/support-cases",
+              "/api/admin/support-cases/<case_id>",
+              "/api/admin/review-queue",
+              "/api/operations/status",
+              "/api/admin/operations/status",
+          }
+          missing = sorted(required - routes)
+          if missing:
+              raise SystemExit(f"Missing required routes: {missing}")
+          print("Auth, handoff, support, account, review, and operations routes registered.")
+          PY
+
+      - name: Verify unauthenticated and unprivileged access fails closed
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          client = app.test_client()
+
+          for method, path in [
+              ("get", "/api/account/summary"),
+              ("get", "/api/service-handoffs"),
+              ("get", "/api/service-handoffs/support-cases"),
+              ("post", "/api/service-handoffs/support-cases"),
+          ]:
+              response = getattr(client, method)(path, json={} if method == "post" else None)
+              assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
+
+          for path in [
+              "/api/admin/service-handoffs",
+              "/api/admin/support-cases",
+              "/api/admin/review-queue",
+              "/api/admin/operations/status",
+          ]:
+              response = client.get(path)
+              assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
+
+          invalid_email = client.post("/api/auth/request-code", json={"email": "not-an-email"})
+          assert invalid_email.status_code == 400, invalid_email.get_data(as_text=True)
+          assert invalid_email.get_json()["error"] == "valid_email_required"
+          print("Private account, handoff, case, queue, and admin routes fail closed.")
+          PY
+
+      - name: Verify OTP provider readiness without network
+        run: |
+          python - <<'PY'
+          import os
+
+          from app.services.email_delivery import email_delivery_status
+
+          for name in [
+              "EMAIL_OTP_PROVIDER",
+              "RESEND_API_KEY",
+              "EMAIL_OTP_FROM",
+              "EMAIL_FROM",
+              "SMTP_HOST",
+              "SMTP_USERNAME",
+              "SMTP_PASSWORD",
+          ]:
+              os.environ.pop(name, None)
+
+          os.environ["EMAIL_OTP_DELIVERY_ENABLED"] = "false"
+          disabled = email_delivery_status()
+          assert disabled["enabled"] is False, disabled
+          assert disabled["configured"] is False, disabled
+
+          os.environ["EMAIL_OTP_DELIVERY_ENABLED"] = "true"
+          os.environ["EMAIL_OTP_PROVIDER"] = "resend"
+          incomplete = email_delivery_status()
+          assert incomplete["configured"] is False, incomplete
+          assert "RESEND_API_KEY" in incomplete["missing_configuration"], incomplete
+          assert "EMAIL_OTP_FROM" in incomplete["missing_configuration"], incomplete
+
+          os.environ["RESEND_API_KEY"] = "test-only"
+          os.environ["EMAIL_OTP_FROM"] = "MoveReady <login@example.com>"
+          ready = email_delivery_status()
+          assert ready["configured"] is True, ready
+          assert ready["provider"] == "resend", ready
+          print("OTP provider readiness distinguishes disabled, incomplete, and configured states without sending email.")
+          PY
+
+      - name: Verify OTP cooldown and IP rate-limit helper without network
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timezone
+
+          from app import create_app
+          from app.routes import account_auth
+
+          now = datetime.now(timezone.utc).isoformat()
+
+          class Result:
+              def __init__(self, data):
+                  self.data = data
+
+          class Query:
+              def __init__(self):
+                  self.email = None
+              def select(self, *_args, **_kwargs): return self
+              def eq(self, field, value):
+                  if field == "email": self.email = value
+                  return self
+              def gte(self, *_args, **_kwargs): return self
+              def order(self, *_args, **_kwargs): return self
+              def limit(self, *_args, **_kwargs): return self
+              def execute(self):
+                  if self.email:
+                      return Result([{"created_at": now, "metadata": {"remote_addr": "203.0.113.10"}}])
+                  return Result([])
+
+          class Supabase:
+              def table(self, _name): return Query()
+
+          account_auth.get_supabase = lambda: Supabase()
+          app = create_app()
+          with app.test_request_context(headers={"X-Forwarded-For": "203.0.113.10"}):
+              limited = account_auth._request_rate_limit("user@example.com")
+          assert limited, limited
+          assert limited["error"] == "otp_request_cooldown_active", limited
+          assert limited["retry_after_seconds"] >= 1, limited
+          assert account_auth._dev_code_allowed() is False
+          print("OTP requests enforce cooldown and production-safe development-code gating.")
+          PY
+
+      - name: Verify handoff and support tables remain backend-only
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          migration = Path("supabase/migrations/025_service_handoffs_and_support_cases.sql").read_text(encoding="utf-8").lower()
+          for table in [
+              "relocation_service_handoffs",
+              "relocation_service_handoff_events",
+              "relocation_support_cases",
+          ]:
+              assert f"alter table public.{table} enable row level security" in migration, table
+              assert f"revoke all privileges on table public.{table} from public, anon, authenticated" in migration, table
+              assert f"grant all privileges on table public.{table} to service_role" in migration, table
+          assert "user_consent_confirmed" in migration
+          assert "delivery_reference" in migration
+          assert "privacy_issue" in migration
+          assert "payment_dispute" in migration
+          print("Provider handoffs, consent audit, and support cases remain backend-only.")
+          PY
