@@ -15,6 +15,7 @@ on:
       - "app/core/config.py"
       - "app/__init__.py"
       - "supabase/migrations/023_provider_publication_and_commercial_quotes.sql"
+      - "supabase/migrations/024_private_backend_tables_rls.sql"
       - ".github/workflows/billing-smoke.yml"
   pull_request:
     paths:
@@ -29,6 +30,7 @@ on:
       - "app/core/config.py"
       - "app/__init__.py"
       - "supabase/migrations/023_provider_publication_and_commercial_quotes.sql"
+      - "supabase/migrations/024_private_backend_tables_rls.sql"
       - ".github/workflows/billing-smoke.yml"
   workflow_dispatch:
 
@@ -64,6 +66,44 @@ jobs:
 
       - name: Compile backend
         run: python -m compileall -q app
+
+      - name: Verify private-table security migrations
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          migration_023 = Path("supabase/migrations/023_provider_publication_and_commercial_quotes.sql").read_text(encoding="utf-8").lower()
+          migration_024 = Path("supabase/migrations/024_private_backend_tables_rls.sql").read_text(encoding="utf-8").lower()
+
+          for table in [
+              "relocation_partner_applications",
+              "relocation_commercial_quotes",
+              "relocation_payment_events",
+          ]:
+              assert f"alter table public.{table} enable row level security" in migration_023, table
+              assert f"revoke all privileges on table public.{table} from public, anon, authenticated" in migration_023, table
+              assert f"grant all privileges on table public.{table} to service_role" in migration_023, table
+
+          for table in [
+              "relocation_auth_login_codes",
+              "relocation_user_sessions",
+              "relocation_service_interest_requests",
+              "relocation_readiness_check_runs",
+              "relocation_watchlist_subscriptions",
+              "relocation_saved_routes",
+              "relocation_timeline_events",
+              "relocation_partner_applications",
+              "relocation_commercial_quotes",
+              "relocation_payment_events",
+          ]:
+              assert f"'{table}'" in migration_024, table
+
+          assert "enable row level security" in migration_024
+          assert "revoke all privileges" in migration_024
+          assert "from public, anon, authenticated" in migration_024
+          assert "to service_role" in migration_024
+          print("Private provider, authentication, account, quote, and payment tables remain backend-only.")
+          PY
 
       - name: Verify billing, operations, and provider routes
         run: |
