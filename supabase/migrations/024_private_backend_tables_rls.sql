@@ -1,7 +1,7 @@
 -- Project MoveReady MVP
 -- Catch-up privacy hardening for backend-managed tables created after the
 -- initial schema. Run after migration 023.
--- Safe to rerun.
+-- Safe to rerun and safe when an optional table has not yet been created.
 --
 -- MoveReady authenticates users in Flask and accesses Supabase with the service
 -- role. These tables must therefore have no direct anon/authenticated access and
@@ -44,11 +44,22 @@ begin
       execute format('grant all privileges on table public.%I to service_role', table_name);
     end if;
   end loop;
-end $$;
 
-comment on table public.relocation_auth_login_codes is 'Private backend-only OTP records. Codes are hashed and direct public API access is revoked.';
-comment on table public.relocation_user_sessions is 'Private backend-only account session records. Session tokens are hashed and direct public API access is revoked.';
-comment on table public.relocation_commercial_quotes is 'Private verified-account commercial quotes accessed only through Flask account and admin routes.';
-comment on table public.relocation_payment_events is 'Private payment and commercial audit events accessed only through protected backend routes.';
+  if to_regclass('public.relocation_auth_login_codes') is not null then
+    comment on table public.relocation_auth_login_codes is 'Private backend-only OTP records. Codes are hashed and direct public API access is revoked.';
+  end if;
+
+  if to_regclass('public.relocation_user_sessions') is not null then
+    comment on table public.relocation_user_sessions is 'Private backend-only account session records. Session tokens are hashed and direct public API access is revoked.';
+  end if;
+
+  if to_regclass('public.relocation_commercial_quotes') is not null then
+    comment on table public.relocation_commercial_quotes is 'Private verified-account commercial quotes accessed only through Flask account and admin routes.';
+  end if;
+
+  if to_regclass('public.relocation_payment_events') is not null then
+    comment on table public.relocation_payment_events is 'Private payment and commercial audit events accessed only through protected backend routes.';
+  end if;
+end $$;
 
 notify pgrst, 'reload schema';
