@@ -1,0 +1,146 @@
+name: Build Fingerprint and Route Contract Integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/__init__.py"
+      - "app/routes/health.py"
+      - "app/routes/account_action_center.py"
+      - "app/routes/account_controls.py"
+      - "app/routes/account_controls_admin.py"
+      - "app/routes/application_cases.py"
+      - "app/routes/application_case_alerts.py"
+      - ".github/workflows/build-fingerprint-integration.yml"
+  pull_request:
+    paths:
+      - "app/__init__.py"
+      - "app/routes/health.py"
+      - "app/routes/account_action_center.py"
+      - "app/routes/account_controls.py"
+      - "app/routes/account_controls_admin.py"
+      - "app/routes/application_cases.py"
+      - "app/routes/application_case_alerts.py"
+      - ".github/workflows/build-fingerprint-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FLASK_ENV: development
+      ENV_MODE: development
+      SECRET_KEY: github-actions-build-fingerprint-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      MOVEREADY_ADMIN_API_KEY: smoke-admin-key
+      AUTH_OTP_DEV_MODE: "false"
+      EMAIL_OTP_DELIVERY_ENABLED: "false"
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+      PAYMENT_LINKS_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Verify build route contract
+        run: |
+          python - <<'PY'
+          from app import create_app
+          from app.routes import health
+
+          app = create_app()
+          with app.app_context():
+              expected = health._expected_endpoints()
+              contract = health._route_contract()
+
+          assert contract['ok'] is True, contract
+          assert not contract['missing_routes'], contract
+          assert contract['expected_count'] == len(expected), contract
+
+          required = {
+              '/api/account/summary',
+              '/api/account/preferences',
+              '/api/account/sessions',
+              '/api/account/activity',
+              '/api/account/action-center',
+              '/api/account/data-export',
+              '/api/account/privacy-requests',
+              '/api/evidence/documents',
+              '/api/evidence/packs',
+              '/api/applications',
+              '/api/applications/alerts',
+              '/api/journey/settlement-plan',
+              '/api/admin/application-cases',
+              '/api/admin/application-case-alerts',
+              '/api/admin/application-cases/alerts/scan',
+              '/api/admin/privacy-requests',
+          }
+          assert required.issubset(set(expected)), sorted(required - set(expected))
+          assert '/api/admin/application-cases/alerts' not in expected
+          print(f"Build fingerprint verifies {len(expected)} expected endpoints across {contract['registered_route_count']} registered Flask routes.")
+          PY
+
+      - name: Verify build feature and safety contract
+        run: |
+          python - <<'PY'
+          from app import create_app
+          from app.routes import health
+
+          app = create_app()
+          client = app.test_client()
+          response = client.get('/api/build-info')
+          assert response.status_code == 200, response.get_data(as_text=True)
+          payload = response.get_json()
+          assert payload['ok'] is True, payload
+          assert payload['route_contract']['ok'] is True, payload['route_contract']
+
+          features = payload['features']
+          for key in [
+              'guided_onboarding',
+              'my_journey',
+              'account_action_center',
+              'account_activity',
+              'account_preferences',
+              'account_session_controls',
+              'account_data_export',
+              'privacy_requests',
+              'application_cases',
+              'application_case_alerts',
+              'settlement_timeline',
+          ]:
+              assert features[key] is True, (key, features.get(key))
+
+          safety = payload['safety_contract']
+          for key in [
+              'evidence_storage',
+              'application_storage',
+              'action_center',
+              'journey_progress',
+              'privacy_requests',
+              'source_health',
+              'provider_handoff',
+              'payment_links',
+              'external_notifications',
+          ]:
+              assert key in safety, key
+          assert 'no duplicate data store' in safety['action_center']
+          assert 'no automatic destructive action' in safety['privacy_requests']
+          print('Build feature and safety contracts include the completed private account workflow.')
+          PY
