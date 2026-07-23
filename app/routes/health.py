@@ -10,11 +10,12 @@ from flask import Blueprint, current_app, jsonify
 
 from app.core import config
 
+
 bp = Blueprint("health", __name__)
 
 _PROCESS_STARTED_AT = datetime.now(timezone.utc)
 _PROCESS_STARTED_MONOTONIC = time.monotonic()
-_RELEASE_LABEL = "moveready-controlled-launch-2026-07-23"
+_RELEASE_LABEL = "moveready-account-journey-action-center-2026-07-24"
 
 
 def _env(name: str, default: str = "") -> str:
@@ -64,15 +65,26 @@ def _feature_flags() -> Dict[str, Any]:
     return {
         "account_auth": True,
         "account_summary": True,
+        "guided_onboarding": True,
+        "my_journey": True,
+        "account_action_center": True,
+        "account_activity": True,
+        "account_preferences": True,
+        "account_session_controls": True,
+        "account_data_export": True,
+        "privacy_requests": True,
         "profiles": True,
         "saved_routes": True,
         "reports": True,
         "watchlist": True,
         "in_app_alerts": True,
+        "application_cases": True,
+        "application_case_alerts": True,
         "service_requests": True,
         "study_planner": True,
         "journey_planner": True,
         "trip_planner": True,
+        "settlement_timeline": True,
         "evidence_inventory": True,
         "evidence_packs": True,
         "refusal_repair": True,
@@ -98,16 +110,28 @@ def _expected_endpoints() -> List[str]:
     return [
         f"{prefix}/auth/health",
         f"{prefix}/account/summary",
+        f"{prefix}/account/preferences",
+        f"{prefix}/account/sessions",
+        f"{prefix}/account/activity",
+        f"{prefix}/account/action-center",
+        f"{prefix}/account/data-export",
+        f"{prefix}/account/privacy-requests",
         f"{prefix}/operations/status",
+        f"{prefix}/platform/modules",
         f"{prefix}/source-health/summary",
         f"{prefix}/evidence/options",
         f"{prefix}/evidence/documents",
         f"{prefix}/evidence/packs",
         f"{prefix}/evidence/packs/generate",
         f"{prefix}/evidence/refusal-repair",
+        f"{prefix}/applications/options",
+        f"{prefix}/applications",
+        f"{prefix}/applications/alerts",
         f"{prefix}/billing/status",
         f"{prefix}/handoffs",
         f"{prefix}/handoffs/support-cases",
+        f"{prefix}/journey/options",
+        f"{prefix}/journey/settlement-plan",
         f"{prefix}/visa-power/provider/status",
         f"{prefix}/visa-power/provider/schedule/status",
         f"{prefix}/visa-power/passport-index/check",
@@ -115,6 +139,10 @@ def _expected_endpoints() -> List[str]:
         f"{prefix}/admin/operations/status",
         f"{prefix}/admin/source-governance/queue",
         f"{prefix}/admin/review-queue",
+        f"{prefix}/admin/application-cases",
+        f"{prefix}/admin/application-cases/alerts",
+        f"{prefix}/admin/application-cases/alerts/scan",
+        f"{prefix}/admin/privacy-requests",
     ]
 
 
@@ -177,14 +205,19 @@ def build_info():
     payload["deployment_verification"] = {
         "commit_available": bool(payload["deployment"].get("commit_sha")),
         "instruction": "Compare deployment.commit_sha with the latest main-branch commit before treating production as current.",
-        "older_deploy_warning": "If an expected endpoint, route contract, or current release label is missing, Railway is serving an older revision or the wrong service.",
+        "older_deploy_warning": "If an expected endpoint, route contract, current feature flag, or release label is missing, Railway is serving an older revision or the wrong service.",
     }
     payload["safety_contract"] = {
         "evidence_storage": "metadata only; raw files and full document numbers are not accepted",
+        "application_storage": "status and planning metadata only; raw authority correspondence and complete reference numbers are not accepted",
+        "action_center": "read-only ranking derived from existing private records; no duplicate data store",
+        "journey_progress": "reflects saved records only and never implies authority approval",
+        "privacy_requests": "reviewed workflow; no automatic destructive action",
         "source_health": "freshness and confidence reporting does not guarantee that every rule is unchanged",
         "public_provider_listing": "fail closed until schema and publication checks pass",
         "provider_handoff": "exact-field user consent and delivery evidence required",
         "payment_links": "disabled until payment activation controls pass" if not config.PAYMENT_LINKS_ENABLED else "enabled by production configuration",
         "email_login": "controlled by provider readiness and abuse limits",
+        "external_notifications": "saved preference does not activate email, WhatsApp, SMS, Telegram, or push delivery",
     }
     return jsonify(payload)
