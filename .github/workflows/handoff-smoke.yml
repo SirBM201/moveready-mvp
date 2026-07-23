@@ -1,0 +1,161 @@
+name: Provider Handoff and Support Case Smoke Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/routes/service_handoffs.py"
+      - "app/routes/account.py"
+      - "app/routes/admin_review_queue.py"
+      - "app/routes/operations.py"
+      - "app/__init__.py"
+      - "supabase/migrations/025_service_handoffs_and_support_cases.sql"
+      - ".github/workflows/handoff-smoke.yml"
+  pull_request:
+    paths:
+      - "app/routes/service_handoffs.py"
+      - "app/routes/account.py"
+      - "app/routes/admin_review_queue.py"
+      - "app/routes/operations.py"
+      - "app/__init__.py"
+      - "supabase/migrations/025_service_handoffs_and_support_cases.sql"
+      - ".github/workflows/handoff-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FLASK_ENV: development
+      ENV_MODE: development
+      SECRET_KEY: github-actions-handoff-smoke-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+      PAYMENT_LINKS_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Verify migration 025 privacy controls
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          sql = Path("supabase/migrations/025_service_handoffs_and_support_cases.sql").read_text(encoding="utf-8").lower()
+          tables = [
+              "relocation_service_handoffs",
+              "relocation_service_handoff_events",
+              "relocation_support_cases",
+          ]
+          for table in tables:
+              assert f"create table if not exists public.{table}" in sql, table
+              assert f"alter table public.{table} enable row level security" in sql, table
+              assert f"revoke all privileges on table public.{table} from public, anon, authenticated" in sql, table
+              assert f"grant all privileges on table public.{table} to service_role" in sql, table
+          assert "user_consent_confirmed" in sql
+          assert "shared_fields" in sql
+          assert "delivery_reference" in sql
+          assert "refund_request" in sql
+          assert "payment_dispute" in sql
+          assert "privacy_issue" in sql
+          print("Handoff and support case tables remain private and auditable.")
+          PY
+
+      - name: Verify handoff and support routes
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          required = {
+              "/api/handoffs/",
+              "/api/handoffs/<handoff_ref>/consent",
+              "/api/handoffs/<handoff_ref>/decline",
+              "/api/handoffs/support-cases",
+              "/api/admin/service-handoffs",
+              "/api/admin/service-handoffs/<handoff_id>/mark-shared",
+              "/api/admin/service-handoffs/<handoff_id>",
+              "/api/admin/support-cases",
+              "/api/admin/support-cases/<case_id>",
+          }
+          missing = sorted(required - routes)
+          if missing:
+              raise SystemExit(f"Missing handoff/support routes: {missing}")
+          print("Provider handoff and support case routes registered.")
+          PY
+
+      - name: Verify authentication and admin barriers
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          client = app.test_client()
+
+          assert client.get("/api/handoffs").status_code == 401
+          assert client.get("/api/handoffs/support-cases").status_code == 401
+          assert client.post("/api/handoffs/MRH-TEST/consent", json={}).status_code == 401
+          assert client.post("/api/handoffs/MRH-TEST/decline", json={}).status_code == 401
+          assert client.get("/api/admin/service-handoffs").status_code == 401
+          assert client.get("/api/admin/support-cases").status_code == 401
+          assert client.get("/api/admin/operations/status").status_code == 401
+          print("Private handoff, case, and operations endpoints reject unauthenticated access.")
+          PY
+
+      - name: Verify shared-field whitelist and consent contract
+        run: |
+          python - <<'PY'
+          from app.routes.service_handoffs import (
+              HANDOFF_CONSENT_VERSION,
+              SHAREABLE_FIELDS,
+              _clean_shared_fields,
+          )
+
+          cleaned = _clean_shared_fields([
+              "full_name",
+              "email",
+              "passport_scan",
+              "bank_statement",
+              "quote_scope",
+              "email",
+          ])
+          assert cleaned == ["full_name", "email", "quote_scope"], cleaned
+          assert "passport_scan" not in SHAREABLE_FIELDS
+          assert "bank_statement" not in SHAREABLE_FIELDS
+          assert HANDOFF_CONSENT_VERSION.startswith("moveready-provider-handoff-")
+          print("Only approved summary/contact fields can enter the handoff consent list.")
+          PY
+
+      - name: Verify operations status advertises fail-closed handoff
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          client = app.test_client()
+          response = client.get("/api/operations/status")
+          assert response.status_code == 200, response.get_data(as_text=True)
+          payload = response.get_json()
+          assert payload["public_capabilities"]["provider_handoff"].startswith("fail_closed"), payload
+          assert payload["public_capabilities"]["support_cases"] == "verified_account_only_after_migration_025", payload
+          print("Public operations status accurately marks handoff and support-case controls.")
+          PY
