@@ -49,7 +49,46 @@ def create_app() -> Flask:
 
     apply_patch()
 
-    from app.routes import account, account_auth, admin, admin_review_evidence_extension, admin_review_queue, application_cases, application_cases_admin, billing, billing_admin, education_planner, evidence_admin, evidence_workflow, health, journey_planner, opportunities, operations, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, service_handoff_safety, service_handoffs, settlement_execution, source_governance, timeline, travel_planner, visa_power, watchlist
+    from app.routes import (
+        account,
+        account_auth,
+        account_controls,
+        account_controls_admin,
+        admin,
+        admin_review_evidence_extension,
+        admin_review_queue,
+        application_case_alerts,
+        application_cases,
+        application_cases_admin,
+        billing,
+        billing_admin,
+        education_planner,
+        evidence_admin,
+        evidence_workflow,
+        health,
+        journey_planner,
+        opportunities,
+        operations,
+        partners,
+        passport_destination_detail,
+        passport_provider,
+        passport_provider_schedule,
+        platform_modules,
+        profiles,
+        readiness_tools,
+        relocation_public,
+        reports,
+        saved_route_reports,
+        saved_routes,
+        service_handoff_safety,
+        service_handoffs,
+        settlement_execution,
+        source_governance,
+        timeline,
+        travel_planner,
+        visa_power,
+        watchlist,
+    )
     from app.routes.visa_power_safety import visa_power_check_safe
     from app.services.journey_module_patch import apply_journey_module_patch
     from app.services.travel_provider_publication import apply_travel_provider_publication_patch
@@ -65,6 +104,7 @@ def create_app() -> Flask:
     app.register_blueprint(readiness_tools.bp, url_prefix=f"{API_PREFIX}/readiness")
     app.register_blueprint(evidence_workflow.bp, url_prefix=f"{API_PREFIX}/evidence")
     app.register_blueprint(application_cases.user_bp, url_prefix=f"{API_PREFIX}/applications")
+    app.register_blueprint(application_case_alerts.user_bp, url_prefix=f"{API_PREFIX}/applications")
     app.register_blueprint(journey_planner.bp, url_prefix=f"{API_PREFIX}/journey")
     app.register_blueprint(education_planner.bp, url_prefix=f"{API_PREFIX}/education")
     app.register_blueprint(travel_planner.bp, url_prefix=f"{API_PREFIX}/travel")
@@ -79,6 +119,7 @@ def create_app() -> Flask:
     app.register_blueprint(profiles.bp, url_prefix=f"{API_PREFIX}/profiles")
     app.register_blueprint(account_auth.bp, url_prefix=f"{API_PREFIX}/auth")
     app.register_blueprint(account.bp, url_prefix=f"{API_PREFIX}/account")
+    app.register_blueprint(account_controls.bp, url_prefix=f"{API_PREFIX}/account")
 
     # `/api/handoffs` is the established frontend contract. The more explicit
     # `/api/service-handoffs` path is retained as a compatibility alias.
@@ -97,6 +138,8 @@ def create_app() -> Flask:
     app.register_blueprint(admin.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(admin_review_queue.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(application_cases_admin.bp, url_prefix=f"{API_PREFIX}/admin")
+    app.register_blueprint(application_case_alerts.admin_bp, url_prefix=f"{API_PREFIX}/admin")
+    app.register_blueprint(account_controls_admin.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(billing_admin.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(evidence_admin.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(service_handoffs.admin_bp, url_prefix=f"{API_PREFIX}/admin")
