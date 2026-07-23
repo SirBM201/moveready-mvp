@@ -64,6 +64,11 @@ jobs:
               "/api/visa-power/passport-index/destination/check",
               "/api/visa-power/provider/destination/test",
               "/api/visa-power/check",
+              "/api/journey/options",
+              "/api/journey/legalization-check",
+              "/api/journey/family-plan",
+              "/api/journey/appointment-plan",
+              "/api/journey/settlement-plan",
           }
           missing = sorted(required - routes)
           if missing:
@@ -71,6 +76,108 @@ jobs:
           print(f"Registered routes: {len(routes)}")
           for route in sorted(required):
               print(route)
+          PY
+
+      - name: Test completed journey modules are public
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          client = app.test_client()
+          response = client.get("/api/platform/modules")
+          assert response.status_code == 200, response.get_data(as_text=True)
+          payload = response.get_json()
+          modules = {item["slug"]: item for item in payload["modules"]}
+          for slug in ["journey-planner", "legalization", "appointments", "family-relocation", "settlement"]:
+              assert slug in modules, (slug, modules.keys())
+              assert modules[slug]["availability"] == "available", modules[slug]
+              assert modules[slug]["enabled"] is True, modules[slug]
+          print("Journey platform module smoke test passed.")
+          PY
+
+      - name: Test journey planner endpoints without database network
+        run: |
+          python - <<'PY'
+          from app import create_app
+          import app.routes.journey_planner as journey
+
+          journey._store_run = lambda tool_slug, payload, result: {**result, "stored": False, "tool_slug": tool_slug}
+          app = create_app()
+          client = app.test_client()
+
+          options = client.get("/api/journey/options")
+          assert options.status_code == 200, options.get_data(as_text=True)
+          assert len(options.get_json()["tools"]) == 4
+
+          legalization = client.post(
+              "/api/journey/legalization-check",
+              json={
+                  "issuing_country": "Nigeria",
+                  "receiving_country": "Finland",
+                  "document_type": "academic_certificate",
+                  "days_until_submission": 30,
+                  "has_original_document": True,
+                  "translation_needed": True,
+                  "translation_completed": False,
+                  "receiving_authority_checked": False,
+              },
+          )
+          assert legalization.status_code == 200, legalization.get_data(as_text=True)
+          legal_payload = legalization.get_json()
+          assert legal_payload["tool_slug"] == "legalization_check"
+          assert len(legal_payload["steps"]) >= 3
+          assert legal_payload["risk_level"] in {"medium", "high"}
+
+          family = client.post(
+              "/api/journey/family-plan",
+              json={
+                  "target_country": "Finland",
+                  "route_category": "startup",
+                  "spouse_count": 1,
+                  "children_count": 2,
+                  "child_ages": "11,8",
+                  "base_budget_amount": 12000,
+                  "currency": "EUR",
+              },
+          )
+          assert family.status_code == 200, family.get_data(as_text=True)
+          family_payload = family.get_json()
+          assert family_payload["household_size"] == 4, family_payload
+          assert family_payload["school_age_children_count"] == 2, family_payload
+          assert len(family_payload["member_checklists"]) == 4, family_payload
+
+          appointment = client.post(
+              "/api/journey/appointment-plan",
+              json={
+                  "appointment_date": "2030-08-20",
+                  "application_type": "Biometrics",
+                  "target_country": "Finland",
+                  "translation_pending": True,
+                  "save_to_timeline": False,
+              },
+          )
+          assert appointment.status_code == 200, appointment.get_data(as_text=True)
+          appointment_payload = appointment.get_json()
+          assert len(appointment_payload["tasks"]) == 6, appointment_payload
+          assert appointment_payload["timeline_saved_count"] == 0
+
+          settlement = client.post(
+              "/api/journey/settlement-plan",
+              json={
+                  "target_country": "Finland",
+                  "target_city": "Helsinki",
+                  "household_size": 4,
+                  "temporary_accommodation_confirmed": False,
+                  "insurance_active": False,
+                  "school_needed": True,
+              },
+          )
+          assert settlement.status_code == 200, settlement.get_data(as_text=True)
+          settlement_payload = settlement.get_json()
+          assert set(settlement_payload["timeline"]) == {"before_travel", "first_72_hours", "first_2_weeks", "first_90_days"}
+          assert settlement_payload["risk_level"] in {"medium", "high"}
+          print("Journey planner endpoint smoke tests passed.")
           PY
 
       - name: Test scheduled-sync status cost guard
