@@ -155,6 +155,55 @@ def _application_case_item(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _application_alert_item(row: Dict[str, Any]) -> Dict[str, Any]:
+    severity = str(row.get("severity") or "medium")
+    age_hours = admin_review_queue._age_hours(row)
+    score = 65 + ({"low": 0, "medium": 10, "high": 30, "critical": 50}.get(severity, 10))
+    return {
+        "kind": "application_alert",
+        "id": row.get("id"),
+        "title": row.get("title") or row.get("alert_type") or "Application alert",
+        "status": row.get("status") or "open",
+        "priority": severity,
+        "risk_level": severity,
+        "email": row.get("email"),
+        "created_at": row.get("created_at"),
+        "age_hours": age_hours,
+        "score": score + min(age_hours or 0, 240) // 24,
+        "summary": str(row.get("summary") or "Application deadline, source, payment, or decision attention is required."),
+        "detail_href": "/admin/application-alerts",
+        "record": row,
+    }
+
+
+def _privacy_request_item(row: Dict[str, Any]) -> Dict[str, Any]:
+    request_type = str(row.get("request_type") or "other")
+    priority = str(row.get("priority") or "normal")
+    age_hours = admin_review_queue._age_hours(row)
+    score = 70 + ({"low": 0, "normal": 10, "high": 30, "urgent": 50}.get(priority, 10))
+    if request_type in {"account_deletion", "consent_withdrawal"}:
+        score += 25
+    return {
+        "kind": "privacy_request",
+        "id": row.get("id"),
+        "title": row.get("request_ref") or "Privacy request",
+        "status": row.get("status") or "received",
+        "priority": priority,
+        "risk_level": "high" if request_type in {"account_deletion", "consent_withdrawal"} else "medium",
+        "email": row.get("email"),
+        "created_at": row.get("created_at"),
+        "age_hours": age_hours,
+        "score": score + min(age_hours or 0, 240) // 24,
+        "summary": (
+            f"Type: {request_type.replace('_', ' ')}. "
+            f"Scope: {row.get('requested_scope') or 'not specified'}. "
+            f"Identity reverification: {'required' if row.get('identity_reverification_required') else 'not required'}."
+        ),
+        "detail_href": "/admin#privacy-requests",
+        "record": row,
+    }
+
+
 @require_admin_access
 def review_queue_with_evidence():
     original_result = admin_review_queue.review_queue()
@@ -175,7 +224,7 @@ def review_queue_with_evidence():
         if row.get("status") in {"draft", "review_required", "stale"}
         or row.get("risk_level") in {"high", "critical"}
     ]
-    alert_rows = [
+    source_rows = [
         row
         for row in _safe_rows("relocation_source_change_alerts", limit=120)
         if row.get("status") in {"open", "in_review"}
@@ -185,63 +234,60 @@ def review_queue_with_evidence():
         for row in _safe_rows("relocation_application_cases", limit=180)
         if row.get("status") != "archived" and _application_case_needs_attention(row)
     ]
+    application_alert_rows = [
+        row
+        for row in _safe_rows("relocation_application_case_alerts", limit=180)
+        if row.get("status") == "open" and row.get("severity") in {"high", "critical"}
+    ]
+    privacy_rows = [
+        row
+        for row in _safe_rows("relocation_privacy_requests", limit=180)
+        if row.get("status") in {"received", "identity_verification_required", "reviewing", "in_progress"}
+    ]
 
-    evidence_items = [_evidence_item(row) for row in evidence_rows]
-    source_items = [_source_alert_item(row) for row in alert_rows]
+    source_items = [_source_alert_item(row) for row in source_rows]
     application_items = [_application_case_item(row) for row in application_rows]
+    application_alert_items = [_application_alert_item(row) for row in application_alert_rows]
+    privacy_items = [_privacy_request_item(row) for row in privacy_rows]
+    evidence_items = [_evidence_item(row) for row in evidence_rows]
+
+    additions = [
+        ("privacy_request", "Privacy, access, correction, restriction, consent, and deletion requests", privacy_items),
+        ("application_alert", "High and critical application alerts", application_alert_items),
+        ("source_review_alert", "Official-source review and change alerts", source_items),
+        ("application_case", "Application cases needing attention", application_items),
+        ("evidence_pack", "Evidence packs needing review", evidence_items),
+    ]
+
     sections = payload.get("sections") if isinstance(payload.get("sections"), list) else []
-    sections.insert(
-        0,
-        {
-            "kind": "source_review_alert",
-            "label": "Official-source review and change alerts",
+    for index, (kind, label, items) in enumerate(additions):
+        sections.insert(index, {
+            "kind": kind,
+            "label": label,
             "ok": True,
             "error": None,
-            "count": len(source_items),
-            "items": source_items,
-        },
-    )
-    sections.insert(
-        1,
-        {
-            "kind": "application_case",
-            "label": "Application cases needing attention",
-            "ok": True,
-            "error": None,
-            "count": len(application_items),
-            "items": application_items,
-        },
-    )
-    sections.insert(
-        2,
-        {
-            "kind": "evidence_pack",
-            "label": "Evidence packs needing review",
-            "ok": True,
-            "error": None,
-            "count": len(evidence_items),
-            "items": evidence_items,
-        },
-    )
+            "count": len(items),
+            "items": items,
+        })
     payload["sections"] = sections
 
     counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
-    counts["source_review_alert"] = len(source_items)
-    counts["application_case"] = len(application_items)
-    counts["evidence_pack"] = len(evidence_items)
+    for kind, _label, items in additions:
+        counts[kind] = len(items)
     payload["counts"] = counts
 
     queue_items = payload.get("queue_items") if isinstance(payload.get("queue_items"), list) else []
     previous_total = int(payload.get("total_open_items") or len(queue_items))
-    queue_items.extend(source_items)
-    queue_items.extend(application_items)
-    queue_items.extend(evidence_items)
+    for _kind, _label, items in additions:
+        queue_items.extend(items)
     queue_items.sort(key=lambda item: (int(item.get("score") or 0), item.get("created_at") or ""), reverse=True)
-    payload["queue_items"] = queue_items[:120]
-    payload["total_open_items"] = previous_total + len(source_items) + len(application_items) + len(evidence_items)
+    payload["queue_items"] = queue_items[:150]
+    payload["total_open_items"] = previous_total + sum(len(items) for _kind, _label, items in additions)
 
     next_actions = payload.get("next_actions") if isinstance(payload.get("next_actions"), list) else []
     for action in [
+        "Review privacy and deletion requests with identity reverification, scope, retention, backup, provider-copy, billing, dispute, and completion evidence controls.",
+        "Review high and critical application alerts before their deadline, source, payment, or decision risk escalates.",
         "Review application cases with overdue or near deadlines, additional-document requests, refusals, stale sources, or high risk.",
         "Review official-source change alerts before approving affected route versions or reports.",
         "Review high-risk or incomplete evidence packs without requesting raw documents through the general queue.",
