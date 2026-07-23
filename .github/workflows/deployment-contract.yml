@@ -104,11 +104,14 @@ jobs:
               "/api/admin/review-queue",
           }
           assert required.issubset(expected), sorted(required - expected)
+          assert payload["route_contract"]["ok"] is True, payload["route_contract"]
+          assert payload["route_contract"]["missing_routes"] == [], payload["route_contract"]
+          assert payload["route_contract"]["expected_count"] == len(required), payload["route_contract"]
 
           routes = {rule.rule for rule in app.url_map.iter_rules()}
           missing_routes = sorted(required - routes)
           assert not missing_routes, missing_routes
-          print("Deployment fingerprint, weekly sync, safety flags, and expected routes are consistent.")
+          print("Deployment fingerprint, weekly sync, safety flags, and live route contract are consistent.")
           PY
 
       - name: Verify public status remains secret-free
