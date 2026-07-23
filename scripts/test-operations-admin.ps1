@@ -17,8 +17,13 @@ function Assert-True {
     }
 }
 
+$AdminKey = $AdminKey.Trim()
+if ([string]::IsNullOrWhiteSpace($AdminKey)) {
+    throw "AdminKey is required. Read it securely with Read-Host and never paste it into chat, screenshots, issues, logs, or repository files."
+}
+
 $Headers = @{
-    "X-MoveReady-Admin-Key" = $AdminKey.Trim()
+    "X-MoveReady-Admin-Key" = $AdminKey
 }
 
 Write-Host "`n=== PROTECTED MOVE READY OPERATIONS CHECK ===" -ForegroundColor Cyan
@@ -28,7 +33,7 @@ $Status = Invoke-RestMethod `
     -Headers $Headers `
     -TimeoutSec 120
 
-$Status | ConvertTo-Json -Depth 40
+$Status | ConvertTo-Json -Depth 50
 Assert-True -Condition ($Status.ok -eq $true) -Message "Protected operations endpoint returned ok=false."
 
 $RequiredSchemaCodes = @(
@@ -47,7 +52,12 @@ $RequiredSchemaCodes = @(
     "handoff_events",
     "support_cases",
     "document_inventory",
-    "evidence_packs"
+    "evidence_packs",
+    "application_cases",
+    "application_case_events",
+    "application_case_alerts",
+    "account_preferences",
+    "privacy_requests"
 )
 
 $Checks = @($Status.schema_checks)
@@ -74,10 +84,24 @@ else {
 }
 
 if ($Status.configuration.payment_links_enabled -eq $true) {
-    Write-Warning "PAYMENT_LINKS_ENABLED is true. Confirm approved checkout domains, amount verification, payment references, webhook/manual verification, refunds, disputes, reconciliation, and production payment tests."
+    Write-Warning "PAYMENT_LINKS_ENABLED is true. Confirm approved checkout domains, exact amount and currency verification, references, webhook or manual verification, refunds, disputes, reconciliation, and production payment tests."
 }
 else {
     Write-Host "SAFE CONTROL: PAYMENT_LINKS_ENABLED remains false." -ForegroundColor Green
+}
+
+if ($Status.configuration.whatsapp_alerts_enabled -eq $true) {
+    Write-Warning "WhatsApp alerts are enabled. Confirm approved business credentials, templates, explicit opt-in, unsubscribe handling, rate limits, delivery audit, and production tests."
+}
+else {
+    Write-Host "SAFE CONTROL: WhatsApp delivery remains disabled." -ForegroundColor Green
+}
+
+if ($Status.configuration.opportunity_alerts_enabled -eq $true) {
+    Write-Warning "External opportunity alerts are enabled. Confirm sender, consent, unsubscribe, delivery audit, rate limits, and production tests."
+}
+else {
+    Write-Host "SAFE CONTROL: external opportunity alert delivery remains disabled." -ForegroundColor Green
 }
 
 if ($Status.launch_blockers.Count -gt 0) {
@@ -95,5 +119,5 @@ else {
 }
 
 Write-Host "`n=== PROTECTED OPERATIONS CHECK PASSED ===" -ForegroundColor Green
-Write-Host "Account-auth, source-governance, route-version, evidence, provider-publication, quote, payment-audit, handoff, and support-case schemas are available through the backend service role."
-Write-Host "This test reports but does not activate payment links, email OTP, WhatsApp, external alerts, approve any provider, or mark any source checked."
+Write-Host "Account auth, source governance, route versions, evidence, applications, private alerts, account preferences, privacy requests, providers, quotes, payment audit, handoffs, and support schemas are available through the backend service role."
+Write-Host "This test reports only. It does not activate payment links, email, WhatsApp, push delivery, approve providers, mark sources checked, create privacy requests, revoke sessions, or delete data."
