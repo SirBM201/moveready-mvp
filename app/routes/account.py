@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from flask import Blueprint, jsonify
 
 from app.routes import account_auth
+from app.routes.billing import _public_quote
 from app.routes.reports import _public_report
 from app.services.supabase_client import get_supabase
 
@@ -130,6 +131,23 @@ def _reports_for_email(email: str, limit: int = 10) -> Dict[str, Any]:
         return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
 
 
+def _quotes_for_email(email: str, limit: int = 10) -> Dict[str, Any]:
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_commercial_quotes")
+            .select("*")
+            .eq("email", email)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        rows = [_public_quote(row) for row in (response.data or [])]
+        return {"ok": True, "rows": rows, "count": len(rows)}
+    except Exception as exc:
+        return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
+
+
 def _readiness_matches_email(row: Dict[str, Any], email: str) -> bool:
     lookup = email.lower()
     payload = row.get("input_payload") if isinstance(row.get("input_payload"), dict) else {}
@@ -202,6 +220,7 @@ def account_summary():
     timeline = _safe_rows("relocation_timeline_events", email, limit=10)
     service_requests = _safe_rows("relocation_service_interest_requests", email, limit=10)
     reports = _reports_for_email(email, limit=10)
+    commercial_quotes = _quotes_for_email(email, limit=10)
     journey_plans = _readiness_runs_for_email(email, planning_only=True, limit=10)
     readiness_checks = _readiness_runs_for_email(email, planning_only=False, limit=10)
 
@@ -211,6 +230,7 @@ def account_summary():
         "watchlist": watchlist,
         "timeline": timeline,
         "reports": reports,
+        "commercial_quotes": commercial_quotes,
         "service_requests": service_requests,
         "journey_plans": journey_plans,
         "readiness_checks": readiness_checks,
@@ -234,6 +254,7 @@ def account_summary():
                 "Generate a readiness report from the route checker.",
                 "Use Study Planner for admission and study-visa preparation.",
                 "Use Journey Planner for documents, family, appointments, and settlement.",
+                "Review any issued commercial quote before accepting or paying.",
                 "Save at least one serious route or country option.",
                 "Create opt-in watchlist alerts for deadline or source changes.",
             ],
