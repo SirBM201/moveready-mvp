@@ -69,6 +69,9 @@ jobs:
               "/api/journey/family-plan",
               "/api/journey/appointment-plan",
               "/api/journey/settlement-plan",
+              "/api/education/options",
+              "/api/education/study-plan",
+              "/api/watchlist/inbox",
           }
           missing = sorted(required - routes)
           if missing:
@@ -78,7 +81,7 @@ jobs:
               print(route)
           PY
 
-      - name: Test completed journey modules are public
+      - name: Test completed public platform modules
         run: |
           python - <<'PY'
           from app import create_app
@@ -89,11 +92,71 @@ jobs:
           assert response.status_code == 200, response.get_data(as_text=True)
           payload = response.get_json()
           modules = {item["slug"]: item for item in payload["modules"]}
-          for slug in ["journey-planner", "legalization", "appointments", "family-relocation", "settlement"]:
+          for slug in [
+              "study-planner",
+              "journey-planner",
+              "watchlist",
+              "legalization",
+              "appointments",
+              "family-relocation",
+              "settlement",
+          ]:
               assert slug in modules, (slug, modules.keys())
               assert modules[slug]["availability"] == "available", modules[slug]
               assert modules[slug]["enabled"] is True, modules[slug]
-          print("Journey platform module smoke test passed.")
+          print("Platform module smoke test passed.")
+          PY
+
+      - name: Test education planner without database network
+        run: |
+          python - <<'PY'
+          from app import create_app
+          import app.routes.education_planner as education
+
+          education._store_run = lambda payload, result: {**result, "stored": False}
+          app = create_app()
+          client = app.test_client()
+
+          options = client.get("/api/education/options")
+          assert options.status_code == 200, options.get_data(as_text=True)
+          option_payload = options.get_json()
+          assert "masters" in option_payload["study_levels"]
+          assert "pass" in option_payload["grade_bands"]
+
+          response = client.post(
+              "/api/education/study-plan",
+              json={
+                  "current_country": "Kuwait",
+                  "nationality": "Nigeria",
+                  "target_country": "Finland",
+                  "desired_level": "masters",
+                  "highest_qualification": "BSc Computer Science",
+                  "qualification_field": "Computer Science",
+                  "graduation_year": 2015,
+                  "grade_band": "pass",
+                  "desired_field": "Public Health",
+                  "field_change": True,
+                  "regulated_profession": False,
+                  "language_evidence": "none",
+                  "work_experience_years": 5,
+                  "available_funds_amount": 12000,
+                  "annual_tuition_budget": 13000,
+                  "annual_living_budget": 9000,
+                  "currency": "EUR",
+                  "scholarship_required": True,
+                  "family_members_count": 3,
+                  "target_intake_date": "2030-09-01",
+              },
+          )
+          assert response.status_code == 200, response.get_data(as_text=True)
+          payload = response.get_json()
+          assert payload["stored"] is False
+          assert payload["risk_level"] in {"medium", "high"}, payload
+          assert payload["planning_funding_gap"] == 10000.0, payload
+          assert len(payload["stages"]) == 7, payload
+          assert len(payload["programme_strategy"]) >= 3, payload
+          assert any("field change" in item.lower() or "conversion" in item.lower() for item in payload["programme_strategy"]), payload
+          print("Education planner smoke test passed.")
           PY
 
       - name: Test journey planner endpoints without database network
