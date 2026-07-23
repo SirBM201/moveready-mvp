@@ -292,10 +292,10 @@ jobs:
 
           create_app()
           modules = {item['slug']: item for item in platform_modules.PLATFORM_MODULES}
-          for slug in ['onboarding', 'action-center', 'application-center', 'application-alerts', 'account-activity', 'account-settings']:
+          for slug in ['onboarding', 'my-journey', 'action-center', 'application-center', 'application-alerts', 'account-activity', 'account-settings']:
               assert modules[slug]['availability'] == 'available', (slug, modules.get(slug))
 
           schema_codes = {item['code'] for item in operations.SCHEMA_CHECKS}
           assert {'application_case_alerts', 'account_preferences', 'privacy_requests'}.issubset(schema_codes), schema_codes
-          print('Completed account modules, Action Center, and migrations 029-030 are visible in platform and operations status.')
+          print('Completed account modules, My Journey, Action Center, and migrations 029-030 are visible in platform and operations status.')
           PY
