@@ -15,6 +15,7 @@ ACCOUNT_WRITE_PREFIXES = (
     "/api/relocation/reports",
     "/api/journey",
     "/api/readiness",
+    "/api/education",
 )
 
 
@@ -44,9 +45,9 @@ def _verified_email() -> Optional[str]:
 def attach_verified_session_email_to_json() -> None:
     """Attach verified account email to account-owned writes.
 
-    The MVP still supports contact-based email or phone lookup. When a valid
-    session token is present, user-owned writes are tied to the verified account
-    email instead of trusting a manually typed email field.
+    Public tools can still run anonymously. When a valid session token is
+    present, stored records are tied to the verified account email instead of
+    trusting a manually typed identity field.
     """
     if not _is_account_write_request():
         return None
