@@ -16,6 +16,15 @@ ACCOUNT_MODULES: List[Dict[str, Any]] = [
         "current_support": "The guided setup page and saved onboarding progress are implemented after migration 030.",
     },
     {
+        "slug": "my-journey",
+        "title": "Private end-to-end journey overview",
+        "category": "account",
+        "availability": "available",
+        "flag": None,
+        "summary": "Turn verified account records into a truthful narrative from profile and route selection through evidence, application, decision, and settlement.",
+        "current_support": "My Journey reads the existing account summary and Action Center. It does not assume missing records are complete or create another data store.",
+    },
+    {
         "slug": "action-center",
         "title": "Private ranked Action Center",
         "category": "account",
@@ -73,6 +82,7 @@ def apply_platform_account_modules_patch() -> None:
     platform_modules.MODULE_ENDPOINTS.update(
         {
             "onboarding": "Guided verified-account setup across profile, route, evidence, applications, and alerts.",
+            "my-journey": "Private narrative journey progress derived from account records without assuming missing stages are complete.",
             "action-center": "Ranked private next actions derived from existing applications, alerts, evidence, documents, timelines, quotes, handoffs, support, and privacy records.",
             "application-center": "Private application lifecycle, authority, evidence, deadline, fee, source, event, and decision tracking.",
             "application-alerts": "Private application deadline, source, payment, refusal, and post-decision alert inbox.",
