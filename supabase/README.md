@@ -36,19 +36,25 @@ Adds `relocation_opportunities` for official lottery, ballot, invitation-pool, a
 
 `supabase/migrations/006_readiness_check_runs.sql`
 
-Adds `relocation_readiness_check_runs` so name consistency, document readiness, proof-of-funds, and refusal-risk checks can be saved for audit, support, and follow-up. The tools still return results if this migration has not been run, but `stored` will remain false.
+Adds `relocation_readiness_check_runs` so name consistency, document readiness, proof-of-funds, refusal-risk, Study Planner, Journey Planner, and Trip Planner runs can be saved for audit, account recovery, support, and follow-up. The tools still return results if this migration has not been run, but `stored` will remain false.
 
 ## 7. Watchlist alert subscriptions
 
 `supabase/migrations/007_watchlist_alert_subscriptions.sql`
 
-Adds `relocation_watchlist_subscriptions` so users can opt in to route, opportunity, scholarship, country, or service alerts. This stores alert preferences and consent records. Actual WhatsApp, Telegram, email, or in-app message delivery should only be enabled after provider setup, opt-in flow, and audit logging are approved.
+Adds `relocation_watchlist_subscriptions` so users can opt in to route, opportunity, scholarship, country, or service alerts. This stores alert preferences and consent records. In-app alerts are account-controlled; external WhatsApp, Telegram, email, or phone delivery should only be enabled after provider setup, opt-in flow, and audit logging are approved.
 
 ## 8. User relocation profiles
 
 `supabase/migrations/008_user_relocation_profiles.sql`
 
 Adds `relocation_user_profiles` so the public dashboard can save a user's relocation profile, target country, route category, timeline, family size, funds, contact preference, previous-refusal flag, notes, and computed readiness snapshot. Admin can review profile records and update follow-up status.
+
+## 11. Partner applications
+
+`supabase/migrations/011_partner_applications.sql`
+
+Adds `relocation_partner_applications` for provider applications and screening. Application approval alone does not create a public listing.
 
 ## 19. Account email OTP login
 
@@ -67,6 +73,19 @@ Keeps old profile schemas compatible with the current app by making the legacy `
 `supabase/migrations/022_report_account_fields_and_sections.sql`
 
 Adds direct report ownership fields (`email`, `phone`), readiness summary fields, report lookup indexes, and trigger-based sync from `report_payload.sections` into `relocation_report_sections`.
+
+## 23. Provider publication and commercial quotes
+
+`supabase/migrations/023_provider_publication_and_commercial_quotes.sql`
+
+Adds explicit public-listing controls to partner applications, expands travel provider categories, creates `relocation_commercial_quotes`, and creates `relocation_payment_events`. Providers fail closed until privacy, pricing, refund, sensitive-document handling, disclosure, and public-listing checks pass. Quotes keep service amount, platform fee, total, scope, deliverables, exclusions, refund terms, checkout link, payment reference, and status auditable.
+
+Set these Railway variables only after the operational process is ready:
+
+- `COMMERCIAL_QUOTES_ENABLED=true`
+- `PAYMENT_LINKS_ENABLED=false` initially
+
+Do not set `PAYMENT_LINKS_ENABLED=true` until every active checkout URL is approved, amount-matched, domain-verified, and connected to a documented refund and payment-verification process.
 
 ## Important
 
