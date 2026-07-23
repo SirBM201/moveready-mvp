@@ -12,6 +12,17 @@ from app.services.supabase_client import get_supabase
 
 bp = Blueprint("billing", __name__)
 
+QUOTE_TERMS_VERSION = "moveready-commercial-quote-2026-07-23-v1"
+REQUIRED_ACCEPTANCE_CONFIRMATIONS = (
+    "scope_reviewed",
+    "deliverables_reviewed",
+    "exclusions_reviewed",
+    "total_price_reviewed",
+    "expiry_reviewed",
+    "refund_terms_reviewed",
+    "no_outcome_guarantee_understood",
+    "payment_is_separate_understood",
+)
 
 CATALOG: List[Dict[str, Any]] = [
     {
@@ -107,6 +118,12 @@ def _as_list(value: Any) -> List[str]:
     return [str(item)[:500] for item in value if str(item or "").strip()][:30]
 
 
+def _acceptance_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    acceptance = metadata.get("quote_acceptance") if isinstance(metadata.get("quote_acceptance"), dict) else {}
+    return acceptance
+
+
 def _public_quote(row: Dict[str, Any]) -> Dict[str, Any]:
     status = str(row.get("status") or "draft")
     expired = _expired(row)
@@ -116,6 +133,7 @@ def _public_quote(row: Dict[str, Any]) -> Dict[str, Any]:
         and row.get("checkout_url")
         and effective_status in {"accepted", "payment_pending"}
     )
+    acceptance = _acceptance_metadata(row)
     return {
         "id": row.get("id"),
         "quote_ref": row.get("quote_ref"),
@@ -142,6 +160,10 @@ def _public_quote(row: Dict[str, Any]) -> Dict[str, Any]:
         "fulfilled_at": row.get("fulfilled_at"),
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
+        "acceptance_required": effective_status == "sent",
+        "acceptance_terms_version": QUOTE_TERMS_VERSION,
+        "acceptance_confirmations": list(REQUIRED_ACCEPTANCE_CONFIRMATIONS),
+        "acceptance_recorded": bool(acceptance.get("accepted")),
         "commercial_notice": "This quote describes a paid service. It does not guarantee visa, admission, scholarship, job, booking inventory, refund, provider performance, border entry, or approval.",
     }
 
@@ -179,6 +201,18 @@ def _record_event(quote: Dict[str, Any], event_type: str, *, status: str = "reco
         pass
 
 
+def _validated_acceptance(payload: Dict[str, Any]) -> Tuple[Optional[Dict[str, bool]], Optional[str]]:
+    if payload.get("accept_terms") is not True:
+        return None, "quote_terms_acceptance_required"
+    if _text(payload.get("terms_version"), 120) != QUOTE_TERMS_VERSION:
+        return None, "quote_terms_version_mismatch"
+    confirmations = payload.get("confirmations") if isinstance(payload.get("confirmations"), dict) else {}
+    missing = [key for key in REQUIRED_ACCEPTANCE_CONFIRMATIONS if confirmations.get(key) is not True]
+    if missing:
+        return None, f"quote_acceptance_confirmations_missing:{','.join(missing)}"
+    return {key: True for key in REQUIRED_ACCEPTANCE_CONFIRMATIONS}, None
+
+
 @bp.get("/status")
 def billing_status():
     return jsonify(
@@ -188,8 +222,11 @@ def billing_status():
             "payment_links_enabled": PAYMENT_LINKS_ENABLED,
             "checkout_mode": "admin_approved_payment_link" if PAYMENT_LINKS_ENABLED else "disabled_until_payment_setup",
             "quote_storage_migration": "023_provider_publication_and_commercial_quotes.sql",
+            "private_table_hardening_migration": "024_private_backend_tables_rls.sql",
+            "quote_terms_version": QUOTE_TERMS_VERSION,
             "safety_controls": [
                 "No payment before scope, total price, provider, expiry, exclusions, and refund terms are shown.",
+                "Quote acceptance requires explicit confirmation of scope, deliverables, exclusions, total, expiry, refund terms, no-guarantee notice, and separate payment.",
                 "Payment links remain disabled until an approved payment process is configured.",
                 "Official application fees, government charges, provider fees, and MoveReady fees must not be misrepresented as one another.",
                 "No quote or payment can guarantee approval, selection, admission, employment, boarding, entry, or provider performance.",
@@ -307,6 +344,21 @@ def accept_quote(quote_ref: str):
     email, error = _auth_email()
     if not email:
         return jsonify({"ok": False, "error": error or "session_required"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    confirmations, validation_error = _validated_acceptance(payload)
+    if validation_error:
+        error_code, _, missing_text = validation_error.partition(":")
+        response: Dict[str, Any] = {
+            "ok": False,
+            "error": error_code,
+            "terms_version": QUOTE_TERMS_VERSION,
+            "required_confirmations": list(REQUIRED_ACCEPTANCE_CONFIRMATIONS),
+        }
+        if missing_text:
+            response["missing_confirmations"] = missing_text.split(",")
+        return jsonify(response), 400
+
     try:
         row = _quote_for_account(quote_ref, email)
         if not row:
@@ -316,16 +368,47 @@ def accept_quote(quote_ref: str):
         if row.get("status") not in {"sent", "accepted"}:
             return jsonify({"ok": False, "error": "quote_not_open_for_acceptance", "status": row.get("status")}), 409
 
+        accepted_at = _iso_now()
+        current_metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        acceptance_record = {
+            "accepted": True,
+            "accepted_at": accepted_at,
+            "terms_version": QUOTE_TERMS_VERSION,
+            "confirmations": confirmations,
+            "quote_ref": quote_ref,
+            "quote_updated_at": row.get("updated_at"),
+            "total_amount": row.get("total_amount"),
+            "currency": row.get("currency"),
+        }
         response = (
             get_supabase()
             .table("relocation_commercial_quotes")
-            .update({"status": "accepted", "accepted_at": _iso_now()})
+            .update(
+                {
+                    "status": "accepted",
+                    "accepted_at": accepted_at,
+                    "metadata": {
+                        **current_metadata,
+                        "quote_acceptance": acceptance_record,
+                    },
+                }
+            )
             .eq("id", row.get("id"))
             .eq("email", email)
             .execute()
         )
         updated = (response.data or [row])[0]
-        _record_event(updated, "quote_accepted", payload={"quote_ref": quote_ref})
+        _record_event(
+            updated,
+            "quote_accepted",
+            payload={
+                "quote_ref": quote_ref,
+                "terms_version": QUOTE_TERMS_VERSION,
+                "confirmations": confirmations,
+                "total_amount": row.get("total_amount"),
+                "currency": row.get("currency"),
+            },
+        )
         return jsonify({"ok": True, "quote": _public_quote(updated)})
     except Exception as exc:
         return jsonify({"ok": False, "error": "quote_acceptance_failed", "details": str(exc)}), 503
@@ -390,6 +473,8 @@ def quote_checkout(quote_ref: str):
             return jsonify({"ok": False, "error": "quote_expired"}), 409
         if row.get("status") not in {"accepted", "payment_pending"}:
             return jsonify({"ok": False, "error": "quote_must_be_accepted_before_checkout", "status": row.get("status")}), 409
+        if not _acceptance_metadata(row).get("accepted"):
+            return jsonify({"ok": False, "error": "auditable_quote_acceptance_required"}), 409
         if not row.get("checkout_url"):
             return jsonify({"ok": False, "error": "approved_checkout_link_not_available"}), 409
 
@@ -402,7 +487,7 @@ def quote_checkout(quote_ref: str):
             .execute()
         )
         updated = (response.data or [row])[0]
-        _record_event(updated, "checkout_opened", payload={"quote_ref": quote_ref})
+        _record_event(updated, "checkout_opened", payload={"quote_ref": quote_ref, "terms_version": QUOTE_TERMS_VERSION})
         return jsonify(
             {
                 "ok": True,
