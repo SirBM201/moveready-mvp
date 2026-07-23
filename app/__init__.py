@@ -51,6 +51,7 @@ def create_app() -> Flask:
 
     from app.routes import (
         account,
+        account_action_center,
         account_auth,
         account_controls,
         account_controls_admin,
@@ -122,6 +123,7 @@ def create_app() -> Flask:
     app.register_blueprint(account_auth.bp, url_prefix=f"{API_PREFIX}/auth")
     app.register_blueprint(account.bp, url_prefix=f"{API_PREFIX}/account")
     app.register_blueprint(account_controls.bp, url_prefix=f"{API_PREFIX}/account")
+    app.register_blueprint(account_action_center.bp, url_prefix=f"{API_PREFIX}/account")
 
     # `/api/handoffs` is the established frontend contract. The more explicit
     # `/api/service-handoffs` path is retained as a compatibility alias.
