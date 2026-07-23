@@ -4,6 +4,7 @@ from typing import Optional
 
 from flask import request
 
+
 ACCOUNT_WRITE_PREFIXES = (
     "/api/profiles",
     "/api/saved-routes",
@@ -12,6 +13,8 @@ ACCOUNT_WRITE_PREFIXES = (
     "/api/timeline",
     "/api/platform/service-interest",
     "/api/relocation/reports",
+    "/api/journey",
+    "/api/readiness",
 )
 
 
@@ -41,8 +44,8 @@ def _verified_email() -> Optional[str]:
 def attach_verified_session_email_to_json() -> None:
     """Attach verified account email to account-owned writes.
 
-    The MVP still supports contact-based email/phone lookup. When a valid session
-    token is present, user-owned writes should be tied to the verified account
+    The MVP still supports contact-based email or phone lookup. When a valid
+    session token is present, user-owned writes are tied to the verified account
     email instead of trusting a manually typed email field.
     """
     if not _is_account_write_request():
