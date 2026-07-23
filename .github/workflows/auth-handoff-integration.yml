@@ -11,6 +11,7 @@ on:
       - "app/routes/admin_review_queue.py"
       - "app/routes/operations.py"
       - "app/routes/service_handoffs.py"
+      - "app/routes/service_handoff_safety.py"
       - "app/services/email_delivery.py"
       - "supabase/migrations/019_account_login_otp.sql"
       - "supabase/migrations/024_private_backend_tables_rls.sql"
@@ -26,6 +27,7 @@ on:
       - "app/routes/admin_review_queue.py"
       - "app/routes/operations.py"
       - "app/routes/service_handoffs.py"
+      - "app/routes/service_handoff_safety.py"
       - "app/services/email_delivery.py"
       - "supabase/migrations/019_account_login_otp.sql"
       - "supabase/migrations/024_private_backend_tables_rls.sql"
@@ -84,6 +86,10 @@ jobs:
               "/api/auth/me",
               "/api/auth/logout",
               "/api/account/summary",
+              "/api/handoffs",
+              "/api/handoffs/<handoff_ref>/consent",
+              "/api/handoffs/<handoff_ref>/decline",
+              "/api/handoffs/support-cases",
               "/api/service-handoffs",
               "/api/service-handoffs/<handoff_ref>/consent",
               "/api/service-handoffs/<handoff_ref>/decline",
@@ -100,7 +106,12 @@ jobs:
           missing = sorted(required - routes)
           if missing:
               raise SystemExit(f"Missing required routes: {missing}")
-          print("Auth, handoff, support, account, review, and operations routes registered.")
+
+          handoff_update = app.view_functions["service_handoffs_admin.update_handoff_status"]
+          case_update = app.view_functions["service_handoffs_admin.update_support_case"]
+          assert handoff_update.__module__ == "app.routes.service_handoff_safety", handoff_update
+          assert case_update.__module__ == "app.routes.service_handoff_safety", case_update
+          print("Auth, handoff aliases, support, account, review, operations, and safety handlers registered.")
           PY
 
       - name: Verify unauthenticated and unprivileged access fails closed
@@ -113,9 +124,10 @@ jobs:
 
           for method, path in [
               ("get", "/api/account/summary"),
+              ("get", "/api/handoffs"),
+              ("get", "/api/handoffs/support-cases"),
+              ("post", "/api/handoffs/support-cases"),
               ("get", "/api/service-handoffs"),
-              ("get", "/api/service-handoffs/support-cases"),
-              ("post", "/api/service-handoffs/support-cases"),
           ]:
               response = getattr(client, method)(path, json={} if method == "post" else None)
               assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
@@ -129,10 +141,15 @@ jobs:
               response = client.get(path)
               assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
 
+          unsafe_handoff = client.patch("/api/admin/service-handoffs/fake-id", json={"status": "completed"})
+          unsafe_case = client.patch("/api/admin/support-cases/fake-id", json={"status": "closed"})
+          assert unsafe_handoff.status_code == 401, unsafe_handoff.get_data(as_text=True)
+          assert unsafe_case.status_code == 401, unsafe_case.get_data(as_text=True)
+
           invalid_email = client.post("/api/auth/request-code", json={"email": "not-an-email"})
           assert invalid_email.status_code == 400, invalid_email.get_data(as_text=True)
           assert invalid_email.get_json()["error"] == "valid_email_required"
-          print("Private account, handoff, case, queue, and admin routes fail closed.")
+          print("Private account, handoff, case, queue, transition, and admin routes fail closed.")
           PY
 
       - name: Verify OTP provider readiness without network
@@ -214,6 +231,26 @@ jobs:
           assert limited["retry_after_seconds"] >= 1, limited
           assert account_auth._dev_code_allowed() is False
           print("OTP requests enforce cooldown and production-safe development-code gating.")
+          PY
+
+      - name: Verify transition policy and database invariants agree
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          from app.routes.service_handoff_safety import ADMIN_HANDOFF_TRANSITIONS, TERMINAL_CASE_STATUSES
+
+          assert "consent_confirmed" not in ADMIN_HANDOFF_TRANSITIONS["pending_user_consent"]
+          assert "shared" not in ADMIN_HANDOFF_TRANSITIONS["consent_confirmed"]
+          assert ADMIN_HANDOFF_TRANSITIONS["completed"] == set()
+          assert TERMINAL_CASE_STATUSES == {"resolved", "rejected", "closed"}
+
+          invariants = Path("supabase/migrations/026_commercial_and_handoff_invariants.sql").read_text(encoding="utf-8").lower()
+          assert "user_consent_confirmed = true" in invariants
+          assert "delivery_reference" in invariants
+          assert "status not in ('resolved', 'rejected', 'closed')" in invariants
+          assert "resolution_summary" in invariants
+          print("API transition rules and database trust invariants agree.")
           PY
 
       - name: Verify handoff and support tables remain backend-only
