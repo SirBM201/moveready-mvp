@@ -6,9 +6,12 @@ on:
     paths:
       - "app/routes/billing.py"
       - "app/routes/billing_admin.py"
+      - "app/routes/operations.py"
+      - "app/routes/admin_review_queue.py"
       - "app/routes/partners.py"
       - "app/services/travel_provider_publication.py"
       - "app/services/account_session_context.py"
+      - "app/services/journey_module_patch.py"
       - "app/core/config.py"
       - "app/__init__.py"
       - "supabase/migrations/023_provider_publication_and_commercial_quotes.sql"
@@ -17,9 +20,12 @@ on:
     paths:
       - "app/routes/billing.py"
       - "app/routes/billing_admin.py"
+      - "app/routes/operations.py"
+      - "app/routes/admin_review_queue.py"
       - "app/routes/partners.py"
       - "app/services/travel_provider_publication.py"
       - "app/services/account_session_context.py"
+      - "app/services/journey_module_patch.py"
       - "app/core/config.py"
       - "app/__init__.py"
       - "supabase/migrations/023_provider_publication_and_commercial_quotes.sql"
@@ -59,7 +65,7 @@ jobs:
       - name: Compile backend
         run: python -m compileall -q app
 
-      - name: Verify billing and provider routes
+      - name: Verify billing, operations, and provider routes
         run: |
           python - <<'PY'
           from app import create_app
@@ -67,6 +73,8 @@ jobs:
           app = create_app()
           routes = {rule.rule for rule in app.url_map.iter_rules()}
           required = {
+              "/api/operations/status",
+              "/api/admin/operations/status",
               "/api/billing/status",
               "/api/billing/catalog",
               "/api/billing/quote-requests",
@@ -84,16 +92,23 @@ jobs:
           missing = sorted(required - routes)
           if missing:
               raise SystemExit(f"Missing required routes: {missing}")
-          print("Billing and provider routes registered.")
+          print("Billing, operations, and provider routes registered.")
           PY
 
-      - name: Verify fail-closed public billing status
+      - name: Verify fail-closed public billing and operations status
         run: |
           python - <<'PY'
           from app import create_app
 
           app = create_app()
           client = app.test_client()
+
+          operations = client.get("/api/operations/status")
+          assert operations.status_code == 200, operations.get_data(as_text=True)
+          operations_payload = operations.get_json()
+          assert operations_payload["ok"] is True, operations_payload
+          assert operations_payload["public_capabilities"]["provider_publication"] == "fail_closed_until_schema_and_admin_review_pass", operations_payload
+          assert operations_payload["public_capabilities"]["online_checkout"] is False, operations_payload
 
           status = client.get("/api/billing/status")
           assert status.status_code == 200, status.get_data(as_text=True)
@@ -106,14 +121,50 @@ jobs:
           assert catalog.status_code == 200, catalog.get_data(as_text=True)
           catalog_payload = catalog.get_json()
           slugs = {item["slug"] for item in catalog_payload["catalog"]}
-          assert {"readiness_report", "expert_review", "admission_support", "travel_booking"}.issubset(slugs), slugs
+          assert {"readiness_report", "expert_review", "admission_support", "travel_booking", "legalization", "settlement"}.issubset(slugs), slugs
+
+          modules = client.get("/api/platform/modules")
+          assert modules.status_code == 200, modules.get_data(as_text=True)
+          module_rows = {item["slug"]: item for item in modules.get_json()["modules"]}
+          assert module_rows["billing"]["availability"] == "available", module_rows.get("billing")
 
           private_quotes = client.get("/api/billing/quotes")
           assert private_quotes.status_code == 401, private_quotes.get_data(as_text=True)
 
+          protected_operations = client.get("/api/admin/operations/status")
+          assert protected_operations.status_code == 401, protected_operations.get_data(as_text=True)
+
           checkout = client.post("/api/billing/quotes/MRQ-TEST/checkout", json={})
           assert checkout.status_code == 401, checkout.get_data(as_text=True)
-          print("Billing fails closed without account and payment setup.")
+          print("Billing and operations fail closed without account, admin, migration, or payment setup.")
+          PY
+
+      - name: Verify protected operations assessment without network
+        run: |
+          python - <<'PY'
+          from app.routes import operations
+
+          checks = [
+              {"code": "profiles", "critical": True, "ok": True, "required_for": "profiles", "migration": "008.sql"},
+              {"code": "commercial_quotes", "critical": False, "ok": False, "required_for": "commercial quotes", "migration": "023.sql"},
+          ]
+          configuration = {
+              "supabase_configured": True,
+              "admin_key_configured": True,
+              "email_otp_delivery_enabled": False,
+              "opportunity_alerts_enabled": False,
+              "whatsapp_alerts_enabled": False,
+              "passport_provider_enabled": False,
+              "passport_provider_credentials_present": False,
+              "commercial_quotes_enabled": True,
+              "payment_links_enabled": False,
+          }
+          assessment = operations._operational_assessment(checks, configuration)
+          assert assessment["overall_status"] == "core_operational_controlled_rollout", assessment
+          assert assessment["critical_schema_ready"] is True, assessment
+          assert assessment["optional_schema_ready"] is False, assessment
+          assert any("commercial quotes" in item for item in assessment["controlled_rollout_items"]), assessment
+          print("Operations assessment distinguishes blockers from controlled rollout.")
           PY
 
       - name: Verify published provider filter helper
