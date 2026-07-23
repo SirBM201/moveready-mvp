@@ -98,7 +98,7 @@ def _expected_endpoints() -> List[str]:
         f"{prefix}/handoffs",
         f"{prefix}/handoffs/support-cases",
         f"{prefix}/visa-power/provider/status",
-        f"{prefix}/visa-power/provider/scheduled-sync/status",
+        f"{prefix}/visa-power/provider/schedule/status",
         f"{prefix}/visa-power/passport-index/check",
         f"{prefix}/visa-power/check",
         f"{prefix}/admin/operations/status",
