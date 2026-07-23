@@ -16,6 +16,15 @@ ACCOUNT_MODULES: List[Dict[str, Any]] = [
         "current_support": "The guided setup page and saved onboarding progress are implemented after migration 030.",
     },
     {
+        "slug": "action-center",
+        "title": "Private ranked Action Center",
+        "category": "account",
+        "availability": "available",
+        "flag": None,
+        "summary": "Rank deadlines, application risks, document expiry, evidence gaps, timeline tasks, quotes, provider handoffs, support, and privacy actions in one verified-account view.",
+        "current_support": "The Action Center reads existing private records without creating a duplicate data store or activating external notifications.",
+    },
+    {
         "slug": "application-center",
         "title": "Private Application Case Manager",
         "category": "application_execution",
@@ -64,6 +73,7 @@ def apply_platform_account_modules_patch() -> None:
     platform_modules.MODULE_ENDPOINTS.update(
         {
             "onboarding": "Guided verified-account setup across profile, route, evidence, applications, and alerts.",
+            "action-center": "Ranked private next actions derived from existing applications, alerts, evidence, documents, timelines, quotes, handoffs, support, and privacy records.",
             "application-center": "Private application lifecycle, authority, evidence, deadline, fee, source, event, and decision tracking.",
             "application-alerts": "Private application deadline, source, payment, refusal, and post-decision alert inbox.",
             "account-activity": "Unified verified-account activity history without raw documents or security credentials.",
