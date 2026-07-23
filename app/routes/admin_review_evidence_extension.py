@@ -42,6 +42,7 @@ def _evidence_item(row: Dict[str, Any]) -> Dict[str, Any]:
         score += 30
     if row.get("status") == "review_required":
         score += 20
+    age_hours = admin_review_queue._age_hours(row)
     return {
         "kind": "evidence_pack",
         "id": row.get("id"),
@@ -54,8 +55,8 @@ def _evidence_item(row: Dict[str, Any]) -> Dict[str, Any]:
         "target_country": row.get("target_country"),
         "route_category": row.get("route_category"),
         "created_at": row.get("created_at"),
-        "age_hours": admin_review_queue._age_hours(row),
-        "score": score + min(admin_review_queue._age_hours(row) or 0, 240) // 24,
+        "age_hours": age_hours,
+        "score": score + min(age_hours or 0, 240) // 24,
         "summary": (
             f"Completeness {row.get('completeness_score') or 0}%. "
             f"Missing: {', '.join(str(item.get('label') or item.get('key') or 'item') for item in missing[:8]) or 'none recorded'}. "
@@ -69,6 +70,7 @@ def _evidence_item(row: Dict[str, Any]) -> Dict[str, Any]:
 def _source_alert_item(row: Dict[str, Any]) -> Dict[str, Any]:
     severity = str(row.get("severity") or "medium")
     score = 50 + ({"low": 0, "medium": 10, "high": 25, "critical": 40}.get(severity, 10))
+    age_hours = admin_review_queue._age_hours(row)
     return {
         "kind": "source_review_alert",
         "id": row.get("id"),
@@ -77,8 +79,8 @@ def _source_alert_item(row: Dict[str, Any]) -> Dict[str, Any]:
         "priority": severity,
         "risk_level": severity,
         "created_at": row.get("created_at"),
-        "age_hours": admin_review_queue._age_hours(row),
-        "score": score + min(admin_review_queue._age_hours(row) or 0, 240) // 24,
+        "age_hours": age_hours,
+        "score": score + min(age_hours or 0, 240) // 24,
         "summary": str(row.get("summary") or "Official source review or content-change attention is required."),
         "detail_href": "/admin#source-governance",
         "record": row,
@@ -144,11 +146,12 @@ def review_queue_with_evidence():
     payload["counts"] = counts
 
     queue_items = payload.get("queue_items") if isinstance(payload.get("queue_items"), list) else []
+    previous_total = int(payload.get("total_open_items") or len(queue_items))
     queue_items.extend(source_items)
     queue_items.extend(evidence_items)
     queue_items.sort(key=lambda item: (int(item.get("score") or 0), item.get("created_at") or ""), reverse=True)
     payload["queue_items"] = queue_items[:100]
-    payload["total_open_items"] = len(queue_items)
+    payload["total_open_items"] = previous_total + len(source_items) + len(evidence_items)
 
     next_actions = payload.get("next_actions") if isinstance(payload.get("next_actions"), list) else []
     for action in [
