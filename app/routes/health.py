@@ -140,7 +140,7 @@ def _expected_endpoints() -> List[str]:
         f"{prefix}/admin/source-governance/queue",
         f"{prefix}/admin/review-queue",
         f"{prefix}/admin/application-cases",
-        f"{prefix}/admin/application-cases/alerts",
+        f"{prefix}/admin/application-case-alerts",
         f"{prefix}/admin/application-cases/alerts/scan",
         f"{prefix}/admin/privacy-requests",
     ]
