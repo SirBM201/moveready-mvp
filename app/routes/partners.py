@@ -117,18 +117,22 @@ def approved_providers():
             {
                 "ok": True,
                 "approved_providers": providers,
+                "source_status": "publication_controls_active",
                 "publication_rule": "Only approved providers with explicit public listing enabled after privacy, pricing, refund, and handling review are shown.",
             }
         )
-    except Exception as exc:
+    except Exception:
+        # Fail closed during migration or storage outages. Do not fall back to old
+        # approval-only records because they have not passed the publication gate.
         return jsonify(
             {
-                "ok": False,
-                "error": "approved_provider_directory_unavailable",
-                "details": str(exc),
+                "ok": True,
+                "approved_providers": [],
+                "source_status": "publication_controls_pending_or_unavailable",
                 "required_migration": "023_provider_publication_and_commercial_quotes.sql",
+                "publication_rule": "No provider is exposed until the publication-control schema and review process are available.",
             }
-        ), 503
+        )
 
 
 @bp.post("/applications")
