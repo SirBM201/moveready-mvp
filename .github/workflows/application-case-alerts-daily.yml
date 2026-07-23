@@ -1,0 +1,161 @@
+name: Application Case Daily Alerts
+
+on:
+  schedule:
+    - cron: "7 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: moveready-application-case-alerts-daily
+  cancel-in-progress: false
+
+jobs:
+  scan-application-cases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      API_BASE: ${{ vars.MOVEREADY_API_BASE || 'https://moveready-mvp-production.up.railway.app' }}
+      ADMIN_KEY: ${{ secrets.MOVEREADY_ADMIN_KEY }}
+    steps:
+      - name: Validate protected configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_KEY}" ]; then
+            echo "MOVEREADY_ADMIN_KEY repository secret is missing."
+            exit 1
+          fi
+          if [ -z "${API_BASE}" ]; then
+            echo "MOVEREADY_API_BASE is empty."
+            exit 1
+          fi
+
+      - name: Wake Railway backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${API_BASE%/}"
+          for attempt in 1 2 3 4 5; do
+            code="$(curl --silent --show-error --location --output /tmp/application-options.json --write-out '%{http_code}' --max-time 45 "${base}/api/applications/options" || true)"
+            if [ "${code}" = "200" ]; then
+              cat /tmp/application-options.json
+              exit 0
+            fi
+            echo "Wake attempt ${attempt} returned HTTP ${code:-network_error}."
+            sleep $((attempt * 8))
+          done
+          echo "Railway backend did not become ready."
+          exit 1
+
+      - name: Generate private in-app application alerts
+        id: scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${API_BASE%/}"
+          code="$(curl --silent --show-error --location \
+            --output /tmp/application-alert-scan.json \
+            --write-out '%{http_code}' \
+            --max-time 180 \
+            --request POST \
+            --header "X-MoveReady-Admin-Key: ${ADMIN_KEY}" \
+            --header "Content-Type: application/json" \
+            --data '{}' \
+            "${base}/api/admin/application-cases/alerts/scan" || true)"
+
+          cat /tmp/application-alert-scan.json || true
+          echo "http_code=${code}" >> "${GITHUB_OUTPUT}"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('/tmp/application-alert-scan.json')
+          if not path.exists():
+              raise SystemExit('Application alert response file is missing.')
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          if payload.get('status') not in {'completed', 'completed_with_errors'}:
+              raise SystemExit(f"Unexpected alert scan status: {payload}")
+          if payload.get('errors'):
+              raise SystemExit(f"Application alert scan completed with errors: {payload['errors']}")
+          print(
+              'Application alert scan completed:',
+              'cases=', payload.get('case_count', 0),
+              'created=', payload.get('alerts_created', 0),
+              'updated=', payload.get('alerts_updated', 0),
+              'resolved=', payload.get('alerts_resolved', 0),
+          )
+          PY
+
+          if [ "${code}" != "200" ]; then
+            echo "Unexpected HTTP status ${code}."
+            exit 1
+          fi
+
+      - name: Publish workflow summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## MoveReady application case alerts"
+            echo ""
+            echo "- Schedule: daily at 07:07 UTC"
+            echo "- Endpoint: /api/admin/application-cases/alerts/scan"
+            echo "- HTTP status: ${{ steps.scan.outputs.http_code || 'not reached' }}"
+            echo "- Purpose: refresh private in-app alerts for deadlines, appointments, additional-document requests, sources, payments, refusals, and decisions"
+            echo "- External email, WhatsApp, and Telegram delivery: not activated by this workflow"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Close previous failure issue after recovery
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'MoveReady application case daily alert scan failed';
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const issue = issues.find(item => !item.pull_request && item.title === title);
+            if (issue) {
+              const body = [
+                'The scheduled application case alert scan completed successfully.',
+                '',
+                `Recovery run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              ].join('\n');
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, body });
+              await github.rest.issues.update({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, state: 'closed' });
+            }
+
+      - name: Open or update failure issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'MoveReady application case daily alert scan failed';
+            const body = [
+              'The scheduled private application case alert scan failed.',
+              '',
+              `Workflow: ${context.workflow}`,
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'Check Railway availability, MOVEREADY_ADMIN_KEY, migrations 028 and 029, and the protected application alert scan endpoint.',
+            ].join('\n');
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const issue = issues.find(item => !item.pull_request && item.title === title);
+            if (issue) {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, body });
+            } else {
+              await github.rest.issues.create({ owner: context.repo.owner, repo: context.repo.repo, title, body });
+            }
