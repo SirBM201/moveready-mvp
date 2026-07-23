@@ -1,0 +1,188 @@
+name: Application Case Alerts Integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/__init__.py"
+      - "app/routes/application_case_alerts.py"
+      - "app/routes/application_cases.py"
+      - "supabase/migrations/028_application_case_manager.sql"
+      - "supabase/migrations/029_application_case_alerts.sql"
+      - ".github/workflows/application-case-alerts-daily.yml"
+      - ".github/workflows/application-case-alerts-integration.yml"
+  pull_request:
+    paths:
+      - "app/__init__.py"
+      - "app/routes/application_case_alerts.py"
+      - "app/routes/application_cases.py"
+      - "supabase/migrations/028_application_case_manager.sql"
+      - "supabase/migrations/029_application_case_alerts.sql"
+      - ".github/workflows/application-case-alerts-daily.yml"
+      - ".github/workflows/application-case-alerts-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      FLASK_ENV: development
+      ENV_MODE: development
+      SECRET_KEY: github-actions-application-alerts-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      MOVEREADY_ADMIN_API_KEY: smoke-admin-key
+      AUTH_OTP_DEV_MODE: "false"
+      EMAIL_OTP_DELIVERY_ENABLED: "false"
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+      PAYMENT_LINKS_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Verify alert routes and access barriers
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          required = {
+              '/api/applications/alerts',
+              '/api/applications/alerts/<alert_id>',
+              '/api/admin/application-case-alerts',
+              '/api/admin/application-case-alerts/<alert_id>',
+              '/api/admin/application-cases/alerts/scan',
+          }
+          missing = sorted(required - routes)
+          if missing:
+              raise SystemExit(f'Missing application alert routes: {missing}')
+
+          client = app.test_client()
+          for method, path in [
+              ('get', '/api/applications/alerts'),
+              ('patch', '/api/applications/alerts/test-alert'),
+          ]:
+              response = getattr(client, method)(path, json={} if method == 'patch' else None)
+              assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
+
+          for method, path in [
+              ('get', '/api/admin/application-case-alerts'),
+              ('patch', '/api/admin/application-case-alerts/test-alert'),
+              ('post', '/api/admin/application-cases/alerts/scan'),
+          ]:
+              response = getattr(client, method)(path, json={} if method in {'patch', 'post'} else None)
+              assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
+
+          print('Application alert inbox, administration, and scan routes are registered and fail closed.')
+          PY
+
+      - name: Verify alert candidate generation without network
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+
+          from app.routes import application_case_alerts
+
+          now = datetime.now(timezone.utc)
+          case = {
+              'id': 'case-1',
+              'case_ref': 'MRAPP-TEST',
+              'case_title': 'Test application',
+              'email': 'test@example.com',
+              'status': 'attention_required',
+              'application_stage': 'additional_documents_requested',
+              'source_status': 'stale',
+              'payment_status': 'disputed',
+              'next_deadline_at': (now + timedelta(hours=36)).isoformat(),
+              'appointment_date': (now + timedelta(days=5)).isoformat(),
+              'updated_at': now.isoformat(),
+          }
+          rows = application_case_alerts._candidates_for_case(case)
+          types = {item['alert_type'] for item in rows}
+          required = {
+              'deadline_due_72h',
+              'appointment_due_7d',
+              'additional_documents_requested',
+              'source_stale_or_unavailable',
+              'payment_attention',
+          }
+          assert required.issubset(types), (types, rows)
+          assert all(item['metadata']['generated_by'] == 'application_case_daily_scan' for item in rows), rows
+          assert all('MRAPP-TEST' in str(item['metadata'].get('case_ref')) for item in rows), rows
+
+          overdue = application_case_alerts._candidates_for_case({
+              **case,
+              'application_stage': 'decision_pending',
+              'source_status': 'verified',
+              'payment_status': 'paid',
+              'next_deadline_at': (now - timedelta(hours=2)).isoformat(),
+              'appointment_date': None,
+          })
+          overdue_rows = [item for item in overdue if item['alert_type'] == 'deadline_overdue']
+          assert len(overdue_rows) == 1, overdue
+          assert overdue_rows[0]['severity'] == 'critical', overdue_rows
+          print('Deadline, appointment, evidence-request, source, and payment alert candidates are generated with expected severity.')
+          PY
+
+      - name: Verify alert deduplication and severity escalation logic
+        run: |
+          python - <<'PY'
+          from app.routes import application_case_alerts
+
+          key_one = application_case_alerts._alert_key('case-id', 'deadline', '2030-01-01T00:00:00+00:00')
+          key_two = application_case_alerts._alert_key('case-id', 'deadline', '2030-01-01T00:00:00+00:00')
+          assert key_one == key_two
+          assert len(key_one) <= 240
+          assert application_case_alerts.SEVERITY_RANK['critical'] > application_case_alerts.SEVERITY_RANK['high']
+          assert application_case_alerts.SEVERITY_RANK['high'] > application_case_alerts.SEVERITY_RANK['medium']
+          assert application_case_alerts.ALERT_STATUSES == {'open', 'dismissed', 'resolved', 'expired'}
+          print('Application alert keys are stable and severity ranking supports controlled reopening.')
+          PY
+
+      - name: Verify migration 029 remains backend-only
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          migration = Path('supabase/migrations/029_application_case_alerts.sql').read_text(encoding='utf-8').lower()
+          table = 'relocation_application_case_alerts'
+          assert f'alter table public.{table} enable row level security' in migration
+          assert f'revoke all privileges on table public.{table} from public, anon, authenticated' in migration
+          assert f'grant all privileges on table public.{table} to service_role' in migration
+          assert 'relocation_application_case_alerts_resolution_check' in migration
+          assert 'alert_key text not null unique' in migration
+          assert 'private in-app' in migration
+          print('Application case alerts remain private, deduplicated, and resolution-audited.')
+          PY
+
+      - name: Verify unattended workflow contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/application-case-alerts-daily.yml').read_text(encoding='utf-8')
+          assert '7 7 * * *' in workflow
+          assert '/api/admin/application-cases/alerts/scan' in workflow
+          assert 'MOVEREADY_ADMIN_KEY' in workflow
+          assert 'External email, WhatsApp, and Telegram delivery: not activated by this workflow' in workflow
+          assert 'Close previous failure issue after recovery' in workflow
+          print('Daily application alert scan is protected, unattended, issue-aware, and in-app only.')
+          PY
