@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request
 
 from app.services.supabase_client import get_supabase
 
+
 bp = Blueprint("partners", __name__)
 
 PROVIDER_TYPES = [
@@ -18,6 +19,9 @@ PROVIDER_TYPES = [
     {"code": "accommodation", "label": "Accommodation support"},
     {"code": "airport_pickup", "label": "Airport pickup"},
     {"code": "settlement", "label": "Post-arrival settlement support"},
+    {"code": "travel_booking", "label": "Travel booking support"},
+    {"code": "transport", "label": "Local or intercity transport"},
+    {"code": "telecom", "label": "SIM, connectivity, or telecom support"},
     {"code": "other", "label": "Other trusted service"},
 ]
 
@@ -44,7 +48,7 @@ def _clean_list(value: Any, limit: int = 12) -> List[str]:
         items = value
     else:
         return []
-    cleaned = []
+    cleaned: List[str] = []
     for item in items:
         text = _clean_text(item, 80)
         if text and text not in cleaned:
@@ -68,7 +72,11 @@ def _public_provider(row: Dict[str, Any]) -> Dict[str, Any]:
         "service_summary": row.get("service_summary"),
         "credentials_summary": row.get("credentials_summary"),
         "preferred_contact_channel": row.get("preferred_contact_channel"),
-        "public_status": "approved",
+        "affiliate_relationship": bool(row.get("affiliate_relationship")),
+        "affiliate_disclosure": row.get("affiliate_disclosure"),
+        "public_notes": row.get("public_notes"),
+        "public_status": "approved_public",
+        "approved_at": row.get("approved_at"),
         "created_at": row.get("created_at"),
     }
 
@@ -89,9 +97,12 @@ def approved_providers():
             .table("relocation_partner_applications")
             .select(
                 "id,provider_type,business_name,website_url,country,city,service_countries,"
-                "service_summary,credentials_summary,preferred_contact_channel,created_at"
+                "service_summary,credentials_summary,preferred_contact_channel,affiliate_relationship,"
+                "affiliate_disclosure,public_notes,approved_at,created_at"
             )
             .eq("status", "approved")
+            .eq("public_listing_enabled", True)
+            .order("approved_at", desc=True)
             .order("created_at", desc=True)
             .limit(60)
         )
@@ -102,13 +113,22 @@ def approved_providers():
 
         response = query.execute()
         providers = [_public_provider(row) for row in (response.data or [])]
-        return jsonify({"ok": True, "approved_providers": providers})
+        return jsonify(
+            {
+                "ok": True,
+                "approved_providers": providers,
+                "publication_rule": "Only approved providers with explicit public listing enabled after privacy, pricing, refund, and handling review are shown.",
+            }
+        )
     except Exception as exc:
-        return jsonify({
-            "ok": False,
-            "error": "approved_provider_directory_unavailable",
-            "details": str(exc),
-        }), 503
+        return jsonify(
+            {
+                "ok": False,
+                "error": "approved_provider_directory_unavailable",
+                "details": str(exc),
+                "required_migration": "023_provider_publication_and_commercial_quotes.sql",
+            }
+        ), 503
 
 
 @bp.post("/applications")
@@ -149,21 +169,32 @@ def create_partner_application():
         "pricing_notes": _clean_text(payload.get("pricing_notes"), 800),
         "preferred_contact_channel": preferred_channel,
         "consent_to_contact": consent_to_contact,
+        "public_listing_enabled": False,
         "source_page": _clean_text(payload.get("source_page"), 240),
         "metadata": {
             "user_agent": request.headers.get("User-Agent"),
             "remote_addr": request.headers.get("X-Forwarded-For") or request.remote_addr,
+            "publication_notice": "Application submission does not create approval or a public listing.",
         },
     }
 
     try:
         response = get_supabase().table("relocation_partner_applications").insert(row).execute()
         stored = (response.data or [None])[0]
-        return jsonify({"ok": True, "stored": True, "partner_application": stored})
+        return jsonify(
+            {
+                "ok": True,
+                "stored": True,
+                "partner_application": stored,
+                "next_step": "MoveReady must complete screening and separate public-listing approval before the provider can appear to users.",
+            }
+        )
     except Exception as exc:
-        return jsonify({
-            "ok": False,
-            "stored": False,
-            "error": "partner_application_storage_unavailable",
-            "details": str(exc),
-        }), 503
+        return jsonify(
+            {
+                "ok": False,
+                "stored": False,
+                "error": "partner_application_storage_unavailable",
+                "details": str(exc),
+            }
+        ), 503
