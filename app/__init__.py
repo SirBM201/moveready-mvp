@@ -51,6 +51,9 @@ def create_app() -> Flask:
 
     from app.routes import account, account_auth, admin, admin_review_queue, health, journey_planner, opportunities, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, timeline, visa_power, watchlist
     from app.routes.visa_power_safety import visa_power_check_safe
+    from app.services.journey_module_patch import apply_journey_module_patch
+
+    apply_journey_module_patch()
 
     app.register_blueprint(health.bp)
     app.register_blueprint(relocation_public.bp, url_prefix=f"{API_PREFIX}/relocation")
