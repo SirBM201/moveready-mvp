@@ -175,4 +175,24 @@ on public.relocation_payment_events (quote_id, created_at desc);
 create index if not exists relocation_payment_events_reference_idx
 on public.relocation_payment_events (payment_reference);
 
+-- These records contain identities, commercial terms, checkout URLs, payment
+-- references, provider screening notes, and audit metadata. They are accessed
+-- through the Flask backend using the Supabase service role, not directly from
+-- the browser or the Supabase public API.
+alter table public.relocation_partner_applications enable row level security;
+alter table public.relocation_commercial_quotes enable row level security;
+alter table public.relocation_payment_events enable row level security;
+
+revoke all privileges on table public.relocation_partner_applications from public, anon, authenticated;
+revoke all privileges on table public.relocation_commercial_quotes from public, anon, authenticated;
+revoke all privileges on table public.relocation_payment_events from public, anon, authenticated;
+
+grant all privileges on table public.relocation_partner_applications to service_role;
+grant all privileges on table public.relocation_commercial_quotes to service_role;
+grant all privileges on table public.relocation_payment_events to service_role;
+
+comment on table public.relocation_partner_applications is 'Private provider applications and publication-review controls. Public output is produced only by the backend approved-provider endpoint.';
+comment on table public.relocation_commercial_quotes is 'Private account commercial quotes. Scope, fees, checkout links, refund terms, and status are exposed only through verified backend endpoints.';
+comment on table public.relocation_payment_events is 'Private quote and payment audit events. Never expose payment references or event payloads through the public Supabase API.';
+
 notify pgrst, 'reload schema';
