@@ -168,6 +168,30 @@ SCHEMA_CHECKS = [
         "migration": "028_application_case_manager.sql",
         "critical": False,
     },
+    {
+        "code": "application_case_alerts",
+        "table": "relocation_application_case_alerts",
+        "columns": "id,application_case_id,email,alert_type,severity,status,due_at",
+        "required_for": "private application deadline and risk alerts",
+        "migration": "029_application_case_alerts.sql",
+        "critical": False,
+    },
+    {
+        "code": "account_preferences",
+        "table": "relocation_account_preferences",
+        "columns": "id,email,onboarding_status,onboarding_step,in_app_notifications_enabled",
+        "required_for": "account settings, onboarding, accessibility, and notification consent",
+        "migration": "030_account_preferences_privacy_activity.sql",
+        "critical": False,
+    },
+    {
+        "code": "privacy_requests",
+        "table": "relocation_privacy_requests",
+        "columns": "id,request_ref,email,request_type,status,priority",
+        "required_for": "verified data access, correction, restriction, consent withdrawal, and deletion requests",
+        "migration": "030_account_preferences_privacy_activity.sql",
+        "critical": False,
+    },
 ]
 
 
@@ -291,7 +315,10 @@ def public_operations_status():
                 "private_evidence_pack": "verified_account_only_after_migration_027",
                 "refusal_repair": "verified_account_only_and_no_raw_documents",
                 "application_case_manager": "verified_account_only_after_migration_028",
+                "application_alert_inbox": "verified_account_only_after_migration_029",
                 "application_timeline_tasks": "explicit_storage_confirmation_required",
+                "account_settings_and_privacy": "verified_account_only_after_migration_030",
+                "account_data_export": "verified_account_json_export_excluding_security_secrets",
                 "commercial_quote_requests": bool(configuration.get("commercial_quotes_enabled")),
                 "online_checkout": bool(configuration.get("payment_links_enabled")),
                 "in_app_alerts": True,
@@ -322,14 +349,15 @@ def admin_operations_status():
             "schema_checks": checks,
             **assessment,
             "recommended_sequence": [
-                "Apply Supabase migrations through 028, including provider publication, quotes, payment audit, private-table RLS, consent-based handoffs, support cases, database invariants, document inventory, evidence packs, application cases, and application event history.",
+                "Apply Supabase migrations through 030, including provider publication, quotes, payment audit, private-table RLS, consent-based handoffs, support cases, evidence packs, application cases, application alerts, account preferences, and privacy requests.",
                 "Run the source-governance queue and resolve overdue official sources and route versions before promoting guidance as current.",
-                "Use the Application Case Manager to connect active applications to verified route sources, evidence packs, deadlines, appointments, fees, and decision records without storing raw authority correspondence.",
+                "Use the Application Case Manager and daily private alert scan without storing raw authority correspondence or complete reference numbers.",
+                "Review privacy requests manually; never treat a deletion request as authorization for immediate unaudited destruction.",
                 "Confirm the admin key, production SECRET_KEY, CORS origin, and an approved OTP email provider before inviting public account users.",
                 "Keep PAYMENT_LINKS_ENABLED false until checkout domains, amounts, currencies, references, webhooks or manual verification, refunds, and dispute handling are approved.",
                 "Approve providers internally, then separately complete publication controls before making any listing public or preparing a handoff.",
                 "Require explicit user consent for the exact handoff field list and record a delivery channel and reference before marking information shared.",
-                "Run backend, auth, evidence, applications, source-governance, billing, handoff, study, trip, journey, Passport Index, and frontend deployment smoke tests after each production change.",
+                "Run backend, auth, evidence, applications, alerts, settings, privacy, source-governance, billing, handoff, study, trip, journey, Passport Index, and frontend deployment smoke tests after each production change.",
             ],
         }
     )
