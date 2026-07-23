@@ -126,7 +126,7 @@ $Appointment = Invoke-MoveReadyJson `
 $Appointment | ConvertTo-Json -Depth 20
 Assert-True -Condition ($Appointment.ok -eq $true) -Message "Appointment planner returned ok=false."
 Assert-True -Condition (@($Appointment.tasks).Count -eq 6) -Message "Appointment planner should return six dated tasks."
-Assert-True -Condition ([int]$Appointment.timeline_saved_count -eq 0) -Message "Release test unexpectedly saved timeline events."
+Assert-True -Condition ([int]$Appointment.timeline_saved_count -eq 0) -Message "Release test unexpectedly saved appointment timeline events."
 
 Write-Host "`n=== 6. SETTLEMENT PLANNER ===" -ForegroundColor Cyan
 $Settlement = Invoke-MoveReadyJson `
@@ -144,6 +144,8 @@ $Settlement = Invoke-MoveReadyJson `
         school_needed = $true
         employment_or_business_start_planned = $true
         medical_or_accessibility_need = $false
+        save_to_timeline = $false
+        consent_to_contact = $false
         source_page = "/release-test"
     }
 $Settlement | ConvertTo-Json -Depth 30
@@ -153,6 +155,10 @@ foreach ($Group in $ExpectedGroups) {
     Assert-True -Condition ($null -ne $Settlement.timeline.$Group) -Message "Settlement timeline group missing: $Group"
 }
 Assert-True -Condition (@("medium", "high") -contains $Settlement.risk_level) -Message "Settlement test did not detect the expected risk."
+Assert-True -Condition ([int]$Settlement.timeline_saved_count -eq 0) -Message "Release test unexpectedly saved settlement timeline events."
+Assert-True -Condition ([int]$Settlement.timeline_existing_count -eq 0) -Message "Release test unexpectedly matched settlement timeline events."
+Assert-True -Condition ($Settlement.timeline_storage_note -eq "Timeline saving was not requested.") -Message "Settlement timeline opt-in message is incorrect."
+Assert-True -Condition (@($Settlement.fraud_checks).Count -ge 4) -Message "Settlement planner is missing fraud and safety checks."
 
 Write-Host "`n=== JOURNEY PLANNER RELEASE TEST PASSED ===" -ForegroundColor Green
 Write-Host "Options, platform status, legalization, family, appointment, and settlement endpoints are responding correctly."
