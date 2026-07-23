@@ -7,6 +7,11 @@ _PATCH_APPLIED = False
 
 
 MODULE_UPDATES: Dict[str, Dict[str, Any]] = {
+    "watchlist": {
+        "availability": "available",
+        "summary": "Save opt-in watches and review current in-app source alerts from a verified account.",
+        "current_support": "The verified in-app inbox matches active watches to stored public opportunity records, shows source-review status, and links back to official pages. External email, WhatsApp, Telegram, or phone delivery remains disabled or controlled until credentials and approvals are ready.",
+    },
     "legalization": {
         "availability": "available",
         "summary": "Organize translation, notarization, authentication, apostille, and embassy-legalization steps from confirmed receiving-authority instructions.",
@@ -59,6 +64,9 @@ def apply_journey_module_patch() -> None:
 
     platform_modules.MODULE_ENDPOINTS["journey-planner"] = (
         "Document legalization, family relocation, appointment preparation, timeline storage, and post-arrival settlement planning."
+    )
+    platform_modules.MODULE_ENDPOINTS["watchlist"] = (
+        "Verified in-app source alerts are available now. External message delivery remains operationally gated."
     )
     platform_modules.PLATFORM_JOURNEY_PATCH_ACTIVE = True
     _PATCH_APPLIED = True
