@@ -32,6 +32,11 @@ MODULE_UPDATES: Dict[str, Dict[str, Any]] = {
         "summary": "Generate a staged before-travel, first-72-hours, first-two-weeks, and first-90-days settlement checklist.",
         "current_support": "The live settlement planner covers housing, connectivity, registration, banking, tax, health, school, transport, work, family, medical, pet, and fraud checks. Partner handoff remains approval-gated.",
     },
+    "partners": {
+        "availability": "partner_approval_pending",
+        "summary": "Connect users only to providers that pass application screening and separate public-publication controls.",
+        "current_support": "Provider applications, admin screening, privacy review, pricing review, refund review, sensitive-document handling review, affiliate disclosure, and explicit public-listing approval are implemented. No provider is public merely because an application status is approved.",
+    },
 }
 
 
@@ -68,6 +73,17 @@ TRIP_MODULE = {
 }
 
 
+BILLING_MODULE = {
+    "slug": "billing",
+    "title": "Commercial Quotes and Payment Controls",
+    "category": "commercial_operations",
+    "availability": "available",
+    "flag": None,
+    "summary": "Request and review scope-based quotes with deliverables, exclusions, provider, separated service and platform fees, expiry, refund terms, acceptance, and payment status.",
+    "current_support": "Verified account quote review, acceptance, decline, admin issuance, audit events, and manual payment verification are implemented. Checkout links remain disabled until PAYMENT_LINKS_ENABLED is explicitly activated after approved payment setup.",
+}
+
+
 def apply_journey_module_patch() -> None:
     global _PATCH_APPLIED
     if _PATCH_APPLIED:
@@ -81,7 +97,7 @@ def apply_journey_module_patch() -> None:
         if module:
             module.update(updates)
 
-    for module in (JOURNEY_MODULE, STUDY_MODULE, TRIP_MODULE):
+    for module in (JOURNEY_MODULE, STUDY_MODULE, TRIP_MODULE, BILLING_MODULE):
         if module["slug"] not in existing:
             platform_modules.PLATFORM_MODULES.append(dict(module))
 
@@ -94,12 +110,16 @@ def apply_journey_module_patch() -> None:
     platform_modules.MODULE_ENDPOINTS["trip-planner"] = (
         "Trip permission, transit, document, booking, fraud, affiliate-disclosure, and approved-provider handoff planning."
     )
+    platform_modules.MODULE_ENDPOINTS["billing"] = (
+        "Scope-controlled commercial quotes, separated fees, refund terms, acceptance, audit history, and gated checkout."
+    )
     platform_modules.MODULE_ENDPOINTS["watchlist"] = (
         "Verified in-app source alerts are available now. External message delivery remains operationally gated."
     )
+    platform_modules.MODULE_ENDPOINTS["partners"] = (
+        "Provider screening and explicit public-publication controls are available. User handoff remains approval-gated."
+    )
 
-    # Keep verified trip plans in the same private planning history and protected
-    # admin review surface as the other high-value planning tools.
     if hasattr(account, "PLANNING_TOOL_SLUGS"):
         account.PLANNING_TOOL_SLUGS.add("trip_readiness_plan")
     if hasattr(admin_review_queue, "JOURNEY_TOOL_SLUGS"):
