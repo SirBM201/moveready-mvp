@@ -1,0 +1,99 @@
+name: Commercial Quote Acceptance Smoke Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/routes/billing.py"
+      - ".github/workflows/quote-acceptance-smoke.yml"
+  pull_request:
+    paths:
+      - "app/routes/billing.py"
+      - ".github/workflows/quote-acceptance-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      FLASK_ENV: development
+      ENV_MODE: development
+      SECRET_KEY: github-actions-quote-acceptance-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      PAYMENT_LINKS_ENABLED: "false"
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Verify quote acceptance consent contract
+        run: |
+          python - <<'PY'
+          from app.routes.billing import (
+              QUOTE_TERMS_VERSION,
+              REQUIRED_ACCEPTANCE_CONFIRMATIONS,
+              _validated_acceptance,
+          )
+
+          confirmations = {key: True for key in REQUIRED_ACCEPTANCE_CONFIRMATIONS}
+
+          accepted, error = _validated_acceptance(
+              {
+                  "accept_terms": True,
+                  "terms_version": QUOTE_TERMS_VERSION,
+                  "confirmations": confirmations,
+              }
+          )
+          assert error is None, error
+          assert accepted == confirmations, accepted
+
+          accepted, error = _validated_acceptance(
+              {
+                  "accept_terms": False,
+                  "terms_version": QUOTE_TERMS_VERSION,
+                  "confirmations": confirmations,
+              }
+          )
+          assert accepted is None
+          assert error == "quote_terms_acceptance_required", error
+
+          accepted, error = _validated_acceptance(
+              {
+                  "accept_terms": True,
+                  "terms_version": "old-version",
+                  "confirmations": confirmations,
+              }
+          )
+          assert accepted is None
+          assert error == "quote_terms_version_mismatch", error
+
+          incomplete = dict(confirmations)
+          incomplete["refund_terms_reviewed"] = False
+          accepted, error = _validated_acceptance(
+              {
+                  "accept_terms": True,
+                  "terms_version": QUOTE_TERMS_VERSION,
+                  "confirmations": incomplete,
+              }
+          )
+          assert accepted is None
+          assert error.startswith("quote_acceptance_confirmations_missing:"), error
+          assert "refund_terms_reviewed" in error, error
+
+          print("Commercial quote acceptance requires the current terms version and every confirmation.")
+          PY
