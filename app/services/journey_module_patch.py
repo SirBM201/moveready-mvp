@@ -57,12 +57,23 @@ STUDY_MODULE = {
 }
 
 
+TRIP_MODULE = {
+    "slug": "trip-planner",
+    "title": "Trip Readiness and Booking Planner",
+    "category": "travel_planning",
+    "availability": "available",
+    "flag": None,
+    "summary": "Check passport, visa, authorization, transit, insurance, accommodation, funds, family, medical, and immigration-history risks before comparing travel bookings.",
+    "current_support": "The live neutral planner returns booking readiness, warnings, a five-stage booking sequence, fraud checks, affiliate disclosure, and approved-provider handoff without claiming live inventory, price, refund, boarding, or entry permission.",
+}
+
+
 def apply_journey_module_patch() -> None:
     global _PATCH_APPLIED
     if _PATCH_APPLIED:
         return
 
-    from app.routes import platform_modules
+    from app.routes import account, admin_review_queue, platform_modules
 
     existing = {str(item.get("slug")): item for item in platform_modules.PLATFORM_MODULES}
     for slug, updates in MODULE_UPDATES.items():
@@ -70,10 +81,9 @@ def apply_journey_module_patch() -> None:
         if module:
             module.update(updates)
 
-    if "journey-planner" not in existing:
-        platform_modules.PLATFORM_MODULES.append(dict(JOURNEY_MODULE))
-    if "study-planner" not in existing:
-        platform_modules.PLATFORM_MODULES.append(dict(STUDY_MODULE))
+    for module in (JOURNEY_MODULE, STUDY_MODULE, TRIP_MODULE):
+        if module["slug"] not in existing:
+            platform_modules.PLATFORM_MODULES.append(dict(module))
 
     platform_modules.MODULE_ENDPOINTS["journey-planner"] = (
         "Document legalization, family relocation, appointment preparation, timeline storage, and post-arrival settlement planning."
@@ -81,8 +91,19 @@ def apply_journey_module_patch() -> None:
     platform_modules.MODULE_ENDPOINTS["study-planner"] = (
         "Academic fit, funding, admission, study-visa, family, regulated-career, and arrival preparation."
     )
+    platform_modules.MODULE_ENDPOINTS["trip-planner"] = (
+        "Trip permission, transit, document, booking, fraud, affiliate-disclosure, and approved-provider handoff planning."
+    )
     platform_modules.MODULE_ENDPOINTS["watchlist"] = (
         "Verified in-app source alerts are available now. External message delivery remains operationally gated."
     )
+
+    # Keep verified trip plans in the same private planning history and protected
+    # admin review surface as the other high-value planning tools.
+    if hasattr(account, "PLANNING_TOOL_SLUGS"):
+        account.PLANNING_TOOL_SLUGS.add("trip_readiness_plan")
+    if hasattr(admin_review_queue, "JOURNEY_TOOL_SLUGS"):
+        admin_review_queue.JOURNEY_TOOL_SLUGS.add("trip_readiness_plan")
+
     platform_modules.PLATFORM_JOURNEY_PATCH_ACTIVE = True
     _PATCH_APPLIED = True
