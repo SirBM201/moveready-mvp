@@ -34,11 +34,11 @@ function Invoke-StageScript {
 $Base = $Base.TrimEnd("/")
 $AdminKey = $AdminKey.Trim()
 if ([string]::IsNullOrWhiteSpace($AdminKey)) {
-    throw "AdminKey is required. Read it securely with Read-Host and do not paste it into chat, screenshots, issues, or repository files."
+    throw "AdminKey is required. Read it securely with Read-Host and do not paste it into chat, screenshots, issues, logs, or repository files."
 }
 
 Invoke-StageScript `
-    -Name "1. Protected operations and schema readiness" `
+    -Name "1. Protected operations and schema readiness through migration 030" `
     -Path "test-operations-admin.ps1" `
     -Arguments @{ Base = $Base; AdminKey = $AdminKey }
 
@@ -79,13 +79,22 @@ Invoke-StageScript `
     }
 
 Invoke-StageScript `
-    -Name "6. Journey and settlement timeline" `
+    -Name "6. Account settings, sessions, activity, export, and privacy" `
+    -Path "test-account-controls-release.ps1" `
+    -Arguments @{
+        Base = $Base
+        SessionToken = $SessionToken
+        AdminKey = $AdminKey
+    }
+
+Invoke-StageScript `
+    -Name "7. Journey and settlement timeline" `
     -Path "test-journey-planner-release.ps1" `
     -Arguments @{ Base = $Base }
 
 Write-Host "`n============================================================" -ForegroundColor Green
-Write-Host "EVIDENCE AND APPLICATION RELEASE STAGE PASSED" -ForegroundColor Green
+Write-Host "MOVEREADY PRIVATE WORKFLOW RELEASE STAGE PASSED" -ForegroundColor Green
 Write-Host "============================================================" -ForegroundColor Green
-Write-Host "Verified: protected schema diagnostics, Evidence Center barriers, Source Governance, Application Case Manager, private application alerts, and settlement planning." -ForegroundColor Green
+Write-Host "Verified: protected schemas through migration 030, Evidence Center, Source Governance, Application Case Manager, private application alerts, account settings, sessions, activity, safe export, privacy requests, and settlement planning." -ForegroundColor Green
 Write-Host "Mutating scans run only when -RunSourceScan or -RunApplicationAlertScan is supplied." -ForegroundColor Yellow
-Write-Host "External email, WhatsApp, Telegram, SMS, payment links, provider approval, and raw-document storage are not activated by this command." -ForegroundColor Yellow
+Write-Host "External email, WhatsApp, Telegram, SMS, push delivery, payment links, provider approval, automatic account deletion, and raw-document storage are not activated by this command." -ForegroundColor Yellow
