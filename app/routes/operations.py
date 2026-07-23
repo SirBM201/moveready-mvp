@@ -152,6 +152,22 @@ SCHEMA_CHECKS = [
         "migration": "027_evidence_inventory_and_packs.sql",
         "critical": False,
     },
+    {
+        "code": "application_cases",
+        "table": "relocation_application_cases",
+        "columns": "id,case_ref,email,application_stage,status,risk_level,next_deadline_at",
+        "required_for": "private application lifecycle, deadlines, fees, source status, and decisions",
+        "migration": "028_application_case_manager.sql",
+        "critical": False,
+    },
+    {
+        "code": "application_case_events",
+        "table": "relocation_application_case_events",
+        "columns": "id,application_case_id,event_type,event_status,event_at,due_at",
+        "required_for": "auditable application case event history",
+        "migration": "028_application_case_manager.sql",
+        "critical": False,
+    },
 ]
 
 
@@ -274,6 +290,8 @@ def public_operations_status():
                 "source_freshness": True,
                 "private_evidence_pack": "verified_account_only_after_migration_027",
                 "refusal_repair": "verified_account_only_and_no_raw_documents",
+                "application_case_manager": "verified_account_only_after_migration_028",
+                "application_timeline_tasks": "explicit_storage_confirmation_required",
                 "commercial_quote_requests": bool(configuration.get("commercial_quotes_enabled")),
                 "online_checkout": bool(configuration.get("payment_links_enabled")),
                 "in_app_alerts": True,
@@ -304,13 +322,14 @@ def admin_operations_status():
             "schema_checks": checks,
             **assessment,
             "recommended_sequence": [
-                "Apply Supabase migrations through 027, including provider publication, quotes, payment audit, private-table RLS, consent-based handoffs, support cases, database invariants, document inventory, and evidence packs.",
+                "Apply Supabase migrations through 028, including provider publication, quotes, payment audit, private-table RLS, consent-based handoffs, support cases, database invariants, document inventory, evidence packs, application cases, and application event history.",
                 "Run the source-governance queue and resolve overdue official sources and route versions before promoting guidance as current.",
+                "Use the Application Case Manager to connect active applications to verified route sources, evidence packs, deadlines, appointments, fees, and decision records without storing raw authority correspondence.",
                 "Confirm the admin key, production SECRET_KEY, CORS origin, and an approved OTP email provider before inviting public account users.",
                 "Keep PAYMENT_LINKS_ENABLED false until checkout domains, amounts, currencies, references, webhooks or manual verification, refunds, and dispute handling are approved.",
                 "Approve providers internally, then separately complete publication controls before making any listing public or preparing a handoff.",
                 "Require explicit user consent for the exact handoff field list and record a delivery channel and reference before marking information shared.",
-                "Run backend, auth, evidence, source-governance, billing, handoff, study, trip, journey, Passport Index, and frontend deployment smoke tests after each production change.",
+                "Run backend, auth, evidence, applications, source-governance, billing, handoff, study, trip, journey, Passport Index, and frontend deployment smoke tests after each production change.",
             ],
         }
     )
