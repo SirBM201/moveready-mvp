@@ -1,0 +1,137 @@
+name: Deployment Fingerprint Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/routes/health.py"
+      - "app/routes/passport_provider_schedule.py"
+      - "app/routes/operations.py"
+      - "app/__init__.py"
+      - ".github/workflows/deployment-contract.yml"
+  pull_request:
+    paths:
+      - "app/routes/health.py"
+      - "app/routes/passport_provider_schedule.py"
+      - "app/routes/operations.py"
+      - "app/__init__.py"
+      - ".github/workflows/deployment-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FLASK_ENV: development
+      ENV_MODE: development
+      SECRET_KEY: github-actions-deployment-contract-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      MOVEREADY_ADMIN_API_KEY: smoke-admin-key
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+      PASSPORT_INDEX_SYNC_WEEKDAYS: FRI
+      PASSPORT_INDEX_SYNC_HOUR_UTC: "6"
+      PASSPORT_INDEX_SYNC_MINUTE_UTC: "17"
+      PASSPORT_INDEX_SCHEDULED_COUNTRIES: Nigeria
+      PASSPORT_INDEX_MAX_COUNTRIES_PER_SYNC: "1"
+      PASSPORT_INDEX_CACHE_MAX_DAYS: "7"
+      PAYMENT_LINKS_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Verify build fingerprint and schedule contract
+        run: |
+          python - <<'PY'
+          import os
+
+          os.environ["GIT_COMMIT_SHA"] = "0123456789abcdef0123456789abcdef01234567"
+
+          from app import create_app
+
+          app = create_app()
+          client = app.test_client()
+
+          response = client.get("/api/build-info")
+          assert response.status_code == 200, response.get_data(as_text=True)
+          payload = response.get_json()
+
+          assert payload["ok"] is True, payload
+          assert payload["service"] == "moveready-api", payload
+          assert payload["deployment"]["commit_sha"] == os.environ["GIT_COMMIT_SHA"], payload
+          assert payload["deployment"]["commit_short"] == "0123456789ab", payload
+          assert payload["deployment"]["uptime_seconds"] >= 0, payload
+          assert payload["passport_index_schedule"]["cadence"] == "weekly", payload
+          assert payload["passport_index_schedule"]["weekdays"] == "FRI", payload
+          assert payload["passport_index_schedule"]["hour_utc"] == 6, payload
+          assert payload["passport_index_schedule"]["minute_utc"] == 17, payload
+          assert payload["passport_index_schedule"]["scheduled_countries"] == ["Nigeria"], payload
+          assert payload["passport_index_schedule"]["maximum_countries_per_run"] == 1, payload
+          assert payload["features"]["passport_weekly_sync"] is True, payload
+          assert payload["features"]["payment_links"] is False, payload
+          assert "twice weekly" not in str(payload).lower(), payload
+
+          expected = set(payload["expected_endpoints"])
+          required = {
+              "/api/auth/health",
+              "/api/account/summary",
+              "/api/operations/status",
+              "/api/billing/status",
+              "/api/handoffs",
+              "/api/handoffs/support-cases",
+              "/api/visa-power/provider/status",
+              "/api/visa-power/provider/schedule/status",
+              "/api/visa-power/passport-index/check",
+              "/api/visa-power/check",
+              "/api/admin/operations/status",
+              "/api/admin/review-queue",
+          }
+          assert required.issubset(expected), sorted(required - expected)
+
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          missing_routes = sorted(required - routes)
+          assert not missing_routes, missing_routes
+          print("Deployment fingerprint, weekly sync, safety flags, and expected routes are consistent.")
+          PY
+
+      - name: Verify public status remains secret-free
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          os.environ["PASSPORT_INDEX_PROVIDER_KEY"] = "never-print-this-provider-key"
+          os.environ["MOVEREADY_ADMIN_API_KEY"] = "never-print-this-admin-key"
+          os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "never-print-this-service-role"
+
+          from app import create_app
+
+          app = create_app()
+          client = app.test_client()
+          text = json.dumps(client.get("/api/build-info").get_json())
+
+          for secret in [
+              "never-print-this-provider-key",
+              "never-print-this-admin-key",
+              "never-print-this-service-role",
+          ]:
+              assert secret not in text, text
+          print("Public build information does not expose configured secrets.")
+          PY
