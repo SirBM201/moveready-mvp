@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 from flask import Blueprint, jsonify
 
 from app.core import config
+from app.services.email_delivery import email_delivery_status
 from app.services.supabase_client import get_supabase
 from app.utils.admin_auth import require_admin_access
 
@@ -21,6 +22,22 @@ SCHEMA_CHECKS = [
         "columns": "id,email,status",
         "required_for": "verified account profiles",
         "migration": "008_user_relocation_profiles.sql",
+        "critical": True,
+    },
+    {
+        "code": "auth_login_codes",
+        "table": "relocation_auth_login_codes",
+        "columns": "id,email,status,attempts,expires_at",
+        "required_for": "email OTP login",
+        "migration": "019_account_login_otp.sql",
+        "critical": True,
+    },
+    {
+        "code": "user_sessions",
+        "table": "relocation_user_sessions",
+        "columns": "id,email,status,expires_at",
+        "required_for": "verified account sessions",
+        "migration": "019_account_login_otp.sql",
         "critical": True,
     },
     {
@@ -71,6 +88,30 @@ SCHEMA_CHECKS = [
         "migration": "023_provider_publication_and_commercial_quotes.sql",
         "critical": False,
     },
+    {
+        "code": "service_handoffs",
+        "table": "relocation_service_handoffs",
+        "columns": "id,handoff_ref,email,status,user_consent_confirmed",
+        "required_for": "consent-controlled provider handoffs",
+        "migration": "025_service_handoffs_and_support_cases.sql",
+        "critical": False,
+    },
+    {
+        "code": "handoff_events",
+        "table": "relocation_service_handoff_events",
+        "columns": "id,handoff_id,event_type,event_status",
+        "required_for": "provider handoff audit history",
+        "migration": "025_service_handoffs_and_support_cases.sql",
+        "critical": False,
+    },
+    {
+        "code": "support_cases",
+        "table": "relocation_support_cases",
+        "columns": "id,case_ref,email,case_type,status,priority",
+        "required_for": "complaints, refunds, disputes, privacy, and support cases",
+        "migration": "025_service_handoffs_and_support_cases.sql",
+        "critical": False,
+    },
 ]
 
 
@@ -101,10 +142,16 @@ def _check_schema(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _configuration() -> Dict[str, Any]:
+    email_status = email_delivery_status()
     return {
         "supabase_configured": bool(config.SUPABASE_URL and config.SUPABASE_SERVICE_ROLE_KEY),
         "admin_key_configured": bool(config.ADMIN_API_KEY),
-        "email_otp_delivery_enabled": bool(config.EMAIL_OTP_DELIVERY_ENABLED),
+        "email_otp_delivery_enabled": bool(email_status["enabled"]),
+        "email_otp_delivery_configured": bool(email_status["configured"]),
+        "email_otp_provider": email_status["provider"],
+        "email_otp_missing_configuration": email_status["missing_configuration"],
+        "email_otp_login_url_configured": email_status["login_url_configured"],
+        "otp_dev_mode_requested": bool(config.AUTH_OTP_DEV_MODE),
         "opportunity_alerts_enabled": bool(config.OPPORTUNITY_ALERTS_ENABLED),
         "whatsapp_alerts_enabled": bool(config.WHATSAPP_ALERTS_ENABLED),
         "passport_provider_enabled": bool(config.PASSPORT_INDEX_PROVIDER_ENABLED),
@@ -128,8 +175,22 @@ def _operational_assessment(checks: List[Dict[str, Any]], configuration: Dict[st
         blockers.append(f"Required schema is unavailable for {item['required_for']}: run {item['migration']}.")
     for item in optional_missing:
         controlled.append(f"Feature remains fail-closed for {item['required_for']}: run {item['migration']}.")
-    if not configuration["email_otp_delivery_enabled"]:
-        controlled.append("Production email OTP delivery is not enabled; use only an approved email provider before public account launch.")
+
+    if configuration["email_otp_delivery_enabled"] and not configuration["email_otp_delivery_configured"]:
+        blockers.append(
+            "OTP email delivery is enabled but incomplete. Missing configuration: "
+            + ", ".join(configuration["email_otp_missing_configuration"])
+            + "."
+        )
+    elif not configuration["email_otp_delivery_enabled"]:
+        controlled.append("Production email OTP delivery is disabled; verified public account login must remain in controlled rollout.")
+
+    if configuration["otp_dev_mode_requested"] and config.ENV_MODE.lower() != "development":
+        blockers.append("AUTH_OTP_DEV_MODE is set outside development. Remove it from production configuration.")
+    if configuration["passport_provider_enabled"] and not configuration["passport_provider_credentials_present"]:
+        controlled.append("Passport provider is enabled without a complete provider URL and key; provider sync remains unavailable.")
+    if configuration["payment_links_enabled"] and not configuration["commercial_quotes_enabled"]:
+        blockers.append("Payment links cannot be enabled while commercial quotes are disabled.")
     if not configuration["payment_links_enabled"]:
         controlled.append("Checkout links are disabled; quote acceptance and manual verified payment records remain separate.")
     if not configuration["opportunity_alerts_enabled"]:
@@ -163,12 +224,17 @@ def public_operations_status():
             "status": "code_operational_external_integrations_controlled",
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "public_capabilities": {
+                "verified_email_login": bool(
+                    configuration["email_otp_delivery_enabled"]
+                    and configuration["email_otp_delivery_configured"]
+                ),
                 "commercial_quote_requests": configuration["commercial_quotes_enabled"],
                 "online_checkout": configuration["payment_links_enabled"],
                 "in_app_alerts": True,
                 "external_email_alerts": configuration["opportunity_alerts_enabled"],
                 "whatsapp_alerts": configuration["whatsapp_alerts_enabled"],
                 "provider_publication": "fail_closed_until_schema_and_admin_review_pass",
+                "provider_handoffs": "consent_required_and_fail_closed_until_schema_passes",
             },
             "protected_diagnostics": "/api/admin/operations/status",
             "safety_note": "A feature shown as controlled or disabled must not be represented as live until its database, credentials, provider approval, consent, audit, and refund or delivery controls are verified.",
@@ -191,11 +257,12 @@ def admin_operations_status():
             "schema_checks": checks,
             **assessment,
             "recommended_sequence": [
-                "Apply every required Supabase migration, including migration 023 for publication, quotes, and payment audit.",
-                "Confirm the admin key and production email OTP provider before inviting public account users.",
+                "Apply Supabase migrations through 026, including provider publication, quotes, payment audit, private-table RLS, consent-based handoffs, support cases, and database invariants.",
+                "Confirm the admin key, production SECRET_KEY, CORS origin, and an approved OTP email provider before inviting public account users.",
                 "Keep PAYMENT_LINKS_ENABLED false until checkout domains, amounts, currencies, references, webhooks or manual verification, refunds, and dispute handling are approved.",
-                "Approve providers internally, then separately complete publication controls before making any listing public.",
-                "Run backend, billing, study, trip, journey, Passport Index, and frontend deployment smoke tests after each production change.",
+                "Approve providers internally, then separately complete publication controls before making any listing public or preparing a handoff.",
+                "Require explicit user consent for the exact handoff field list and record a delivery channel and reference before marking information shared.",
+                "Run backend, auth, billing, handoff, study, trip, journey, Passport Index, and frontend deployment smoke tests after each production change.",
             ],
         }
     )
