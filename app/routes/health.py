@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, current_app, jsonify
 
 from app.core import config
 
@@ -106,6 +106,18 @@ def _expected_endpoints() -> List[str]:
     ]
 
 
+def _route_contract() -> Dict[str, Any]:
+    expected = _expected_endpoints()
+    registered = {rule.rule for rule in current_app.url_map.iter_rules()}
+    missing = [route for route in expected if route not in registered]
+    return {
+        "ok": not missing,
+        "expected_count": len(expected),
+        "registered_route_count": len(registered),
+        "missing_routes": missing,
+    }
+
+
 def _deployment_payload() -> Dict[str, Any]:
     commit_sha = _commit_sha()
     uptime_seconds = max(0, int(time.monotonic() - _PROCESS_STARTED_MONOTONIC))
@@ -149,10 +161,11 @@ def api_health():
 def build_info():
     payload = _health_payload()
     payload["expected_endpoints"] = _expected_endpoints()
+    payload["route_contract"] = _route_contract()
     payload["deployment_verification"] = {
         "commit_available": bool(payload["deployment"].get("commit_sha")),
         "instruction": "Compare deployment.commit_sha with the latest main-branch commit before treating production as current.",
-        "older_deploy_warning": "If an expected endpoint or current release label is missing, Railway is serving an older revision or the wrong service.",
+        "older_deploy_warning": "If an expected endpoint, route contract, or current release label is missing, Railway is serving an older revision or the wrong service.",
     }
     payload["safety_contract"] = {
         "public_provider_listing": "fail closed until schema and publication checks pass",
