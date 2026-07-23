@@ -5,7 +5,11 @@ on:
     branches: [main]
     paths:
       - "app/__init__.py"
+      - "app/routes/account.py"
+      - "app/routes/admin_review_queue.py"
+      - "app/routes/evidence_admin.py"
       - "app/routes/evidence_workflow.py"
+      - "app/routes/platform_modules.py"
       - "app/routes/source_governance.py"
       - "app/routes/operations.py"
       - "supabase/migrations/027_evidence_inventory_and_packs.sql"
@@ -14,7 +18,11 @@ on:
   pull_request:
     paths:
       - "app/__init__.py"
+      - "app/routes/account.py"
+      - "app/routes/admin_review_queue.py"
+      - "app/routes/evidence_admin.py"
       - "app/routes/evidence_workflow.py"
+      - "app/routes/platform_modules.py"
       - "app/routes/source_governance.py"
       - "app/routes/operations.py"
       - "supabase/migrations/027_evidence_inventory_and_packs.sql"
@@ -72,6 +80,9 @@ jobs:
               "/api/evidence/packs/generate",
               "/api/evidence/refusal-repair",
               "/api/source-health/summary",
+              "/api/admin/evidence-packs",
+              "/api/admin/evidence-packs/<pack_id>",
+              "/api/admin/document-inventory/expiring",
               "/api/admin/source-governance/queue",
               "/api/admin/source-governance/scan-due",
               "/api/admin/source-governance/sources/<source_id>/mark-checked",
@@ -80,7 +91,7 @@ jobs:
           missing = sorted(required - routes)
           if missing:
               raise SystemExit(f"Missing evidence or source-governance routes: {missing}")
-          print("Evidence, refusal-repair, source-health, and source-governance routes registered.")
+          print("Evidence, refusal-repair, source-health, evidence-admin, and source-governance routes registered.")
           PY
 
       - name: Verify private routes fail closed
@@ -107,15 +118,16 @@ jobs:
               response = getattr(client, method)(path, json={} if method == 'post' else None)
               assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
 
-          for path in [
-              '/api/admin/source-governance/queue',
-              '/api/admin/source-governance/scan-due',
+          for method, path in [
+              ('get', '/api/admin/evidence-packs'),
+              ('get', '/api/admin/document-inventory/expiring'),
+              ('get', '/api/admin/source-governance/queue'),
+              ('post', '/api/admin/source-governance/scan-due'),
           ]:
-              method = 'post' if path.endswith('scan-due') else 'get'
               response = getattr(client, method)(path, json={} if method == 'post' else None)
               assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
 
-          print('Evidence records and source governance fail closed without verified account or admin access.')
+          print('Evidence records, evidence review, and source governance fail closed without verified account or admin access.')
           PY
 
       - name: Verify metadata-only and refusal safety helpers
@@ -147,6 +159,7 @@ jobs:
           assert evidence_workflow.REASON_LIBRARY['misrepresentation_concern']['points'] >= 50
           assert 'denied_admission' in evidence_workflow.EVENT_TYPES
           assert 'cancelled' in evidence_workflow.VISA_STATUSES
+          assert 'passport_number' in evidence_workflow.FORBIDDEN_SENSITIVE_FIELDS
           print('Metadata-only storage, expiry recalculation, and refusal safety controls verified.')
           PY
 
@@ -167,6 +180,19 @@ jobs:
           assert 'full document number' in migration
           assert 'file_content' not in migration
           print('Evidence inventory and packs remain backend-only and metadata-only.')
+          PY
+
+      - name: Verify platform catalogue reflects implemented tools
+        run: |
+          python - <<'PY'
+          from app.routes.platform_modules import PLATFORM_MODULES
+
+          modules = {item['slug']: item for item in PLATFORM_MODULES}
+          for slug in ['source-health', 'evidence', 'study-planner', 'journey-planner', 'trip-planner', 'legalization', 'appointments', 'family-relocation', 'settlement', 'billing']:
+              assert modules[slug]['availability'] == 'available', (slug, modules[slug])
+          for slug in ['courier', 'partners']:
+              assert modules[slug]['availability'] == 'partner_approval_pending', (slug, modules[slug])
+          print('Platform catalogue distinguishes implemented self-service tools from provider-dependent execution.')
           PY
 
       - name: Verify weekly source scan contract
