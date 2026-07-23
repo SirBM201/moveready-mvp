@@ -41,6 +41,30 @@ SCHEMA_CHECKS = [
         "critical": True,
     },
     {
+        "code": "trusted_sources",
+        "table": "relocation_trusted_sources",
+        "columns": "id,source_name,source_url,status,last_checked_at,next_review_due_at",
+        "required_for": "official-source governance and freshness",
+        "migration": "001_initial_relocation_schema.sql",
+        "critical": True,
+    },
+    {
+        "code": "source_change_alerts",
+        "table": "relocation_source_change_alerts",
+        "columns": "id,source_id,alert_type,severity,status",
+        "required_for": "source change and review-due alerts",
+        "migration": "001_initial_relocation_schema.sql",
+        "critical": True,
+    },
+    {
+        "code": "route_versions",
+        "table": "relocation_route_versions",
+        "columns": "id,route_id,status,source_confidence,verified_at,review_due_at",
+        "required_for": "versioned route guidance and review deadlines",
+        "migration": "001_initial_relocation_schema.sql",
+        "critical": True,
+    },
+    {
         "code": "reports",
         "table": "relocation_generated_reports",
         "columns": "id,report_ref,status",
@@ -52,7 +76,7 @@ SCHEMA_CHECKS = [
         "code": "readiness_runs",
         "table": "relocation_readiness_check_runs",
         "columns": "id,tool_slug,status",
-        "required_for": "study, journey, trip, and readiness history",
+        "required_for": "study, journey, trip, refusal-repair, and readiness history",
         "migration": "006_readiness_check_runs.sql",
         "critical": True,
     },
@@ -110,6 +134,22 @@ SCHEMA_CHECKS = [
         "columns": "id,case_ref,email,case_type,status,priority",
         "required_for": "complaints, refunds, disputes, privacy, and support cases",
         "migration": "025_service_handoffs_and_support_cases.sql",
+        "critical": False,
+    },
+    {
+        "code": "document_inventory",
+        "table": "relocation_user_document_inventory",
+        "columns": "id,email,document_type,status,expiry_date",
+        "required_for": "private document metadata and expiry tracking",
+        "migration": "027_evidence_inventory_and_packs.sql",
+        "critical": False,
+    },
+    {
+        "code": "evidence_packs",
+        "table": "relocation_evidence_packs",
+        "columns": "id,pack_ref,email,status,completeness_score,risk_level",
+        "required_for": "private evidence-pack generation and account history",
+        "migration": "027_evidence_inventory_and_packs.sql",
         "critical": False,
     },
 ]
@@ -231,6 +271,9 @@ def public_operations_status():
                     configuration.get("email_otp_delivery_enabled")
                     and configuration.get("email_otp_delivery_configured")
                 ),
+                "source_freshness": True,
+                "private_evidence_pack": "verified_account_only_after_migration_027",
+                "refusal_repair": "verified_account_only_and_no_raw_documents",
                 "commercial_quote_requests": bool(configuration.get("commercial_quotes_enabled")),
                 "online_checkout": bool(configuration.get("payment_links_enabled")),
                 "in_app_alerts": True,
@@ -239,6 +282,7 @@ def public_operations_status():
                 "provider_publication": "fail_closed_until_schema_and_admin_review_pass",
                 "provider_handoffs": "consent_required_and_fail_closed_until_schema_passes",
             },
+            "source_health_endpoint": "/api/source-health/summary",
             "protected_diagnostics": "/api/admin/operations/status",
             "safety_note": "A feature shown as controlled or disabled must not be represented as live until its database, credentials, provider approval, consent, audit, and refund or delivery controls are verified.",
         }
@@ -260,12 +304,13 @@ def admin_operations_status():
             "schema_checks": checks,
             **assessment,
             "recommended_sequence": [
-                "Apply Supabase migrations through 026, including provider publication, quotes, payment audit, private-table RLS, consent-based handoffs, support cases, and database invariants.",
+                "Apply Supabase migrations through 027, including provider publication, quotes, payment audit, private-table RLS, consent-based handoffs, support cases, database invariants, document inventory, and evidence packs.",
+                "Run the source-governance queue and resolve overdue official sources and route versions before promoting guidance as current.",
                 "Confirm the admin key, production SECRET_KEY, CORS origin, and an approved OTP email provider before inviting public account users.",
                 "Keep PAYMENT_LINKS_ENABLED false until checkout domains, amounts, currencies, references, webhooks or manual verification, refunds, and dispute handling are approved.",
                 "Approve providers internally, then separately complete publication controls before making any listing public or preparing a handoff.",
                 "Require explicit user consent for the exact handoff field list and record a delivery channel and reference before marking information shared.",
-                "Run backend, auth, billing, handoff, study, trip, journey, Passport Index, and frontend deployment smoke tests after each production change.",
+                "Run backend, auth, evidence, source-governance, billing, handoff, study, trip, journey, Passport Index, and frontend deployment smoke tests after each production change.",
             ],
         }
     )
