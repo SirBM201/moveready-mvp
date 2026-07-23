@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Tuple
 
 from flask import jsonify
 
-from app.routes import admin_review_queue
+from app.routes import admin_review_queue, application_cases
 from app.services.supabase_client import get_supabase
 from app.utils.admin_auth import require_admin_access
 
@@ -87,6 +87,74 @@ def _source_alert_item(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _application_case_needs_attention(row: Dict[str, Any]) -> bool:
+    public = application_cases._public_case(row)
+    hours = public.get("hours_until_deadline")
+    stage = str(public.get("application_stage") or "")
+    source_status = str(public.get("source_status") or "")
+    return bool(
+        public.get("status") == "attention_required"
+        or public.get("risk_level") in {"high", "critical"}
+        or stage in {"additional_documents_requested", "refused"}
+        or (hours is not None and float(hours) <= 336)
+        or source_status in {"stale", "unavailable"}
+        or (
+            source_status == "review_required"
+            and stage in {
+                "appointment_booked",
+                "submitted",
+                "biometrics_completed",
+                "interview_scheduled",
+                "additional_documents_requested",
+                "decision_pending",
+            }
+        )
+    )
+
+
+def _application_case_item(row: Dict[str, Any]) -> Dict[str, Any]:
+    public = application_cases._public_case(row)
+    risk = str(public.get("risk_level") or "medium")
+    score = 60 + ({"low": 0, "medium": 10, "high": 30, "critical": 50}.get(risk, 10))
+    stage = str(public.get("application_stage") or "")
+    hours = public.get("hours_until_deadline")
+    if stage == "additional_documents_requested":
+        score += 30
+    elif stage == "refused":
+        score += 40
+    if hours is not None:
+        if float(hours) < 0:
+            score += 40
+        elif float(hours) <= 72:
+            score += 30
+        elif float(hours) <= 336:
+            score += 15
+    age_hours = admin_review_queue._age_hours(row)
+    warnings = public.get("warnings") if isinstance(public.get("warnings"), list) else []
+    return {
+        "kind": "application_case",
+        "id": row.get("id"),
+        "title": public.get("case_title") or public.get("case_ref") or "Application case",
+        "status": public.get("status") or "unknown",
+        "priority": risk,
+        "risk_level": risk,
+        "email": row.get("email"),
+        "target_country": public.get("target_country"),
+        "route_category": public.get("route_category"),
+        "created_at": row.get("created_at"),
+        "age_hours": age_hours,
+        "score": score + min(age_hours or 0, 240) // 24,
+        "summary": (
+            f"Stage: {str(public.get('application_stage') or 'unknown').replace('_', ' ')}. "
+            f"Source: {str(public.get('source_status') or 'unknown').replace('_', ' ')}. "
+            f"Deadline: {public.get('next_deadline_at') or 'not recorded'}. "
+            f"Warnings: {' '.join(str(item) for item in warnings[:4]) or 'none recorded'}."
+        ),
+        "detail_href": "/admin#application-cases",
+        "record": row,
+    }
+
+
 @require_admin_access
 def review_queue_with_evidence():
     original_result = admin_review_queue.review_queue()
@@ -112,9 +180,15 @@ def review_queue_with_evidence():
         for row in _safe_rows("relocation_source_change_alerts", limit=120)
         if row.get("status") in {"open", "in_review"}
     ]
+    application_rows = [
+        row
+        for row in _safe_rows("relocation_application_cases", limit=180)
+        if row.get("status") != "archived" and _application_case_needs_attention(row)
+    ]
 
     evidence_items = [_evidence_item(row) for row in evidence_rows]
     source_items = [_source_alert_item(row) for row in alert_rows]
+    application_items = [_application_case_item(row) for row in application_rows]
     sections = payload.get("sections") if isinstance(payload.get("sections"), list) else []
     sections.insert(
         0,
@@ -130,6 +204,17 @@ def review_queue_with_evidence():
     sections.insert(
         1,
         {
+            "kind": "application_case",
+            "label": "Application cases needing attention",
+            "ok": True,
+            "error": None,
+            "count": len(application_items),
+            "items": application_items,
+        },
+    )
+    sections.insert(
+        2,
+        {
             "kind": "evidence_pack",
             "label": "Evidence packs needing review",
             "ok": True,
@@ -142,19 +227,22 @@ def review_queue_with_evidence():
 
     counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
     counts["source_review_alert"] = len(source_items)
+    counts["application_case"] = len(application_items)
     counts["evidence_pack"] = len(evidence_items)
     payload["counts"] = counts
 
     queue_items = payload.get("queue_items") if isinstance(payload.get("queue_items"), list) else []
     previous_total = int(payload.get("total_open_items") or len(queue_items))
     queue_items.extend(source_items)
+    queue_items.extend(application_items)
     queue_items.extend(evidence_items)
     queue_items.sort(key=lambda item: (int(item.get("score") or 0), item.get("created_at") or ""), reverse=True)
-    payload["queue_items"] = queue_items[:100]
-    payload["total_open_items"] = previous_total + len(source_items) + len(evidence_items)
+    payload["queue_items"] = queue_items[:120]
+    payload["total_open_items"] = previous_total + len(source_items) + len(application_items) + len(evidence_items)
 
     next_actions = payload.get("next_actions") if isinstance(payload.get("next_actions"), list) else []
     for action in [
+        "Review application cases with overdue or near deadlines, additional-document requests, refusals, stale sources, or high risk.",
         "Review official-source change alerts before approving affected route versions or reports.",
         "Review high-risk or incomplete evidence packs without requesting raw documents through the general queue.",
     ]:
