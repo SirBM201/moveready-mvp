@@ -47,6 +47,7 @@ Write-Host "`n=== 2. PLATFORM MODULES ===" -ForegroundColor Cyan
 $Modules = Invoke-MoveReadyJson -Method GET -Path "/api/platform/modules"
 $RequiredSlugs = @(
     "onboarding",
+    "my-journey",
     "action-center",
     "application-center",
     "application-alerts",
@@ -144,7 +145,7 @@ if (-not [string]::IsNullOrWhiteSpace($SessionToken)) {
 
     $PrivacyRequests = Invoke-MoveReadyJson -Method GET -Path "/api/account/privacy-requests" -Headers $SessionHeaders
     Assert-True -Condition ($PrivacyRequests.ok -eq $true) -Message "Privacy request history returned ok=false."
-    Write-Host "Verified preferences, sessions, activity, Action Center, export, and privacy history are responding safely." -ForegroundColor Green
+    Write-Host "Verified preferences, sessions, activity, Action Center, export, privacy history, and My Journey source modules are responding safely." -ForegroundColor Green
 }
 else {
     Write-Host "`nSKIPPED: verified account checks because SessionToken was not supplied." -ForegroundColor Yellow
