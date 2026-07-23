@@ -5,28 +5,32 @@ on:
     branches: [main]
     paths:
       - "app/__init__.py"
-      - "app/routes/account.py"
-      - "app/routes/admin_review_queue.py"
+      - "app/routes/account_evidence_extension.py"
+      - "app/routes/admin_review_evidence_extension.py"
       - "app/routes/evidence_admin.py"
       - "app/routes/evidence_workflow.py"
       - "app/routes/health.py"
-      - "app/routes/platform_modules.py"
-      - "app/routes/source_governance.py"
       - "app/routes/operations.py"
+      - "app/routes/platform_modules.py"
+      - "app/routes/settlement_execution.py"
+      - "app/routes/source_governance.py"
+      - "supabase/migrations/010_application_timeline.sql"
       - "supabase/migrations/027_evidence_inventory_and_packs.sql"
       - ".github/workflows/source-governance-weekly.yml"
       - ".github/workflows/evidence-source-integration.yml"
   pull_request:
     paths:
       - "app/__init__.py"
-      - "app/routes/account.py"
-      - "app/routes/admin_review_queue.py"
+      - "app/routes/account_evidence_extension.py"
+      - "app/routes/admin_review_evidence_extension.py"
       - "app/routes/evidence_admin.py"
       - "app/routes/evidence_workflow.py"
       - "app/routes/health.py"
-      - "app/routes/platform_modules.py"
-      - "app/routes/source_governance.py"
       - "app/routes/operations.py"
+      - "app/routes/platform_modules.py"
+      - "app/routes/settlement_execution.py"
+      - "app/routes/source_governance.py"
+      - "supabase/migrations/010_application_timeline.sql"
       - "supabase/migrations/027_evidence_inventory_and_packs.sql"
       - ".github/workflows/source-governance-weekly.yml"
       - ".github/workflows/evidence-source-integration.yml"
@@ -89,11 +93,27 @@ jobs:
               "/api/admin/source-governance/scan-due",
               "/api/admin/source-governance/sources/<source_id>/mark-checked",
               "/api/admin/operations/status",
+              "/api/account/summary",
+              "/api/admin/review-queue",
+              "/api/journey/settlement-plan",
           }
           missing = sorted(required - routes)
           if missing:
-              raise SystemExit(f"Missing evidence or source-governance routes: {missing}")
-          print("Evidence, refusal-repair, source-health, evidence-admin, and source-governance routes registered.")
+              raise SystemExit(f"Missing evidence, source-governance, account, queue, or settlement routes: {missing}")
+          print("Evidence, refusal-repair, source-health, evidence-admin, source-governance, account, queue, and settlement routes registered.")
+          PY
+
+      - name: Verify runtime handler extensions are active
+        run: |
+          python - <<'PY'
+          from app import create_app
+          from app.routes import account_evidence_extension, admin_review_evidence_extension, settlement_execution
+
+          app = create_app()
+          assert app.view_functions['account.account_summary'] is account_evidence_extension.account_summary_with_evidence
+          assert app.view_functions['admin_review_queue.review_queue'] is admin_review_evidence_extension.review_queue_with_evidence
+          assert app.view_functions['journey_planner.settlement_plan'] is settlement_execution.settlement_plan_with_timeline
+          print('Account evidence, admin review, and settlement execution extensions are active.')
           PY
 
       - name: Verify private routes fail closed
@@ -174,6 +194,35 @@ jobs:
           print('Metadata-only storage, expiry recalculation, and refusal safety controls verified.')
           PY
 
+      - name: Verify settlement timeline schema compatibility and dedupe key
+        run: |
+          python - <<'PY'
+          from datetime import date
+          from pathlib import Path
+
+          from app.routes import settlement_execution
+
+          rows = settlement_execution._timeline_rows(
+              {
+                  'email': 'test@example.com',
+                  'target_country': 'Finland',
+                  'preferred_channel': 'in_app',
+              },
+              date(2030, 1, 15),
+              {'first_72_hours': [{'task': 'Confirm local registration deadline', 'priority': 'critical'}]},
+          )
+          assert len(rows) == 1, rows
+          assert rows[0]['event_type'] == 'task', rows
+          assert rows[0]['route_or_goal'] == 'post-arrival settlement', rows
+          assert rows[0]['metadata']['generated_by'] == 'journey_settlement_planner', rows
+          assert rows[0]['metadata']['official_confirmation_required'] is True, rows
+
+          migration = Path('supabase/migrations/010_application_timeline.sql').read_text(encoding='utf-8')
+          assert "'task'" in migration
+          assert "'settlement_task'" not in migration
+          print('Settlement events use an allowed timeline type and retain settlement provenance in metadata.')
+          PY
+
       - name: Verify public source health fails closed
         run: |
           python - <<'PY'
@@ -215,17 +264,22 @@ jobs:
           print('Evidence inventory and packs remain backend-only and metadata-only.')
           PY
 
-      - name: Verify Account Center includes evidence sections
+      - name: Verify Account Center and review queue extension contracts
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          account = Path('app/routes/account.py').read_text(encoding='utf-8')
-          assert 'relocation_user_document_inventory' in account
-          assert 'relocation_evidence_packs' in account
-          assert '"evidence_documents": evidence_documents' in account
-          assert '"evidence_packs": evidence_packs' in account
-          print('Verified Account Center exposes private evidence inventory and pack counts.')
+          account_extension = Path('app/routes/account_evidence_extension.py').read_text(encoding='utf-8')
+          queue_extension = Path('app/routes/admin_review_evidence_extension.py').read_text(encoding='utf-8')
+          assert 'relocation_user_document_inventory' in account_extension
+          assert 'relocation_evidence_packs' in account_extension
+          assert 'document_inventory' in account_extension
+          assert 'evidence_packs' in account_extension
+          assert 'relocation_source_change_alerts' in queue_extension
+          assert 'relocation_evidence_packs' in queue_extension
+          assert '/admin#source-governance' in queue_extension
+          assert '/admin#evidence-review' in queue_extension
+          print('Account Center and unified review queue include evidence and source-governance records.')
           PY
 
       - name: Verify platform catalogue reflects implemented tools
@@ -251,5 +305,7 @@ jobs:
           assert '/api/admin/source-governance/scan-due' in workflow
           assert 'MOVEREADY_ADMIN_KEY' in workflow
           assert 'create review-due alerts without changing route facts automatically' in workflow
-          print('Weekly source-governance scan is protected and non-mutating for route facts.')
+          assert "labels: ['source-governance', 'automation']" not in workflow
+          assert 'Close previous failure issue after recovery' in workflow
+          print('Weekly source-governance scan is protected, label-independent, and non-mutating for route facts.')
           PY
