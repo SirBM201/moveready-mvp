@@ -35,6 +35,9 @@ $RequiredSchemaCodes = @(
     "profiles",
     "auth_login_codes",
     "user_sessions",
+    "trusted_sources",
+    "source_change_alerts",
+    "route_versions",
     "reports",
     "readiness_runs",
     "partner_publication",
@@ -42,7 +45,9 @@ $RequiredSchemaCodes = @(
     "payment_events",
     "service_handoffs",
     "handoff_events",
-    "support_cases"
+    "support_cases",
+    "document_inventory",
+    "evidence_packs"
 )
 
 $Checks = @($Status.schema_checks)
@@ -90,5 +95,5 @@ else {
 }
 
 Write-Host "`n=== PROTECTED OPERATIONS CHECK PASSED ===" -ForegroundColor Green
-Write-Host "Account-auth, provider-publication, quote, payment-audit, handoff, and support-case schemas are available through the backend service role."
-Write-Host "This test reports but does not activate payment links, email OTP, WhatsApp, external alerts, or approve any provider."
+Write-Host "Account-auth, source-governance, route-version, evidence, provider-publication, quote, payment-audit, handoff, and support-case schemas are available through the backend service role."
+Write-Host "This test reports but does not activate payment links, email OTP, WhatsApp, external alerts, approve any provider, or mark any source checked."
