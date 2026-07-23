@@ -9,6 +9,7 @@ on:
       - "app/routes/admin_review_queue.py"
       - "app/routes/evidence_admin.py"
       - "app/routes/evidence_workflow.py"
+      - "app/routes/health.py"
       - "app/routes/platform_modules.py"
       - "app/routes/source_governance.py"
       - "app/routes/operations.py"
@@ -22,6 +23,7 @@ on:
       - "app/routes/admin_review_queue.py"
       - "app/routes/evidence_admin.py"
       - "app/routes/evidence_workflow.py"
+      - "app/routes/health.py"
       - "app/routes/platform_modules.py"
       - "app/routes/source_governance.py"
       - "app/routes/operations.py"
@@ -108,9 +110,11 @@ jobs:
           assert payload['ok'] is True, payload
           assert 'passport' in payload['document_types'], payload
           assert 'misrepresentation_concern' in {item['key'] for item in payload['refusal_reason_options']}, payload
+          assert 'raw' in payload['storage_boundary'].lower(), payload
 
           for method, path in [
               ('get', '/api/evidence/documents'),
+              ('post', '/api/evidence/documents'),
               ('get', '/api/evidence/packs'),
               ('post', '/api/evidence/packs/generate'),
               ('post', '/api/evidence/refusal-repair'),
@@ -144,6 +148,13 @@ jobs:
           })
           assert forbidden == ['file_content', 'passport_number'], forbidden
 
+          for field in [
+              'file', 'file_content', 'file_url', 'document_number', 'passport_number',
+              'national_id_number', 'bank_account_number', 'card_number', 'otp',
+              'password', 'private_key',
+          ]:
+              assert field in evidence_workflow._forbidden_fields({field: 'test'}), field
+
           expired = evidence_workflow._derived_document_status({
               'status': 'ready',
               'expiry_date': (date.today() - timedelta(days=1)).isoformat(),
@@ -163,6 +174,28 @@ jobs:
           print('Metadata-only storage, expiry recalculation, and refusal safety controls verified.')
           PY
 
+      - name: Verify public source health fails closed
+        run: |
+          python - <<'PY'
+          from app import create_app
+          from app.routes import source_governance
+
+          def unavailable(*_args, **_kwargs):
+              raise RuntimeError('database unavailable')
+
+          source_governance._load_sources = unavailable
+          app = create_app()
+          client = app.test_client()
+          response = client.get('/api/source-health/summary')
+          assert response.status_code == 200, response.get_data(as_text=True)
+          payload = response.get_json()
+          assert payload['ok'] is True, payload
+          assert payload['status'] == 'source_health_temporarily_unavailable', payload
+          assert payload['sample_health'] == [], payload
+          assert 'fail closed' in payload['public_note'].lower(), payload
+          print('Source health reports unavailability without inventing current-source claims.')
+          PY
+
       - name: Verify migration 027 remains private
         run: |
           python - <<'PY'
@@ -180,6 +213,19 @@ jobs:
           assert 'full document number' in migration
           assert 'file_content' not in migration
           print('Evidence inventory and packs remain backend-only and metadata-only.')
+          PY
+
+      - name: Verify Account Center includes evidence sections
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          account = Path('app/routes/account.py').read_text(encoding='utf-8')
+          assert 'relocation_user_document_inventory' in account
+          assert 'relocation_evidence_packs' in account
+          assert '"evidence_documents": evidence_documents' in account
+          assert '"evidence_packs": evidence_packs' in account
+          print('Verified Account Center exposes private evidence inventory and pack counts.')
           PY
 
       - name: Verify platform catalogue reflects implemented tools
