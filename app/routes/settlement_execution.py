@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set, Tuple
 
 from flask import jsonify, request
 
@@ -45,7 +45,9 @@ def _timeline_rows(payload: Dict[str, Any], arrival_date: date, timeline: Dict[s
                     "target_country": target_country,
                     "route_or_goal": "post-arrival settlement",
                     "route_category": journey_planner._text(payload.get("route_category"), 80) or "settlement",
-                    "event_type": "settlement_task",
+                    # The existing timeline schema permits `task`; settlement
+                    # provenance is retained in route_or_goal and metadata.
+                    "event_type": "task",
                     "event_title": title,
                     "event_notes": f"Settlement stage: {stage.replace('_', ' ')}. Confirm the exact local authority, registration deadline, evidence, fee, and appointment rule before acting.",
                     "due_date": due.isoformat(),
@@ -63,6 +65,34 @@ def _timeline_rows(payload: Dict[str, Any], arrival_date: date, timeline: Dict[s
                 }
             )
     return rows
+
+
+def _existing_keys(payload: Dict[str, Any]) -> Set[Tuple[str, str]]:
+    email = journey_planner._text(payload.get("email"), 255)
+    phone = journey_planner._text(payload.get("phone"), 80)
+    try:
+        query = (
+            get_supabase()
+            .table("relocation_timeline_events")
+            .select("event_title,due_date,route_or_goal,metadata")
+            .eq("route_or_goal", "post-arrival settlement")
+            .order("created_at", desc=True)
+            .limit(500)
+        )
+        if email:
+            query = query.eq("email", email)
+        elif phone:
+            query = query.eq("phone", phone)
+        response = query.execute()
+        keys: Set[Tuple[str, str]] = set()
+        for row in response.data or []:
+            metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            if metadata.get("generated_by") != "journey_settlement_planner":
+                continue
+            keys.add((str(row.get("event_title") or ""), str(row.get("due_date") or "")))
+        return keys
+    except Exception:
+        return set()
 
 
 def settlement_plan_with_timeline():
@@ -144,6 +174,7 @@ def settlement_plan_with_timeline():
     email = journey_planner._text(payload.get("email"), 255)
     phone = journey_planner._text(payload.get("phone"), 80)
     stored_timeline_count = 0
+    existing_timeline_count = 0
     timeline_storage_note = "Timeline saving was not requested."
 
     if save_to_timeline:
@@ -156,9 +187,16 @@ def settlement_plan_with_timeline():
         else:
             try:
                 rows = _timeline_rows(payload, arrival_date, timeline)
-                response = get_supabase().table("relocation_timeline_events").insert(rows).execute()
-                stored_timeline_count = len(response.data or [])
-                timeline_storage_note = f"{stored_timeline_count} settlement timeline events saved."
+                existing = _existing_keys(payload)
+                new_rows = [row for row in rows if (str(row.get("event_title") or ""), str(row.get("due_date") or "")) not in existing]
+                existing_timeline_count = len(rows) - len(new_rows)
+                if new_rows:
+                    get_supabase().table("relocation_timeline_events").insert(new_rows).execute()
+                    stored_timeline_count = len(new_rows)
+                timeline_storage_note = (
+                    f"{stored_timeline_count} new settlement timeline events saved. "
+                    f"{existing_timeline_count} matching events were already present and were not duplicated."
+                )
             except Exception:
                 timeline_storage_note = "The settlement plan was generated, but timeline-event storage is unavailable."
 
@@ -175,6 +213,7 @@ def settlement_plan_with_timeline():
         "timeline": timeline,
         "warnings": warnings,
         "timeline_saved_count": stored_timeline_count,
+        "timeline_existing_count": existing_timeline_count,
         "timeline_storage_note": timeline_storage_note,
         "fraud_checks": [
             "Verify landlord, agent, provider, address, contract, deposit, and refund terms before payment.",
