@@ -254,6 +254,8 @@ def account_summary():
     watchlist = _safe_rows("relocation_watchlist_subscriptions", email, status="active", limit=10)
     timeline = _safe_rows("relocation_timeline_events", email, limit=10)
     service_requests = _safe_rows("relocation_service_interest_requests", email, limit=10)
+    evidence_documents = _safe_rows("relocation_user_document_inventory", email, limit=25)
+    evidence_packs = _safe_rows("relocation_evidence_packs", email, limit=10)
     reports = _reports_for_email(email, limit=10)
     commercial_quotes = _quotes_for_email(email, limit=10)
     service_handoffs = _handoffs_for_email(email, limit=10)
@@ -266,6 +268,8 @@ def account_summary():
         "saved_routes": saved_routes,
         "watchlist": watchlist,
         "timeline": timeline,
+        "evidence_documents": evidence_documents,
+        "evidence_packs": evidence_packs,
         "reports": reports,
         "commercial_quotes": commercial_quotes,
         "service_handoffs": service_handoffs,
@@ -291,6 +295,7 @@ def account_summary():
                 "Choose the profile you want to use now.",
                 "Run route checker with the active profile.",
                 "Generate a readiness report from the route checker.",
+                "Use Evidence Center to organize document metadata, build a route-specific pack, and review refusal repair tasks.",
                 "Use Study Planner for admission and study-visa preparation.",
                 "Use Journey Planner for documents, family, appointments, and settlement.",
                 "Review any issued commercial quote before accepting or paying.",
