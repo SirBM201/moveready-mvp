@@ -122,8 +122,6 @@ def approved_providers():
             }
         )
     except Exception:
-        # Fail closed during migration or storage outages. Do not fall back to old
-        # approval-only records because they have not passed the publication gate.
         return jsonify(
             {
                 "ok": True,
@@ -157,6 +155,9 @@ def create_partner_application():
     if preferred_channel not in ALLOWED_CHANNELS:
         preferred_channel = "email"
 
+    # Do not include migration-023-only fields here. Their database defaults keep
+    # new records private after migration, while legacy provider categories can
+    # still submit safely before migration 023 is applied.
     row = {
         "provider_type": provider_type,
         "business_name": business_name,
@@ -173,7 +174,6 @@ def create_partner_application():
         "pricing_notes": _clean_text(payload.get("pricing_notes"), 800),
         "preferred_contact_channel": preferred_channel,
         "consent_to_contact": consent_to_contact,
-        "public_listing_enabled": False,
         "source_page": _clean_text(payload.get("source_page"), 240),
         "metadata": {
             "user_agent": request.headers.get("User-Agent"),
