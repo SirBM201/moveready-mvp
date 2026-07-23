@@ -1,0 +1,137 @@
+name: Source Governance Weekly Scan
+
+on:
+  schedule:
+    - cron: "47 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: moveready-source-governance-weekly
+  cancel-in-progress: false
+
+jobs:
+  scan-due-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      API_BASE: ${{ vars.MOVEREADY_API_BASE || 'https://moveready-mvp-production.up.railway.app' }}
+      ADMIN_KEY: ${{ secrets.MOVEREADY_ADMIN_KEY }}
+    steps:
+      - name: Validate protected configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_KEY}" ]; then
+            echo "MOVEREADY_ADMIN_KEY repository secret is missing."
+            exit 1
+          fi
+          if [ -z "${API_BASE}" ]; then
+            echo "MOVEREADY_API_BASE is empty."
+            exit 1
+          fi
+
+      - name: Wake Railway backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${API_BASE%/}"
+          for attempt in 1 2 3 4 5; do
+            code="$(curl --silent --show-error --location --output /tmp/source-health.json --write-out '%{http_code}' --max-time 45 "${base}/api/source-health/summary" || true)"
+            if [ "${code}" = "200" ]; then
+              cat /tmp/source-health.json
+              exit 0
+            fi
+            echo "Wake attempt ${attempt} returned HTTP ${code:-network_error}."
+            sleep $((attempt * 8))
+          done
+          echo "Railway backend did not become ready."
+          exit 1
+
+      - name: Create due-source alerts
+        id: scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${API_BASE%/}"
+          code="$(curl --silent --show-error --location \
+            --output /tmp/source-scan.json \
+            --write-out '%{http_code}' \
+            --max-time 120 \
+            --request POST \
+            --header "X-MoveReady-Admin-Key: ${ADMIN_KEY}" \
+            --header "Content-Type: application/json" \
+            --data '{}' \
+            "${base}/api/admin/source-governance/scan-due" || true)"
+
+          cat /tmp/source-scan.json || true
+          echo "http_code=${code}" >> "${GITHUB_OUTPUT}"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('/tmp/source-scan.json')
+          if not path.exists():
+              raise SystemExit('Source-governance response file is missing.')
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          if payload.get('status') not in {'completed', 'completed_with_errors'}:
+              raise SystemExit(f"Unexpected scan status: {payload}")
+          if payload.get('errors'):
+              raise SystemExit(f"Source scan completed with errors: {payload['errors']}")
+          print(
+              'Due source scan completed:',
+              'due=', payload.get('due_source_count', 0),
+              'created=', payload.get('alerts_created', 0),
+              'skipped=', payload.get('existing_alerts_skipped', 0),
+          )
+          PY
+
+          if [ "${code}" != "200" ]; then
+            echo "Unexpected HTTP status ${code}."
+            exit 1
+          fi
+
+      - name: Publish workflow summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## MoveReady source governance"
+            echo ""
+            echo "- Schedule: Monday 06:47 UTC"
+            echo "- Endpoint: /api/admin/source-governance/scan-due"
+            echo "- HTTP status: ${{ steps.scan.outputs.http_code || 'not reached' }}"
+            echo "- Purpose: create review-due alerts without changing route facts automatically"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Open or update failure issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'MoveReady source governance weekly scan failed';
+            const body = [
+              'The scheduled source-governance scan failed.',
+              '',
+              `Workflow: ${context.workflow}`,
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'Check Railway availability, MOVEREADY_ADMIN_KEY, migrations, and the protected source-governance endpoint.',
+            ].join('\n');
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'source-governance,automation',
+              per_page: 100,
+            });
+            const issue = existing.find(item => item.title === title);
+            if (issue) {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, body });
+            } else {
+              await github.rest.issues.create({ owner: context.repo.owner, repo: context.repo.repo, title, body, labels: ['source-governance', 'automation'] });
+            }
