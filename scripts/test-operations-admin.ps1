@@ -33,6 +33,8 @@ Assert-True -Condition ($Status.ok -eq $true) -Message "Protected operations end
 
 $RequiredSchemaCodes = @(
     "profiles",
+    "auth_login_codes",
+    "user_sessions",
     "reports",
     "readiness_runs",
     "partner_publication",
@@ -54,6 +56,17 @@ foreach ($Code in $RequiredSchemaCodes) {
 Assert-True -Condition ($Status.configuration.supabase_configured -eq $true) -Message "Supabase configuration is not ready."
 Assert-True -Condition ($Status.configuration.admin_key_configured -eq $true) -Message "Admin key configuration is not ready."
 Assert-True -Condition ($Status.configuration.commercial_quotes_enabled -eq $true) -Message "COMMERCIAL_QUOTES_ENABLED is not true."
+Assert-True -Condition ($Status.configuration.otp_dev_mode_requested -ne $true) -Message "AUTH_OTP_DEV_MODE must not be enabled in production."
+
+if ($Status.configuration.email_otp_delivery_enabled -eq $true -and $Status.configuration.email_otp_delivery_configured -ne $true) {
+    throw "EMAIL_OTP_DELIVERY_ENABLED is true but the provider is incomplete. Missing: $($Status.configuration.email_otp_missing_configuration -join ', ')"
+}
+elseif ($Status.configuration.email_otp_delivery_configured -eq $true) {
+    Write-Host "READY: OTP email provider $($Status.configuration.email_otp_provider) is configured." -ForegroundColor Green
+}
+else {
+    Write-Host "CONTROLLED ROLLOUT: OTP email delivery is disabled." -ForegroundColor Yellow
+}
 
 if ($Status.configuration.payment_links_enabled -eq $true) {
     Write-Warning "PAYMENT_LINKS_ENABLED is true. Confirm approved checkout domains, amount verification, payment references, webhook/manual verification, refunds, disputes, reconciliation, and production payment tests."
@@ -77,5 +90,5 @@ else {
 }
 
 Write-Host "`n=== PROTECTED OPERATIONS CHECK PASSED ===" -ForegroundColor Green
-Write-Host "Core, provider-publication, quote, payment-audit, handoff, and support-case schemas are available through the backend service role."
-Write-Host "This test does not activate payment links, email OTP, WhatsApp, external alerts, or approve any provider."
+Write-Host "Account-auth, provider-publication, quote, payment-audit, handoff, and support-case schemas are available through the backend service role."
+Write-Host "This test reports but does not activate payment links, email OTP, WhatsApp, external alerts, or approve any provider."
