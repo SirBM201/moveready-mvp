@@ -1,0 +1,113 @@
+name: Application Links and Privacy Controls
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/__init__.py"
+      - "app/routes/application_case_links.py"
+      - "app/services/application_case_module_patch.py"
+      - "app/routes/platform_modules.py"
+      - "supabase/migrations/028_application_case_manager.sql"
+      - ".github/workflows/application-case-links-and-privacy.yml"
+  pull_request:
+    paths:
+      - "app/__init__.py"
+      - "app/routes/application_case_links.py"
+      - "app/services/application_case_module_patch.py"
+      - "app/routes/platform_modules.py"
+      - "supabase/migrations/028_application_case_manager.sql"
+      - ".github/workflows/application-case-links-and-privacy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FLASK_ENV: development
+      ENV_MODE: development
+      SECRET_KEY: github-actions-application-links-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      MOVEREADY_ADMIN_API_KEY: smoke-admin-key
+      AUTH_OTP_DEV_MODE: "false"
+      EMAIL_OTP_DELIVERY_ENABLED: "false"
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+      PAYMENT_LINKS_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Verify link endpoint and platform catalogue
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          assert '/api/applications/links' in routes, routes
+
+          client = app.test_client()
+          anonymous = client.get('/api/applications/links')
+          assert anonymous.status_code == 401, anonymous.get_data(as_text=True)
+
+          modules_response = client.get('/api/platform/modules')
+          assert modules_response.status_code == 200, modules_response.get_data(as_text=True)
+          modules = {item['slug']: item for item in modules_response.get_json()['modules']}
+          assert modules['applications']['availability'] == 'available', modules.get('applications')
+          assert 'migration 028' in modules['applications']['current_support'].lower(), modules['applications']
+          print('Application link choices remain verified-account only and Application Center is visible in the platform catalogue.')
+          PY
+
+      - name: Verify link endpoint exposes labels rather than sensitive records
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('app/routes/application_case_links.py').read_text(encoding='utf-8')
+          assert 'relocation_user_profiles' in source
+          assert 'relocation_saved_routes' in source
+          assert 'relocation_evidence_packs' in source
+          assert 'privacy_note' in source
+          for forbidden in ['file_content', 'passport_number', 'document_number', 'bank_account_number', 'card_number', 'otp', 'password', 'private_key']:
+              assert forbidden not in source, forbidden
+          print('Application link choices expose account-owned IDs and short labels without raw documents or sensitive references.')
+          PY
+
+      - name: Verify migration 028 database privacy constraints
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          migration = Path('supabase/migrations/028_application_case_manager.sql').read_text(encoding='utf-8').lower()
+          for constraint in [
+              'relocation_application_cases_terminal_check',
+              'relocation_application_cases_completed_check',
+              'relocation_application_cases_reference_hint_check',
+              'relocation_application_cases_source_url_check',
+              'relocation_application_cases_fee_currency_check',
+              'relocation_application_cases_storage_consent_check',
+          ]:
+              assert constraint in migration, constraint
+          assert "regexp_replace(authority_reference_hint" in migration
+          assert "official_source_url ~* '^https?://'" in migration
+          assert 'consent_to_store = true' in migration
+          print('Application case database constraints enforce lifecycle, masked-reference length, HTTPS source format, fee currency, and storage consent.')
+          PY
