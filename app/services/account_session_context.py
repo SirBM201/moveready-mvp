@@ -16,6 +16,7 @@ ACCOUNT_WRITE_PREFIXES = (
     "/api/journey",
     "/api/readiness",
     "/api/education",
+    "/api/travel",
 )
 
 
