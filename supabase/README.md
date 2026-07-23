@@ -78,7 +78,13 @@ Adds direct report ownership fields (`email`, `phone`), readiness summary fields
 
 `supabase/migrations/023_provider_publication_and_commercial_quotes.sql`
 
-Adds explicit public-listing controls to partner applications, expands travel provider categories, creates `relocation_commercial_quotes`, and creates `relocation_payment_events`. Providers fail closed until privacy, pricing, refund, sensitive-document handling, disclosure, and public-listing checks pass. Quotes keep service amount, platform fee, total, scope, deliverables, exclusions, refund terms, checkout link, payment reference, and status auditable.
+Adds explicit public-listing controls to partner applications, expands travel provider categories, creates `relocation_commercial_quotes`, and creates `relocation_payment_events`. Providers fail closed until privacy, pricing, refund, sensitive-document handling, disclosure, and public-listing checks pass. Quotes keep service amount, platform fee, total, scope, deliverables, exclusions, refund terms, checkout link, payment reference, and status auditable. The provider, quote, and payment tables are RLS-protected and direct `anon` or `authenticated` access is revoked.
+
+## 24. Private backend table security hardening
+
+`supabase/migrations/024_private_backend_tables_rls.sql`
+
+Applies catch-up row-level security and privilege revocation to private backend-managed tables, including OTP codes, sessions, profiles, service requests, readiness runs, watchlists, saved routes, timelines, provider applications, reports, commercial quotes, and payment events. It is idempotent and skips optional tables that do not yet exist. MoveReady browser clients must use Flask account/admin routes; they must never read these records directly through the Supabase public API.
 
 Set these Railway variables only after the operational process is ready:
 
@@ -90,6 +96,8 @@ Do not set `PAYMENT_LINKS_ENABLED=true` until every active checkout URL is appro
 ## Important
 
 The seed data is for MVP testing only. It does not contain final legal or immigration guidance. Detailed route facts should be reviewed and approved from official sources before production use.
+
+After running migration 024, use the protected admin operations console or `GET /api/admin/operations/status` with the admin key to confirm the private schemas are available. The security migration intentionally creates no public RLS policy.
 
 ## Admin Header
 
