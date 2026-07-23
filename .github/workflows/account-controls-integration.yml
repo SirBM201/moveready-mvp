@@ -1,0 +1,218 @@
+name: Account Controls Privacy and Activity Integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/__init__.py"
+      - "app/routes/account_controls.py"
+      - "app/routes/account_controls_admin.py"
+      - "app/routes/admin_review_evidence_extension.py"
+      - "app/routes/operations.py"
+      - "app/services/platform_account_modules_patch.py"
+      - "supabase/migrations/030_account_preferences_privacy_activity.sql"
+      - ".github/workflows/account-controls-integration.yml"
+  pull_request:
+    paths:
+      - "app/__init__.py"
+      - "app/routes/account_controls.py"
+      - "app/routes/account_controls_admin.py"
+      - "app/routes/admin_review_evidence_extension.py"
+      - "app/routes/operations.py"
+      - "app/services/platform_account_modules_patch.py"
+      - "supabase/migrations/030_account_preferences_privacy_activity.sql"
+      - ".github/workflows/account-controls-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      FLASK_ENV: development
+      ENV_MODE: development
+      SECRET_KEY: github-actions-account-controls-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      MOVEREADY_ADMIN_API_KEY: smoke-admin-key
+      AUTH_OTP_DEV_MODE: "false"
+      EMAIL_OTP_DELIVERY_ENABLED: "false"
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+      PAYMENT_LINKS_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Verify account control routes
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          required = {
+              '/api/account/preferences',
+              '/api/account/sessions',
+              '/api/account/sessions/revoke',
+              '/api/account/sessions/revoke-others',
+              '/api/account/activity',
+              '/api/account/data-export',
+              '/api/account/privacy-requests',
+              '/api/account/privacy-requests/<request_ref>/cancel',
+              '/api/admin/privacy-requests',
+              '/api/admin/privacy-requests/<request_id>',
+              '/api/applications/alerts',
+              '/api/admin/application-cases/alerts/scan',
+          }
+          missing = sorted(required - routes)
+          if missing:
+              raise SystemExit(f'Missing account-control routes: {missing}')
+          print('Preferences, sessions, activity, export, privacy, and application-alert routes registered.')
+          PY
+
+      - name: Verify private routes fail closed
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          client = app.test_client()
+          for method, path in [
+              ('get', '/api/account/preferences'),
+              ('put', '/api/account/preferences'),
+              ('get', '/api/account/sessions'),
+              ('post', '/api/account/sessions/revoke'),
+              ('post', '/api/account/sessions/revoke-others'),
+              ('get', '/api/account/activity'),
+              ('get', '/api/account/data-export'),
+              ('get', '/api/account/privacy-requests'),
+              ('post', '/api/account/privacy-requests'),
+              ('post', '/api/account/privacy-requests/MRPRIV-TEST/cancel'),
+          ]:
+              response = getattr(client, method)(path, json={} if method in {'put', 'post'} else None)
+              assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
+
+          for method, path in [
+              ('get', '/api/admin/privacy-requests'),
+              ('patch', '/api/admin/privacy-requests/test-id'),
+          ]:
+              response = getattr(client, method)(path, json={} if method == 'patch' else None)
+              assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
+          print('Account controls and protected privacy operations fail closed without verified access.')
+          PY
+
+      - name: Verify preferences and destructive confirmation controls
+        run: |
+          python - <<'PY'
+          from app.routes import account_controls
+
+          row, error = account_controls._preference_payload({
+              'reminder_lead_days': 91,
+          })
+          assert row is None and error == 'reminder_lead_days_out_of_range', (row, error)
+
+          row, error = account_controls._preference_payload({
+              'date_format': 'unsupported',
+          })
+          assert row is None and error == 'invalid_date_format', (row, error)
+
+          row, error = account_controls._preference_payload({
+              'email_notifications_enabled': True,
+              'whatsapp_notifications_enabled': True,
+              'marketing_messages_enabled': False,
+              'onboarding_status': 'completed',
+              'onboarding_step': 'profile',
+          })
+          assert error is None, error
+          assert row['email_notifications_enabled'] is True
+          assert row['whatsapp_notifications_enabled'] is True
+          assert row['onboarding_step'] == 'completed'
+          assert account_controls.DEFAULT_PREFERENCES['email_notifications_enabled'] is False
+          assert account_controls.DEFAULT_PREFERENCES['whatsapp_notifications_enabled'] is False
+          assert account_controls.DEFAULT_PREFERENCES['marketing_messages_enabled'] is False
+          assert account_controls.DELETION_CONFIRMATION == 'DELETE MY MOVEREADY ACCOUNT'
+          print('Preference validation and explicit destructive-request confirmation verified.')
+          PY
+
+      - name: Verify session and export safety boundaries
+        run: |
+          python - <<'PY'
+          from app.routes import account_controls
+
+          public = account_controls._public_session({
+              'id': 'session-1',
+              'status': 'active',
+              'created_at': '2026-01-01T00:00:00+00:00',
+              'last_seen_at': '2026-01-02T00:00:00+00:00',
+              'expires_at': '2026-02-01T00:00:00+00:00',
+              'token_hash': 'must-not-leak',
+              'metadata': {
+                  'user_agent': 'Test browser',
+                  'remote_addr': '192.0.2.1',
+              },
+          }, 'session-1')
+          assert public['current'] is True
+          assert public['device'] == 'Test browser'
+          assert 'token_hash' not in public
+          assert 'remote_addr' not in public
+          assert 'metadata' not in public
+
+          forbidden_export_tables = {
+              'relocation_auth_login_codes',
+              'relocation_user_sessions',
+              'relocation_payment_events',
+          }
+          assert forbidden_export_tables.isdisjoint(account_controls.EXPORT_TABLES)
+          print('Session tokens, network metadata, OTPs, and security tables remain excluded.')
+          PY
+
+      - name: Verify migration 030 remains private and controlled
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          migration = Path('supabase/migrations/030_account_preferences_privacy_activity.sql').read_text(encoding='utf-8').lower()
+          for table in ['relocation_account_preferences', 'relocation_privacy_requests']:
+              assert f'alter table public.{table} enable row level security' in migration, table
+              assert f'revoke all privileges on table public.{table} from public, anon, authenticated' in migration, table
+              assert f'grant all privileges on table public.{table} to service_role' in migration, table
+          assert 'relocation_privacy_requests_confirmation_check' in migration
+          assert 'relocation_privacy_requests_completed_check' in migration
+          assert 'email_notifications_enabled boolean not null default false' in migration
+          assert 'whatsapp_notifications_enabled boolean not null default false' in migration
+          assert 'marketing_messages_enabled boolean not null default false' in migration
+          assert 'instant' not in migration or 'instant deletion' not in migration
+          print('Migration 030 preserves backend-only access, opt-in defaults, and destructive-request safeguards.')
+          PY
+
+      - name: Verify platform catalogue and operations diagnostics
+        run: |
+          python - <<'PY'
+          from app import create_app
+          from app.routes import operations, platform_modules
+
+          create_app()
+          modules = {item['slug']: item for item in platform_modules.PLATFORM_MODULES}
+          for slug in ['onboarding', 'application-center', 'application-alerts', 'account-activity', 'account-settings']:
+              assert modules[slug]['availability'] == 'available', (slug, modules.get(slug))
+
+          schema_codes = {item['code'] for item in operations.SCHEMA_CHECKS}
+          assert {'application_case_alerts', 'account_preferences', 'privacy_requests'}.issubset(schema_codes), schema_codes
+          print('Completed account modules and migrations 029-030 are visible in platform and operations status.')
+          PY
