@@ -17,11 +17,16 @@ function Invoke-MoveReadyJson {
         return Invoke-RestMethod -Method Get -Uri $Uri -TimeoutSec 60
     }
 
+    $Payload = @{}
+    if ($null -ne $Body) {
+        $Payload = $Body
+    }
+
     return Invoke-RestMethod `
         -Method Post `
         -Uri $Uri `
         -ContentType "application/json" `
-        -Body (($Body ?? @{}) | ConvertTo-Json -Depth 20) `
+        -Body ($Payload | ConvertTo-Json -Depth 20) `
         -TimeoutSec 90
 }
 
