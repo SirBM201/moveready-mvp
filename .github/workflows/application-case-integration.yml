@@ -1,0 +1,268 @@
+name: Application Case Manager Integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/__init__.py"
+      - "app/routes/account.py"
+      - "app/routes/admin_review_evidence_extension.py"
+      - "app/routes/application_cases.py"
+      - "app/routes/application_cases_admin.py"
+      - "app/routes/operations.py"
+      - "supabase/migrations/010_application_timeline.sql"
+      - "supabase/migrations/028_application_case_manager.sql"
+      - ".github/workflows/application-case-integration.yml"
+  pull_request:
+    paths:
+      - "app/__init__.py"
+      - "app/routes/account.py"
+      - "app/routes/admin_review_evidence_extension.py"
+      - "app/routes/application_cases.py"
+      - "app/routes/application_cases_admin.py"
+      - "app/routes/operations.py"
+      - "supabase/migrations/010_application_timeline.sql"
+      - "supabase/migrations/028_application_case_manager.sql"
+      - ".github/workflows/application-case-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      FLASK_ENV: development
+      ENV_MODE: development
+      SECRET_KEY: github-actions-application-case-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      MOVEREADY_ADMIN_API_KEY: smoke-admin-key
+      AUTH_OTP_DEV_MODE: "false"
+      EMAIL_OTP_DELIVERY_ENABLED: "false"
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+      PAYMENT_LINKS_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Verify application case routes
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          required = {
+              '/api/applications/options',
+              '/api/applications',
+              '/api/applications/<case_ref>',
+              '/api/applications/<case_ref>/events',
+              '/api/applications/<case_ref>/timeline-tasks',
+              '/api/admin/application-cases',
+              '/api/admin/application-cases/<case_id>',
+              '/api/admin/application-cases/<case_id>/events',
+              '/api/admin/application-cases/deadlines/due',
+              '/api/account/summary',
+              '/api/admin/review-queue',
+              '/api/admin/operations/status',
+          }
+          missing = sorted(required - routes)
+          if missing:
+              raise SystemExit(f'Missing Application Case Manager routes: {missing}')
+          print('Application case, event, deadline, timeline, account, queue, and operations routes registered.')
+          PY
+
+      - name: Verify private application routes fail closed
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          client = app.test_client()
+
+          options = client.get('/api/applications/options')
+          assert options.status_code == 200, options.get_data(as_text=True)
+          payload = options.get_json()
+          assert payload['ok'] is True, payload
+          assert 'additional_documents_requested' in payload['application_stages'], payload
+          assert 'refused' in payload['terminal_stages'], payload
+          assert 'raw' in payload['storage_boundary'].lower(), payload
+
+          for method, path in [
+              ('get', '/api/applications'),
+              ('post', '/api/applications'),
+              ('get', '/api/applications/MRAPP-TEST'),
+              ('patch', '/api/applications/MRAPP-TEST'),
+              ('post', '/api/applications/MRAPP-TEST/events'),
+              ('post', '/api/applications/MRAPP-TEST/timeline-tasks'),
+          ]:
+              response = getattr(client, method)(path, json={} if method in {'post', 'patch'} else None)
+              assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
+
+          for method, path in [
+              ('get', '/api/admin/application-cases'),
+              ('get', '/api/admin/application-cases/deadlines/due'),
+              ('get', '/api/admin/application-cases/test-id'),
+              ('patch', '/api/admin/application-cases/test-id'),
+              ('post', '/api/admin/application-cases/test-id/events'),
+          ]:
+              response = getattr(client, method)(path, json={} if method in {'post', 'patch'} else None)
+              assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
+
+          print('User and administrator application cases fail closed without verified session or admin key.')
+          PY
+
+      - name: Verify sensitive field and masked reference controls
+        run: |
+          python - <<'PY'
+          from app.routes import application_cases
+
+          for field in [
+              'file', 'file_content', 'file_url', 'passport_number', 'document_number',
+              'national_id_number', 'bank_account_number', 'card_number', 'cvv',
+              'otp', 'password', 'private_key', 'full_authority_reference', 'raw_correspondence',
+          ]:
+              assert field in application_cases._forbidden({field: 'test'}), field
+
+          hint, error = application_cases._clean_reference_hint({'authority_reference_hint': 'ends 7X2K'})
+          assert hint is None and error == 'masked_reference_confirmation_required', (hint, error)
+
+          hint, error = application_cases._clean_reference_hint({
+              'authority_reference_hint': 'ends 7X2K',
+              'reference_is_masked': True,
+          })
+          assert hint == 'ends 7X2K' and error is None, (hint, error)
+
+          hint, error = application_cases._clean_reference_hint({
+              'authority_reference_hint': 'THIS-IS-A-FULL-REFERENCE-1234567890',
+              'reference_is_masked': True,
+          })
+          assert hint is None and error == 'reference_hint_too_detailed', (hint, error)
+          print('Raw application fields and unmasked authority references are rejected.')
+          PY
+
+      - name: Verify stage transitions, terminal invariants, and risk scoring
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+
+          from app.routes import application_cases
+
+          assert 'submitted' in application_cases.STAGE_TRANSITIONS['preparing']
+          assert 'approved' in application_cases.STAGE_TRANSITIONS['decision_pending']
+          assert application_cases.STAGE_TRANSITIONS['closed'] == set()
+
+          base = {
+              'email': 'test@example.com',
+              'case_title': 'Test application',
+              'route_category': 'startup',
+              'application_stage': 'research',
+              'status': 'active',
+              'source_status': 'review_required',
+              'payment_status': 'not_recorded',
+          }
+          row, error = application_cases._case_payload(
+              'test@example.com',
+              {
+                  'case_title': 'Test application',
+                  'route_category': 'startup',
+                  'application_stage': 'approved',
+                  'status': 'completed',
+                  'source_status': 'verified',
+                  'payment_status': 'paid',
+                  'consent_to_store': True,
+              },
+          )
+          assert row is None, row
+          assert error[0]['error'] == 'terminal_stage_requires_date_and_result_summary', error
+
+          risk, warnings = application_cases._risk_from_case({
+              **base,
+              'application_stage': 'additional_documents_requested',
+              'source_status': 'stale',
+              'next_deadline_at': (datetime.now(timezone.utc) + timedelta(hours=36)).isoformat(),
+          })
+          assert risk in {'high', 'critical'}, (risk, warnings)
+          assert any('additional documents' in item.lower() for item in warnings), warnings
+          assert any('72 hours' in item.lower() for item in warnings), warnings
+          print('Stage transitions, terminal decisions, and urgent-case risk scoring verified.')
+          PY
+
+      - name: Verify application timeline tasks use allowed schema values
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+          from pathlib import Path
+
+          from app.routes import application_cases
+
+          case = {
+              'id': 'case-id',
+              'case_ref': 'MRAPP-TEST',
+              'case_title': 'Test application',
+              'target_country': 'Finland',
+              'route_category': 'startup',
+              'appointment_date': (datetime.now(timezone.utc) + timedelta(days=20)).isoformat(),
+              'next_deadline_at': (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+          }
+          rows = application_cases._timeline_candidates(case, 'test@example.com')
+          assert len(rows) == 2, rows
+          assert all(row['event_type'] == 'task' for row in rows), rows
+          assert all(row['metadata']['generated_by'] == 'application_case_manager' for row in rows), rows
+          assert all(row['metadata']['official_confirmation_required'] is True for row in rows), rows
+
+          timeline_schema = Path('supabase/migrations/010_application_timeline.sql').read_text(encoding='utf-8')
+          assert "'task'" in timeline_schema
+          print('Application reminders use an allowed timeline type and preserve case provenance.')
+          PY
+
+      - name: Verify migration 028 private-table and lifecycle safeguards
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          migration = Path('supabase/migrations/028_application_case_manager.sql').read_text(encoding='utf-8').lower()
+          for table in ['relocation_application_cases', 'relocation_application_case_events']:
+              assert f'alter table public.{table} enable row level security' in migration, table
+              assert f'revoke all privileges on table public.{table} from public, anon, authenticated' in migration, table
+              assert f'grant all privileges on table public.{table} to service_role' in migration, table
+          assert 'relocation_application_cases_terminal_check' in migration
+          assert 'relocation_application_cases_completed_check' in migration
+          assert 'full document number' in migration
+          assert 'raw application files' in migration
+          print('Application cases and event history remain backend-only with terminal lifecycle constraints.')
+          PY
+
+      - name: Verify Account Center, review queue, and operations contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from app.routes import operations
+
+          account = Path('app/routes/account.py').read_text(encoding='utf-8')
+          queue = Path('app/routes/admin_review_evidence_extension.py').read_text(encoding='utf-8')
+          assert 'relocation_application_cases' in account
+          assert '"application_cases": application_cases' in account
+          assert 'relocation_application_cases' in queue
+          assert '/admin#application-cases' in queue
+
+          schema_codes = {item['code'] for item in operations.SCHEMA_CHECKS}
+          assert {'application_cases', 'application_case_events'}.issubset(schema_codes), schema_codes
+          print('Application cases are present in Account Center, unified review queue, and operations diagnostics.')
+          PY
