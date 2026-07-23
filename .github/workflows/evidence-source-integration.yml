@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - "app/__init__.py"
-      - "app/routes/account_evidence_extension.py"
+      - "app/routes/account.py"
       - "app/routes/admin_review_evidence_extension.py"
       - "app/routes/evidence_admin.py"
       - "app/routes/evidence_workflow.py"
@@ -21,7 +21,7 @@ on:
   pull_request:
     paths:
       - "app/__init__.py"
-      - "app/routes/account_evidence_extension.py"
+      - "app/routes/account.py"
       - "app/routes/admin_review_evidence_extension.py"
       - "app/routes/evidence_admin.py"
       - "app/routes/evidence_workflow.py"
@@ -107,13 +107,12 @@ jobs:
         run: |
           python - <<'PY'
           from app import create_app
-          from app.routes import account_evidence_extension, admin_review_evidence_extension, settlement_execution
+          from app.routes import admin_review_evidence_extension, settlement_execution
 
           app = create_app()
-          assert app.view_functions['account.account_summary'] is account_evidence_extension.account_summary_with_evidence
           assert app.view_functions['admin_review_queue.review_queue'] is admin_review_evidence_extension.review_queue_with_evidence
           assert app.view_functions['journey_planner.settlement_plan'] is settlement_execution.settlement_plan_with_timeline
-          print('Account evidence, admin review, and settlement execution extensions are active.')
+          print('Admin review and settlement execution extensions are active.')
           PY
 
       - name: Verify private routes fail closed
@@ -264,22 +263,22 @@ jobs:
           print('Evidence inventory and packs remain backend-only and metadata-only.')
           PY
 
-      - name: Verify Account Center and review queue extension contracts
+      - name: Verify Account Center and review queue contracts
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          account_extension = Path('app/routes/account_evidence_extension.py').read_text(encoding='utf-8')
+          account = Path('app/routes/account.py').read_text(encoding='utf-8')
           queue_extension = Path('app/routes/admin_review_evidence_extension.py').read_text(encoding='utf-8')
-          assert 'relocation_user_document_inventory' in account_extension
-          assert 'relocation_evidence_packs' in account_extension
-          assert 'document_inventory' in account_extension
-          assert 'evidence_packs' in account_extension
+          assert 'relocation_user_document_inventory' in account
+          assert 'relocation_evidence_packs' in account
+          assert '"evidence_documents": evidence_documents' in account
+          assert '"evidence_packs": evidence_packs' in account
           assert 'relocation_source_change_alerts' in queue_extension
           assert 'relocation_evidence_packs' in queue_extension
           assert '/admin#source-governance' in queue_extension
           assert '/admin#evidence-review' in queue_extension
-          print('Account Center and unified review queue include evidence and source-governance records.')
+          print('Native Account Center and unified review queue include evidence and source-governance records.')
           PY
 
       - name: Verify platform catalogue reflects implemented tools
