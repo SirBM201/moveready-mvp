@@ -1,0 +1,179 @@
+name: Billing and Provider Controls Smoke Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/routes/billing.py"
+      - "app/routes/billing_admin.py"
+      - "app/routes/partners.py"
+      - "app/services/travel_provider_publication.py"
+      - "app/services/account_session_context.py"
+      - "app/core/config.py"
+      - "app/__init__.py"
+      - "supabase/migrations/023_provider_publication_and_commercial_quotes.sql"
+      - ".github/workflows/billing-smoke.yml"
+  pull_request:
+    paths:
+      - "app/routes/billing.py"
+      - "app/routes/billing_admin.py"
+      - "app/routes/partners.py"
+      - "app/services/travel_provider_publication.py"
+      - "app/services/account_session_context.py"
+      - "app/core/config.py"
+      - "app/__init__.py"
+      - "supabase/migrations/023_provider_publication_and_commercial_quotes.sql"
+      - ".github/workflows/billing-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FLASK_ENV: development
+      ENV_MODE: development
+      SECRET_KEY: github-actions-billing-smoke-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      COMMERCIAL_QUOTES_ENABLED: "true"
+      PAYMENT_LINKS_ENABLED: "false"
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Verify billing and provider routes
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          required = {
+              "/api/billing/status",
+              "/api/billing/catalog",
+              "/api/billing/quote-requests",
+              "/api/billing/quotes",
+              "/api/billing/quotes/<quote_ref>",
+              "/api/billing/quotes/<quote_ref>/accept",
+              "/api/billing/quotes/<quote_ref>/decline",
+              "/api/billing/quotes/<quote_ref>/checkout",
+              "/api/admin/commercial-quotes",
+              "/api/admin/commercial-quotes/<quote_id>",
+              "/api/admin/commercial-quotes/<quote_id>/mark-paid",
+              "/api/admin/provider-publication/<provider_id>",
+              "/api/partners/approved",
+          }
+          missing = sorted(required - routes)
+          if missing:
+              raise SystemExit(f"Missing required routes: {missing}")
+          print("Billing and provider routes registered.")
+          PY
+
+      - name: Verify fail-closed public billing status
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          client = app.test_client()
+
+          status = client.get("/api/billing/status")
+          assert status.status_code == 200, status.get_data(as_text=True)
+          payload = status.get_json()
+          assert payload["commercial_quotes_enabled"] is True, payload
+          assert payload["payment_links_enabled"] is False, payload
+          assert payload["checkout_mode"] == "disabled_until_payment_setup", payload
+
+          catalog = client.get("/api/billing/catalog")
+          assert catalog.status_code == 200, catalog.get_data(as_text=True)
+          catalog_payload = catalog.get_json()
+          slugs = {item["slug"] for item in catalog_payload["catalog"]}
+          assert {"readiness_report", "expert_review", "admission_support", "travel_booking"}.issubset(slugs), slugs
+
+          private_quotes = client.get("/api/billing/quotes")
+          assert private_quotes.status_code == 401, private_quotes.get_data(as_text=True)
+
+          checkout = client.post("/api/billing/quotes/MRQ-TEST/checkout", json={})
+          assert checkout.status_code == 401, checkout.get_data(as_text=True)
+          print("Billing fails closed without account and payment setup.")
+          PY
+
+      - name: Verify published provider filter helper
+        run: |
+          python - <<'PY'
+          import app.services.travel_provider_publication as publication
+
+          class Result:
+              data = [
+                  {
+                      "id": "provider-1",
+                      "provider_type": "travel_booking",
+                      "business_name": "Approved Travel Partner",
+                      "website_url": "https://example.com",
+                      "country": "Kuwait",
+                      "city": "Kuwait City",
+                      "service_countries": ["Finland"],
+                      "service_summary": "Flight and hotel travel booking support",
+                      "credentials_summary": "Reviewed credentials",
+                      "preferred_contact_channel": "email",
+                      "status": "approved",
+                      "public_listing_enabled": True,
+                      "privacy_reviewed": True,
+                      "pricing_reviewed": True,
+                      "refund_policy_reviewed": True,
+                      "sensitive_document_handling_reviewed": True,
+                      "affiliate_relationship": True,
+                      "affiliate_disclosure": "MoveReady may earn a disclosed referral commission.",
+                      "public_notes": "Independent price checks remain recommended.",
+                      "approved_at": "2030-01-01T00:00:00+00:00",
+                  },
+                  {
+                      "id": "provider-2",
+                      "provider_type": "travel_booking",
+                      "business_name": "Incomplete Provider",
+                      "service_countries": ["Finland"],
+                      "service_summary": "Flight booking",
+                      "status": "approved",
+                      "public_listing_enabled": True,
+                      "privacy_reviewed": False,
+                      "pricing_reviewed": True,
+                      "refund_policy_reviewed": True,
+                      "sensitive_document_handling_reviewed": True,
+                  },
+              ]
+
+          class Query:
+              def select(self, *_args, **_kwargs): return self
+              def eq(self, *_args, **_kwargs): return self
+              def limit(self, *_args, **_kwargs): return self
+              def execute(self): return Result()
+
+          class Supabase:
+              def table(self, _name): return Query()
+
+          publication.get_supabase = lambda: Supabase()
+          rows = publication.approved_travel_providers("Finland", ["flight", "hotel"])
+          assert len(rows) == 1, rows
+          assert rows[0]["business_name"] == "Approved Travel Partner", rows
+          assert rows[0]["approval_status"] == "approved_public", rows
+          assert rows[0]["affiliate_relationship"] is True, rows
+          print("Provider publication helper excludes incomplete records.")
+          PY
