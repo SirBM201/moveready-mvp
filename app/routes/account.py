@@ -5,9 +5,10 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from flask import Blueprint, jsonify
 
 from app.routes import account_auth
+from app.routes.application_cases import _public_case as _public_application_case
 from app.routes.billing import _public_quote
 from app.routes.reports import _public_report
-from app.routes.service_handoffs import _public_case, _public_handoff
+from app.routes.service_handoffs import _public_case as _public_support_case, _public_handoff
 from app.services.supabase_client import get_supabase
 
 
@@ -177,7 +178,25 @@ def _support_cases_for_email(email: str, limit: int = 10) -> Dict[str, Any]:
             .limit(limit)
             .execute()
         )
-        rows = [_public_case(row) for row in (response.data or [])]
+        rows = [_public_support_case(row) for row in (response.data or [])]
+        return {"ok": True, "rows": rows, "count": len(rows)}
+    except Exception as exc:
+        return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
+
+
+def _application_cases_for_email(email: str, limit: int = 20) -> Dict[str, Any]:
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_application_cases")
+            .select("*")
+            .eq("email", email)
+            .neq("status", "archived")
+            .order("updated_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        rows = [_public_application_case(row) for row in (response.data or [])]
         return {"ok": True, "rows": rows, "count": len(rows)}
     except Exception as exc:
         return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
@@ -256,6 +275,7 @@ def account_summary():
     service_requests = _safe_rows("relocation_service_interest_requests", email, limit=10)
     evidence_documents = _safe_rows("relocation_user_document_inventory", email, limit=25)
     evidence_packs = _safe_rows("relocation_evidence_packs", email, limit=10)
+    application_cases = _application_cases_for_email(email, limit=20)
     reports = _reports_for_email(email, limit=10)
     commercial_quotes = _quotes_for_email(email, limit=10)
     service_handoffs = _handoffs_for_email(email, limit=10)
@@ -270,6 +290,7 @@ def account_summary():
         "timeline": timeline,
         "evidence_documents": evidence_documents,
         "evidence_packs": evidence_packs,
+        "application_cases": application_cases,
         "reports": reports,
         "commercial_quotes": commercial_quotes,
         "service_handoffs": service_handoffs,
@@ -296,6 +317,7 @@ def account_summary():
                 "Run route checker with the active profile.",
                 "Generate a readiness report from the route checker.",
                 "Use Evidence Center to organize document metadata, build a route-specific pack, and review refusal repair tasks.",
+                "Create an Application Case to connect a live application to its route, evidence pack, deadlines, appointments, fees, source status, and decision history.",
                 "Use Study Planner for admission and study-visa preparation.",
                 "Use Journey Planner for documents, family, appointments, and settlement.",
                 "Review any issued commercial quote before accepting or paying.",
