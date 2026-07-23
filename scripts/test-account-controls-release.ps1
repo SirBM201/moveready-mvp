@@ -47,6 +47,7 @@ Write-Host "`n=== 2. PLATFORM MODULES ===" -ForegroundColor Cyan
 $Modules = Invoke-MoveReadyJson -Method GET -Path "/api/platform/modules"
 $RequiredSlugs = @(
     "onboarding",
+    "action-center",
     "application-center",
     "application-alerts",
     "account-activity",
@@ -64,6 +65,7 @@ $PrivatePaths = @(
     "/api/account/preferences",
     "/api/account/sessions",
     "/api/account/activity",
+    "/api/account/action-center",
     "/api/account/data-export",
     "/api/account/privacy-requests"
 )
@@ -123,6 +125,17 @@ if (-not [string]::IsNullOrWhiteSpace($SessionToken)) {
     $Activity = Invoke-MoveReadyJson -Method GET -Path "/api/account/activity?limit=10" -Headers $SessionHeaders
     Assert-True -Condition ($Activity.ok -eq $true) -Message "Account activity returned ok=false."
 
+    $ActionCenter = Invoke-MoveReadyJson -Method GET -Path "/api/account/action-center?limit=25" -Headers $SessionHeaders
+    Assert-True -Condition ($ActionCenter.ok -eq $true) -Message "Action Center returned ok=false."
+    Assert-True -Condition ($null -ne $ActionCenter.counts_by_priority) -Message "Action Center priority counts are missing."
+    Assert-True -Condition ($null -ne $ActionCenter.counts_by_section) -Message "Action Center section counts are missing."
+    foreach ($Action in @($ActionCenter.actions)) {
+        Assert-True -Condition (@("low", "medium", "high", "critical") -contains $Action.priority) -Message "Action Center returned an invalid priority."
+        Assert-True -Condition (-not [string]::IsNullOrWhiteSpace([string]$Action.href)) -Message "Action Center returned an item without an underlying workspace link."
+        Assert-True -Condition ($null -eq $Action.token_hash) -Message "A security token leaked into an Action Center item."
+        Assert-True -Condition ($null -eq $Action.file_content) -Message "Raw file content leaked into an Action Center item."
+    }
+
     $Export = Invoke-MoveReadyJson -Method GET -Path "/api/account/data-export" -Headers $SessionHeaders
     Assert-True -Condition ($Export.ok -eq $true) -Message "Account data export returned ok=false."
     Assert-True -Condition (@($Export.excluded_security_data).Count -ge 5) -Message "Export security exclusion disclosure is incomplete."
@@ -131,11 +144,11 @@ if (-not [string]::IsNullOrWhiteSpace($SessionToken)) {
 
     $PrivacyRequests = Invoke-MoveReadyJson -Method GET -Path "/api/account/privacy-requests" -Headers $SessionHeaders
     Assert-True -Condition ($PrivacyRequests.ok -eq $true) -Message "Privacy request history returned ok=false."
-    Write-Host "Verified preferences, sessions, activity, export, and privacy history are responding safely." -ForegroundColor Green
+    Write-Host "Verified preferences, sessions, activity, Action Center, export, and privacy history are responding safely." -ForegroundColor Green
 }
 else {
     Write-Host "`nSKIPPED: verified account checks because SessionToken was not supplied." -ForegroundColor Yellow
 }
 
 Write-Host "`n=== ACCOUNT CONTROLS RELEASE TEST PASSED ===" -ForegroundColor Green
-Write-Host "This script is read-only. It does not change preferences, revoke sessions, create privacy requests, delete data, activate messaging, or enable payments."
+Write-Host "This script is read-only. It does not change preferences, revoke sessions, create privacy requests, delete data, activate messaging, enable payments, or modify Action Center source records."
