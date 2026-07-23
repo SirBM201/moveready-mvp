@@ -49,7 +49,7 @@ def create_app() -> Flask:
 
     apply_patch()
 
-    from app.routes import account, account_auth, admin, admin_review_queue, billing, billing_admin, education_planner, evidence_workflow, health, journey_planner, opportunities, operations, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, service_handoff_safety, service_handoffs, source_governance, timeline, travel_planner, visa_power, watchlist
+    from app.routes import account, account_auth, admin, admin_review_queue, billing, billing_admin, education_planner, evidence_admin, evidence_workflow, health, journey_planner, opportunities, operations, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, service_handoff_safety, service_handoffs, source_governance, timeline, travel_planner, visa_power, watchlist
     from app.routes.visa_power_safety import visa_power_check_safe
     from app.services.journey_module_patch import apply_journey_module_patch
     from app.services.travel_provider_publication import apply_travel_provider_publication_patch
@@ -96,6 +96,7 @@ def create_app() -> Flask:
     app.register_blueprint(admin.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(admin_review_queue.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(billing_admin.bp, url_prefix=f"{API_PREFIX}/admin")
+    app.register_blueprint(evidence_admin.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(service_handoffs.admin_bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(source_governance.admin_bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(operations.admin_bp, url_prefix=f"{API_PREFIX}/admin")
