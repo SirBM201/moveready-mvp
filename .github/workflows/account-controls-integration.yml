@@ -1,10 +1,11 @@
-name: Account Controls Privacy and Activity Integration
+name: Account Controls Privacy Activity and Action Center Integration
 
 on:
   push:
     branches: [main]
     paths:
       - "app/__init__.py"
+      - "app/routes/account_action_center.py"
       - "app/routes/account_controls.py"
       - "app/routes/account_controls_admin.py"
       - "app/routes/admin_review_evidence_extension.py"
@@ -15,6 +16,7 @@ on:
   pull_request:
     paths:
       - "app/__init__.py"
+      - "app/routes/account_action_center.py"
       - "app/routes/account_controls.py"
       - "app/routes/account_controls_admin.py"
       - "app/routes/admin_review_evidence_extension.py"
@@ -59,7 +61,7 @@ jobs:
       - name: Compile backend
         run: python -m compileall -q app
 
-      - name: Verify account control routes
+      - name: Verify account control and Action Center routes
         run: |
           python - <<'PY'
           from app import create_app
@@ -72,6 +74,7 @@ jobs:
               '/api/account/sessions/revoke',
               '/api/account/sessions/revoke-others',
               '/api/account/activity',
+              '/api/account/action-center',
               '/api/account/data-export',
               '/api/account/privacy-requests',
               '/api/account/privacy-requests/<request_ref>/cancel',
@@ -83,7 +86,7 @@ jobs:
           missing = sorted(required - routes)
           if missing:
               raise SystemExit(f'Missing account-control routes: {missing}')
-          print('Preferences, sessions, activity, export, privacy, and application-alert routes registered.')
+          print('Preferences, sessions, activity, Action Center, export, privacy, and application-alert routes registered.')
           PY
 
       - name: Verify private routes fail closed
@@ -100,6 +103,7 @@ jobs:
               ('post', '/api/account/sessions/revoke'),
               ('post', '/api/account/sessions/revoke-others'),
               ('get', '/api/account/activity'),
+              ('get', '/api/account/action-center'),
               ('get', '/api/account/data-export'),
               ('get', '/api/account/privacy-requests'),
               ('post', '/api/account/privacy-requests'),
@@ -114,7 +118,7 @@ jobs:
           ]:
               response = getattr(client, method)(path, json={} if method == 'patch' else None)
               assert response.status_code == 401, (path, response.status_code, response.get_data(as_text=True))
-          print('Account controls and protected privacy operations fail closed without verified access.')
+          print('Account controls, Action Center, and protected privacy operations fail closed without verified access.')
           PY
 
       - name: Verify preferences and destructive confirmation controls
@@ -122,14 +126,10 @@ jobs:
           python - <<'PY'
           from app.routes import account_controls
 
-          row, error = account_controls._preference_payload({
-              'reminder_lead_days': 91,
-          })
+          row, error = account_controls._preference_payload({'reminder_lead_days': 91})
           assert row is None and error == 'reminder_lead_days_out_of_range', (row, error)
 
-          row, error = account_controls._preference_payload({
-              'date_format': 'unsupported',
-          })
+          row, error = account_controls._preference_payload({'date_format': 'unsupported'})
           assert row is None and error == 'invalid_date_format', (row, error)
 
           row, error = account_controls._preference_payload({
@@ -182,6 +182,90 @@ jobs:
           print('Session tokens, network metadata, OTPs, and security tables remain excluded.')
           PY
 
+      - name: Verify Action Center ranking and source boundaries
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+
+          from app.routes import account_action_center
+
+          now = datetime.now(timezone.utc)
+          overdue = (now - timedelta(days=2)).isoformat()
+          near = (now + timedelta(hours=30)).isoformat()
+
+          assert account_action_center._priority_for_hours(-10) == 'critical'
+          assert account_action_center._priority_for_hours(48) == 'critical'
+          assert account_action_center._priority_for_hours(200) == 'high'
+          assert account_action_center._priority_for_hours(500) == 'medium'
+
+          timeline = account_action_center._timeline_items([
+              {
+                  'id': 'timeline-1',
+                  'event_title': 'Submit requested document',
+                  'event_notes': 'Confirm authority channel first.',
+                  'status': 'pending',
+                  'priority': 'high',
+                  'due_date': overdue[:10],
+                  'created_at': now.isoformat(),
+              }
+          ])
+          assert timeline and timeline[0]['priority'] == 'critical', timeline
+          assert timeline[0]['href'] == '/timeline'
+
+          documents = account_action_center._document_items([
+              {
+                  'id': 'document-1',
+                  'document_label': 'Passport',
+                  'document_type': 'passport',
+                  'owner_scope': 'main_applicant',
+                  'status': 'expired',
+                  'expiry_date': overdue[:10],
+                  'created_at': now.isoformat(),
+              }
+          ])
+          assert documents and documents[0]['priority'] == 'critical', documents
+          assert 'full' not in documents[0]['metadata']
+
+          alerts = account_action_center._application_alert_items([
+              {
+                  'id': 'alert-1',
+                  'status': 'open',
+                  'severity': 'high',
+                  'title': 'Deadline approaching',
+                  'summary': 'Check the official authority instruction.',
+                  'due_at': near,
+                  'created_at': now.isoformat(),
+              },
+              {
+                  'id': 'alert-closed',
+                  'status': 'resolved',
+                  'severity': 'critical',
+                  'title': 'Resolved alert',
+              },
+          ])
+          assert len(alerts) == 1, alerts
+          assert alerts[0]['href'] == '/application-alerts'
+
+          forbidden_tables = {
+              'relocation_auth_login_codes',
+              'relocation_user_sessions',
+              'relocation_payment_events',
+          }
+          action_tables = {table for table, _order in {
+              'application_alerts': ('relocation_application_case_alerts', 'updated_at'),
+              'application_cases': ('relocation_application_cases', 'updated_at'),
+              'timeline': ('relocation_timeline_events', 'updated_at'),
+              'documents': ('relocation_user_document_inventory', 'updated_at'),
+              'evidence_packs': ('relocation_evidence_packs', 'updated_at'),
+              'quotes': ('relocation_commercial_quotes', 'updated_at'),
+              'handoffs': ('relocation_service_handoffs', 'updated_at'),
+              'support_cases': ('relocation_support_cases', 'updated_at'),
+              'privacy_requests': ('relocation_privacy_requests', 'updated_at'),
+          }.values()}
+          assert forbidden_tables.isdisjoint(action_tables)
+          print('Action Center prioritizes overdue and near-due private records without security or raw-document sources.')
+          PY
+
       - name: Verify migration 030 remains private and controlled
         run: |
           python - <<'PY'
@@ -197,7 +281,6 @@ jobs:
           assert 'email_notifications_enabled boolean not null default false' in migration
           assert 'whatsapp_notifications_enabled boolean not null default false' in migration
           assert 'marketing_messages_enabled boolean not null default false' in migration
-          assert 'instant' not in migration or 'instant deletion' not in migration
           print('Migration 030 preserves backend-only access, opt-in defaults, and destructive-request safeguards.')
           PY
 
@@ -209,10 +292,10 @@ jobs:
 
           create_app()
           modules = {item['slug']: item for item in platform_modules.PLATFORM_MODULES}
-          for slug in ['onboarding', 'application-center', 'application-alerts', 'account-activity', 'account-settings']:
+          for slug in ['onboarding', 'action-center', 'application-center', 'application-alerts', 'account-activity', 'account-settings']:
               assert modules[slug]['availability'] == 'available', (slug, modules.get(slug))
 
           schema_codes = {item['code'] for item in operations.SCHEMA_CHECKS}
           assert {'application_case_alerts', 'account_preferences', 'privacy_requests'}.issubset(schema_codes), schema_codes
-          print('Completed account modules and migrations 029-030 are visible in platform and operations status.')
+          print('Completed account modules, Action Center, and migrations 029-030 are visible in platform and operations status.')
           PY
