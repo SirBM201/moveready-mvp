@@ -49,7 +49,7 @@ def create_app() -> Flask:
 
     apply_patch()
 
-    from app.routes import account, account_auth, admin, admin_review_queue, billing, billing_admin, education_planner, health, journey_planner, opportunities, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, timeline, travel_planner, visa_power, watchlist
+    from app.routes import account, account_auth, admin, admin_review_queue, billing, billing_admin, education_planner, health, journey_planner, opportunities, operations, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, timeline, travel_planner, visa_power, watchlist
     from app.routes.visa_power_safety import visa_power_check_safe
     from app.services.journey_module_patch import apply_journey_module_patch
     from app.services.travel_provider_publication import apply_travel_provider_publication_patch
@@ -67,6 +67,7 @@ def create_app() -> Flask:
     app.register_blueprint(education_planner.bp, url_prefix=f"{API_PREFIX}/education")
     app.register_blueprint(travel_planner.bp, url_prefix=f"{API_PREFIX}/travel")
     app.register_blueprint(billing.bp, url_prefix=f"{API_PREFIX}/billing")
+    app.register_blueprint(operations.public_bp, url_prefix=f"{API_PREFIX}/operations")
     app.register_blueprint(watchlist.bp, url_prefix=f"{API_PREFIX}/watchlist")
     app.register_blueprint(saved_routes.bp, url_prefix=f"{API_PREFIX}/saved-routes")
     app.register_blueprint(saved_route_reports.bp, url_prefix=f"{API_PREFIX}/saved-route-reports")
@@ -83,6 +84,7 @@ def create_app() -> Flask:
     app.register_blueprint(admin.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(admin_review_queue.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(billing_admin.bp, url_prefix=f"{API_PREFIX}/admin")
+    app.register_blueprint(operations.admin_bp, url_prefix=f"{API_PREFIX}/admin")
 
     # Keep the public /api/visa-power/check URL stable while replacing its
     # original handler with the server-side refusal and visa-validity safety gate.
