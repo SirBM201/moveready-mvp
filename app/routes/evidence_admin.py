@@ -103,19 +103,29 @@ def expiring_documents():
     today = date.today()
     cutoff = today + timedelta(days=days)
     try:
+        # Fetch a bounded private inventory set, then apply the date filter in
+        # Python. This avoids relying on version-specific PostgREST not-null
+        # filter chaining while preserving backend-only access.
         response = (
             get_supabase()
             .table("relocation_user_document_inventory")
             .select("*")
             .neq("status", "archived")
-            .not_.is_("expiry_date", "null")
-            .lte("expiry_date", cutoff.isoformat())
-            .order("expiry_date", desc=False)
-            .limit(limit)
+            .order("created_at", desc=True)
+            .limit(1000)
             .execute()
         )
         rows = []
         for row in response.data or []:
+            raw_expiry = row.get("expiry_date")
+            if not raw_expiry:
+                continue
+            try:
+                expiry = date.fromisoformat(str(raw_expiry)[:10])
+            except ValueError:
+                continue
+            if expiry > cutoff:
+                continue
             public = _public_document(row)
             rows.append(
                 {
@@ -124,6 +134,8 @@ def expiring_documents():
                     "expired": bool(public.get("days_until_expiry") is not None and int(public.get("days_until_expiry")) < 0),
                 }
             )
+        rows.sort(key=lambda item: item.get("expiry_date") or "9999-12-31")
+        rows = rows[:limit]
         return jsonify(
             {
                 "ok": True,
