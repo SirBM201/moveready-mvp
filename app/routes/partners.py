@@ -28,6 +28,7 @@ PROVIDER_TYPES = [
 ALLOWED_PROVIDER_TYPES = {item["code"] for item in PROVIDER_TYPES}
 ALLOWED_CHANNELS = {"email", "whatsapp", "telegram", "phone"}
 PROVIDER_LABELS = {item["code"]: item["label"] for item in PROVIDER_TYPES}
+MIGRATION_023_PROVIDER_TYPES = {"travel_booking", "transport", "telecom"}
 
 
 def _clean_text(value: Any, limit: int = 500) -> Optional[str]:
@@ -79,6 +80,19 @@ def _public_provider(row: Dict[str, Any]) -> Dict[str, Any]:
         "approved_at": row.get("approved_at"),
         "created_at": row.get("created_at"),
     }
+
+
+def _stored_application_response(stored: Dict[str, Any], *, compatibility_mode: bool = False):
+    return jsonify(
+        {
+            "ok": True,
+            "stored": True,
+            "partner_application": stored,
+            "compatibility_mode": compatibility_mode,
+            "required_migration": "023_provider_publication_and_commercial_quotes.sql" if compatibility_mode else None,
+            "next_step": "MoveReady must complete screening and separate public-listing approval before the provider can appear to users.",
+        }
+    )
 
 
 @bp.get("/provider-types")
@@ -155,9 +169,6 @@ def create_partner_application():
     if preferred_channel not in ALLOWED_CHANNELS:
         preferred_channel = "email"
 
-    # Do not include migration-023-only fields here. Their database defaults keep
-    # new records private after migration, while legacy provider categories can
-    # still submit safely before migration 023 is applied.
     row = {
         "provider_type": provider_type,
         "business_name": business_name,
@@ -185,15 +196,31 @@ def create_partner_application():
     try:
         response = get_supabase().table("relocation_partner_applications").insert(row).execute()
         stored = (response.data or [None])[0]
-        return jsonify(
-            {
-                "ok": True,
-                "stored": True,
-                "partner_application": stored,
-                "next_step": "MoveReady must complete screening and separate public-listing approval before the provider can appear to users.",
-            }
-        )
+        return _stored_application_response(stored)
     except Exception as exc:
+        error_text = str(exc).lower()
+        can_retry_legacy = (
+            provider_type in MIGRATION_023_PROVIDER_TYPES
+            and "provider_type" in error_text
+            and ("constraint" in error_text or "violates" in error_text or "check" in error_text)
+        )
+        if can_retry_legacy:
+            compatibility_row = {
+                **row,
+                "provider_type": "other",
+                "metadata": {
+                    **row["metadata"],
+                    "requested_provider_type": provider_type,
+                    "compatibility_mode": "stored_as_other_until_migration_023",
+                },
+            }
+            try:
+                retry_response = get_supabase().table("relocation_partner_applications").insert(compatibility_row).execute()
+                stored = (retry_response.data or [None])[0]
+                return _stored_application_response(stored, compatibility_mode=True)
+            except Exception as retry_exc:
+                exc = retry_exc
+
         return jsonify(
             {
                 "ok": False,
