@@ -49,7 +49,7 @@ def create_app() -> Flask:
 
     apply_patch()
 
-    from app.routes import account, account_auth, admin, admin_review_queue, health, opportunities, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, timeline, visa_power, watchlist
+    from app.routes import account, account_auth, admin, admin_review_queue, health, journey_planner, opportunities, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, timeline, visa_power, watchlist
     from app.routes.visa_power_safety import visa_power_check_safe
 
     app.register_blueprint(health.bp)
@@ -58,6 +58,7 @@ def create_app() -> Flask:
     app.register_blueprint(opportunities.bp, url_prefix=f"{API_PREFIX}/opportunities")
     app.register_blueprint(reports.bp, url_prefix=f"{API_PREFIX}/reports")
     app.register_blueprint(readiness_tools.bp, url_prefix=f"{API_PREFIX}/readiness")
+    app.register_blueprint(journey_planner.bp, url_prefix=f"{API_PREFIX}/journey")
     app.register_blueprint(watchlist.bp, url_prefix=f"{API_PREFIX}/watchlist")
     app.register_blueprint(saved_routes.bp, url_prefix=f"{API_PREFIX}/saved-routes")
     app.register_blueprint(saved_route_reports.bp, url_prefix=f"{API_PREFIX}/saved-route-reports")
