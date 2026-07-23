@@ -66,7 +66,25 @@ def _priority_score(kind: str, row: Dict[str, Any]) -> int:
     priority = _safe_text(row.get("priority")).lower()
     risk = _safe_text(row.get("risk_level")).lower()
 
-    if status in {"new", "open", "generated", "draft", "sent", "accepted", "payment_pending", "disputed"}:
+    if status in {
+        "new",
+        "open",
+        "generated",
+        "draft",
+        "sent",
+        "accepted",
+        "payment_pending",
+        "disputed",
+        "pending_user_consent",
+        "consent_confirmed",
+        "ready_to_share",
+        "shared",
+        "provider_acknowledged",
+        "in_progress",
+        "waiting_user",
+        "waiting_provider",
+        "escalated",
+    }:
         score += 20
     if priority in HIGH_PRIORITIES:
         score += 25
@@ -74,10 +92,25 @@ def _priority_score(kind: str, row: Dict[str, Any]) -> int:
         score += 25
     elif risk == "medium":
         score += 10
-    if kind in {"service_request", "partner_application", "journey_plan", "commercial_quote"}:
+    if kind in {
+        "service_request",
+        "partner_application",
+        "journey_plan",
+        "commercial_quote",
+        "service_handoff",
+        "support_case",
+    }:
         score += 15
     if kind == "commercial_quote" and status in {"accepted", "payment_pending", "paid", "disputed"}:
         score += 20
+    if kind == "service_handoff" and status in {"consent_confirmed", "ready_to_share", "shared", "blocked", "disputed"}:
+        score += 20
+    if kind == "support_case" and (
+        priority in {"high", "critical"}
+        or status in {"escalated", "waiting_provider"}
+        or _safe_text(row.get("case_type")).lower() in {"privacy_issue", "payment_dispute", "refund_request"}
+    ):
+        score += 30
     age = _age_hours(row)
     if age is not None:
         score += min(age // 24, 20)
@@ -101,7 +134,17 @@ def _safe_select(table: str, *, limit: int, order_by: str = "created_at", desc: 
 
 def _summary(row: Dict[str, Any], payload: Dict[str, Any]) -> Optional[str]:
     result_payload = row.get("result_payload") if isinstance(row.get("result_payload"), dict) else {}
-    for field in ("scope_summary", "notes", "message", "summary", "description", "internal_notes"):
+    for field in (
+        "scope_summary",
+        "handoff_summary",
+        "description",
+        "requested_resolution",
+        "resolution_summary",
+        "notes",
+        "message",
+        "summary",
+        "internal_notes",
+    ):
         value = _safe_text(row.get(field) or result_payload.get(field))
         if value:
             return value[:600]
@@ -122,6 +165,8 @@ def _detail_href(kind: str, row: Dict[str, Any], payload: Dict[str, Any]) -> str
         return "/service-requests"
     if kind == "commercial_quote":
         return "/admin#commercial-quotes"
+    if kind in {"service_handoff", "support_case"}:
+        return "/admin#service-handoffs"
     if kind == "saved_route":
         return "/saved-routes"
     if kind == "watchlist":
@@ -147,9 +192,12 @@ def _compact(kind: str, row: Dict[str, Any]) -> Dict[str, Any]:
     result_payload = row.get("result_payload") if isinstance(row.get("result_payload"), dict) else {}
 
     title = (
-        row.get("request_title")
+        row.get("subject")
+        or row.get("request_title")
         or row.get("service_title")
         or row.get("service_label")
+        or row.get("handoff_ref")
+        or row.get("case_ref")
         or row.get("quote_ref")
         or row.get("service_slug")
         or row.get("tool_slug")
@@ -187,9 +235,14 @@ def _compact(kind: str, row: Dict[str, Any]) -> Dict[str, Any]:
         "risk_level": row.get("risk_level") or result_payload.get("risk_level") or payload.get("risk_level"),
         "report_ref": report_ref,
         "quote_ref": row.get("quote_ref"),
+        "handoff_ref": row.get("handoff_ref"),
+        "case_ref": row.get("case_ref"),
+        "case_type": row.get("case_type"),
         "total_amount": row.get("total_amount"),
         "currency": row.get("currency"),
         "provider_name": row.get("provider_name"),
+        "shared_fields": row.get("shared_fields") or [],
+        "user_consent_confirmed": bool(row.get("user_consent_confirmed")),
         "full_name": full_name,
         "email": email,
         "phone": phone,
@@ -261,6 +314,16 @@ def _quote_needs_attention(row: Dict[str, Any]) -> bool:
     return status in {"draft", "sent", "accepted", "payment_pending", "paid", "disputed"}
 
 
+def _handoff_needs_attention(row: Dict[str, Any]) -> bool:
+    status = _safe_text(row.get("status")).lower()
+    return status not in {"completed", "cancelled"}
+
+
+def _support_case_needs_attention(row: Dict[str, Any]) -> bool:
+    status = _safe_text(row.get("status")).lower()
+    return status not in {"resolved", "rejected", "closed"}
+
+
 @bp.get("/review-queue")
 @require_admin_access
 def review_queue():
@@ -270,6 +333,8 @@ def review_queue():
         _section("review_task", "Manual review tasks", "relocation_admin_review_tasks", limit=limit, predicate=_status_in("open", "in_progress")),
         _section("service_request", "Service requests", "relocation_service_interest_requests", limit=limit, predicate=_status_in("new", "reviewing")),
         _section("commercial_quote", "Commercial quotes and payments", "relocation_commercial_quotes", limit=limit, predicate=_quote_needs_attention),
+        _section("service_handoff", "Provider handoffs", "relocation_service_handoffs", limit=limit, predicate=_handoff_needs_attention),
+        _section("support_case", "Complaints, refunds, disputes, privacy, and support cases", "relocation_support_cases", limit=limit, predicate=_support_case_needs_attention),
         _section("generated_report", "Generated reports", "relocation_generated_reports", limit=limit, predicate=_report_needs_review),
         _section("journey_plan", "Study, journey, and trip plans needing attention", "relocation_readiness_check_runs", limit=limit, predicate=_journey_needs_attention),
         _section("readiness_check", "Readiness checks needing attention", "relocation_readiness_check_runs", limit=limit, predicate=_readiness_needs_attention),
@@ -298,11 +363,13 @@ def review_queue():
             "queue_items": queue_items[: max(limit, 10)],
             "errors": errors,
             "next_actions": [
-                "Review service requests before provider handoff.",
+                "Review service requests before issuing quotes or preparing provider handoffs.",
                 "Check quote scope, provider readiness, separated fees, refund terms, payment references, and fulfillment status.",
+                "Do not share a provider handoff until the exact field list has verified user consent and a delivery reference is ready.",
+                "Prioritize privacy issues, payment disputes, refund requests, escalated cases, and blocked or disputed handoffs.",
                 "Check high-risk reports, readiness checks, and planning runs before offering expert review.",
                 "Screen partner applications and complete public-listing checks before exposing providers.",
-                "Keep watchlist, timeline, checkout, and external delivery records private until their controls are approved.",
+                "Keep watchlist, timeline, checkout, handoff, and external delivery records private until their controls are approved.",
             ],
         }
     )
