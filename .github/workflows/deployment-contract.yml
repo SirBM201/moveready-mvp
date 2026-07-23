@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "app/routes/health.py"
+      - "app/routes/evidence_workflow.py"
+      - "app/routes/source_governance.py"
       - "app/routes/passport_provider_schedule.py"
       - "app/routes/operations.py"
       - "app/__init__.py"
@@ -12,6 +14,8 @@ on:
   pull_request:
     paths:
       - "app/routes/health.py"
+      - "app/routes/evidence_workflow.py"
+      - "app/routes/source_governance.py"
       - "app/routes/passport_provider_schedule.py"
       - "app/routes/operations.py"
       - "app/__init__.py"
@@ -85,6 +89,10 @@ jobs:
           assert payload["passport_index_schedule"]["scheduled_countries"] == ["Nigeria"], payload
           assert payload["passport_index_schedule"]["maximum_countries_per_run"] == 1, payload
           assert payload["features"]["passport_weekly_sync"] is True, payload
+          assert payload["features"]["evidence_inventory"] is True, payload
+          assert payload["features"]["evidence_packs"] is True, payload
+          assert payload["features"]["refusal_repair"] is True, payload
+          assert payload["features"]["source_health"] is True, payload
           assert payload["features"]["payment_links"] is False, payload
           assert "twice weekly" not in str(payload).lower(), payload
 
@@ -93,6 +101,12 @@ jobs:
               "/api/auth/health",
               "/api/account/summary",
               "/api/operations/status",
+              "/api/source-health/summary",
+              "/api/evidence/options",
+              "/api/evidence/documents",
+              "/api/evidence/packs",
+              "/api/evidence/packs/generate",
+              "/api/evidence/refusal-repair",
               "/api/billing/status",
               "/api/handoffs",
               "/api/handoffs/support-cases",
@@ -101,6 +115,7 @@ jobs:
               "/api/visa-power/passport-index/check",
               "/api/visa-power/check",
               "/api/admin/operations/status",
+              "/api/admin/source-governance/queue",
               "/api/admin/review-queue",
           }
           assert required.issubset(expected), sorted(required - expected)
@@ -111,7 +126,7 @@ jobs:
           routes = {rule.rule for rule in app.url_map.iter_rules()}
           missing_routes = sorted(required - routes)
           assert not missing_routes, missing_routes
-          print("Deployment fingerprint, weekly sync, safety flags, and live route contract are consistent.")
+          print("Deployment fingerprint, weekly sync, evidence, source governance, safety flags, and live route contract are consistent.")
           PY
 
       - name: Verify public status remains secret-free
