@@ -46,6 +46,17 @@ JOURNEY_MODULE = {
 }
 
 
+STUDY_MODULE = {
+    "slug": "study-planner",
+    "title": "Study Admission and Visa Planner",
+    "category": "education_planning",
+    "availability": "available",
+    "flag": None,
+    "summary": "Assess academic fit, field changes, language evidence, affordability, scholarship dependency, intake timing, family pressure, refusals, and regulated-career risk.",
+    "current_support": "The live planner generates programme-search strategy, application stages, evidence, funding-gap warnings, study-visa preparation, family tasks, and verified account storage without promising admission, scholarship, visa, work rights, licensing, or permanent residence.",
+}
+
+
 def apply_journey_module_patch() -> None:
     global _PATCH_APPLIED
     if _PATCH_APPLIED:
@@ -61,9 +72,14 @@ def apply_journey_module_patch() -> None:
 
     if "journey-planner" not in existing:
         platform_modules.PLATFORM_MODULES.append(dict(JOURNEY_MODULE))
+    if "study-planner" not in existing:
+        platform_modules.PLATFORM_MODULES.append(dict(STUDY_MODULE))
 
     platform_modules.MODULE_ENDPOINTS["journey-planner"] = (
         "Document legalization, family relocation, appointment preparation, timeline storage, and post-arrival settlement planning."
+    )
+    platform_modules.MODULE_ENDPOINTS["study-planner"] = (
+        "Academic fit, funding, admission, study-visa, family, regulated-career, and arrival preparation."
     )
     platform_modules.MODULE_ENDPOINTS["watchlist"] = (
         "Verified in-app source alerts are available now. External message delivery remains operationally gated."
