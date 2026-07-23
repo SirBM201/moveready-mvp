@@ -73,6 +73,11 @@ def _feature_flags() -> Dict[str, Any]:
         "study_planner": True,
         "journey_planner": True,
         "trip_planner": True,
+        "evidence_inventory": True,
+        "evidence_packs": True,
+        "refusal_repair": True,
+        "source_health": True,
+        "source_governance_admin": True,
         "commercial_quotes": bool(config.COMMERCIAL_QUOTES_ENABLED),
         "payment_links": bool(config.PAYMENT_LINKS_ENABLED),
         "provider_publication_controls": True,
@@ -94,6 +99,12 @@ def _expected_endpoints() -> List[str]:
         f"{prefix}/auth/health",
         f"{prefix}/account/summary",
         f"{prefix}/operations/status",
+        f"{prefix}/source-health/summary",
+        f"{prefix}/evidence/options",
+        f"{prefix}/evidence/documents",
+        f"{prefix}/evidence/packs",
+        f"{prefix}/evidence/packs/generate",
+        f"{prefix}/evidence/refusal-repair",
         f"{prefix}/billing/status",
         f"{prefix}/handoffs",
         f"{prefix}/handoffs/support-cases",
@@ -102,6 +113,7 @@ def _expected_endpoints() -> List[str]:
         f"{prefix}/visa-power/passport-index/check",
         f"{prefix}/visa-power/check",
         f"{prefix}/admin/operations/status",
+        f"{prefix}/admin/source-governance/queue",
         f"{prefix}/admin/review-queue",
     ]
 
@@ -168,6 +180,8 @@ def build_info():
         "older_deploy_warning": "If an expected endpoint, route contract, or current release label is missing, Railway is serving an older revision or the wrong service.",
     }
     payload["safety_contract"] = {
+        "evidence_storage": "metadata only; raw files and full document numbers are not accepted",
+        "source_health": "freshness and confidence reporting does not guarantee that every rule is unchanged",
         "public_provider_listing": "fail closed until schema and publication checks pass",
         "provider_handoff": "exact-field user consent and delivery evidence required",
         "payment_links": "disabled until payment activation controls pass" if not config.PAYMENT_LINKS_ENABLED else "enabled by production configuration",
