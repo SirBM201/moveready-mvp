@@ -9,10 +9,17 @@ from flask import Blueprint, jsonify, request
 from app.services.supabase_client import get_supabase
 from app.utils.admin_auth import require_admin_access
 
+
 bp = Blueprint("admin_review_queue", __name__)
 
 HIGH_PRIORITIES = {"high", "critical", "urgent"}
 HIGH_RISKS = {"high", "medium"}
+JOURNEY_TOOL_SLUGS = {
+    "legalization_check",
+    "family_plan",
+    "appointment_plan",
+    "settlement_plan",
+}
 
 
 def _bounded_limit(value: Any, default: int = 25, maximum: int = 50) -> int:
@@ -65,7 +72,7 @@ def _priority_score(kind: str, row: Dict[str, Any]) -> int:
         score += 25
     elif risk == "medium":
         score += 10
-    if kind in {"service_request", "partner_application"}:
+    if kind in {"service_request", "partner_application", "journey_plan"}:
         score += 15
     age = _age_hours(row)
     if age is not None:
@@ -89,8 +96,9 @@ def _safe_select(table: str, *, limit: int, order_by: str = "created_at", desc: 
 
 
 def _summary(row: Dict[str, Any], payload: Dict[str, Any]) -> Optional[str]:
+    result_payload = row.get("result_payload") if isinstance(row.get("result_payload"), dict) else {}
     for field in ("notes", "message", "summary", "description", "internal_notes"):
-        value = _safe_text(row.get(field))
+        value = _safe_text(row.get(field) or result_payload.get(field))
         if value:
             return value[:600]
     sections = payload.get("sections") if isinstance(payload.get("sections"), list) else []
@@ -120,17 +128,23 @@ def _detail_href(kind: str, row: Dict[str, Any], payload: Dict[str, Any]) -> str
         return "/admin#partner-applications"
     if kind == "review_task":
         return "/admin#review-queue"
+    if kind == "journey_plan":
+        return "/journey-plans"
+    if kind == "readiness_check":
+        return "/readiness"
     return "/admin"
 
 
 def _compact(kind: str, row: Dict[str, Any]) -> Dict[str, Any]:
     payload = row.get("report_payload") if isinstance(row.get("report_payload"), dict) else {}
     input_payload = row.get("input_payload") if isinstance(row.get("input_payload"), dict) else {}
+    result_payload = row.get("result_payload") if isinstance(row.get("result_payload"), dict) else {}
 
     title = (
         row.get("request_title")
         or row.get("service_label")
         or row.get("service_slug")
+        or row.get("tool_slug")
         or row.get("report_title")
         or row.get("report_ref")
         or row.get("saved_title")
@@ -145,17 +159,24 @@ def _compact(kind: str, row: Dict[str, Any]) -> Dict[str, Any]:
     full_name = row.get("full_name") or input_payload.get("full_name") or input_payload.get("name")
     email = row.get("email") or input_payload.get("email")
     phone = row.get("phone") or input_payload.get("phone")
-    target_country = row.get("target_country") or input_payload.get("target_country") or input_payload.get("targetCountry")
+    target_country = (
+        row.get("target_country")
+        or input_payload.get("target_country")
+        or input_payload.get("targetCountry")
+        or result_payload.get("target_country")
+        or input_payload.get("receiving_country")
+        or result_payload.get("receiving_country")
+    )
     route_category = row.get("route_category") or row.get("main_goal") or input_payload.get("route_category") or input_payload.get("main_goal")
     report_ref = row.get("report_ref") or payload.get("report_ref")
 
     return {
         "kind": kind,
         "id": row.get("id"),
-        "title": _safe_text(title, kind.replace("_", " ").title()),
+        "title": _safe_text(title, kind.replace("_", " ").title()).replace("_", " ").title(),
         "status": row.get("status") or row.get("availability_status") or "unknown",
         "priority": row.get("priority") or row.get("risk_level") or payload.get("risk_level") or "medium",
-        "risk_level": row.get("risk_level") or payload.get("risk_level"),
+        "risk_level": row.get("risk_level") or result_payload.get("risk_level") or payload.get("risk_level"),
         "report_ref": report_ref,
         "full_name": full_name,
         "email": email,
@@ -210,6 +231,19 @@ def _timeline_needs_attention(row: Dict[str, Any]) -> bool:
     return status in {"pending", "in_progress", "missed"} or priority in {"high", "critical"}
 
 
+def _journey_needs_attention(row: Dict[str, Any]) -> bool:
+    tool_slug = _safe_text(row.get("tool_slug"))
+    risk = _safe_text(row.get("risk_level")).lower()
+    status = _safe_text(row.get("status")).lower()
+    return tool_slug in JOURNEY_TOOL_SLUGS and (risk in HIGH_RISKS or status not in {"completed", "closed", "archived"})
+
+
+def _readiness_needs_attention(row: Dict[str, Any]) -> bool:
+    tool_slug = _safe_text(row.get("tool_slug"))
+    risk = _safe_text(row.get("risk_level")).lower()
+    return tool_slug not in JOURNEY_TOOL_SLUGS and risk in HIGH_RISKS
+
+
 @bp.get("/review-queue")
 @require_admin_access
 def review_queue():
@@ -219,6 +253,8 @@ def review_queue():
         _section("review_task", "Manual review tasks", "relocation_admin_review_tasks", limit=limit, predicate=_status_in("open", "in_progress")),
         _section("service_request", "Service requests", "relocation_service_interest_requests", limit=limit, predicate=_status_in("new", "reviewing")),
         _section("generated_report", "Generated reports", "relocation_generated_reports", limit=limit, predicate=_report_needs_review),
+        _section("journey_plan", "Journey plans needing attention", "relocation_readiness_check_runs", limit=limit, predicate=_journey_needs_attention),
+        _section("readiness_check", "Readiness checks needing attention", "relocation_readiness_check_runs", limit=limit, predicate=_readiness_needs_attention),
         _section("partner_application", "Partner applications", "relocation_partner_applications", limit=limit, predicate=_status_in("new", "screening", "waitlist")),
         _section("user_profile", "User profiles", "relocation_user_profiles", limit=limit, predicate=_status_in("new", "reviewing")),
         _section("saved_route", "Saved routes", "relocation_saved_routes", limit=limit, predicate=_status_in("active")),
@@ -234,18 +270,20 @@ def review_queue():
     errors = {section["kind"]: section["error"] for section in sections if not section["ok"]}
     counts = {section["kind"]: section["count"] for section in sections}
 
-    return jsonify({
-        "ok": True,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "counts": counts,
-        "total_open_items": len(queue_items),
-        "sections": sections,
-        "queue_items": queue_items[: max(limit, 10)],
-        "errors": errors,
-        "next_actions": [
-            "Review service requests before provider handoff.",
-            "Check high-risk reports before sharing or selling expert review.",
-            "Screen partner applications before assigning user records.",
-            "Keep watchlist and timeline records private until delivery channels are approved.",
-        ],
-    })
+    return jsonify(
+        {
+            "ok": True,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "counts": counts,
+            "total_open_items": len(queue_items),
+            "sections": sections,
+            "queue_items": queue_items[: max(limit, 10)],
+            "errors": errors,
+            "next_actions": [
+                "Review service requests before provider handoff.",
+                "Check high-risk reports, readiness checks, and journey plans before offering expert review.",
+                "Screen partner applications before assigning user records.",
+                "Keep watchlist and timeline records private until delivery channels are approved.",
+            ],
+        }
+    )
