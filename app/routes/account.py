@@ -7,6 +7,7 @@ from flask import Blueprint, jsonify
 from app.routes import account_auth
 from app.routes.billing import _public_quote
 from app.routes.reports import _public_report
+from app.routes.service_handoffs import _public_case, _public_handoff
 from app.services.supabase_client import get_supabase
 
 
@@ -19,6 +20,7 @@ PLANNING_TOOL_SLUGS: Set[str] = {
     "appointment_plan",
     "settlement_plan",
     "study_admission_plan",
+    "trip_readiness_plan",
 }
 
 
@@ -56,7 +58,6 @@ def _safe_rows(table: str, email: str, *, status: Optional[str] = None, limit: i
 
 
 def _profile_status_priority(row: Dict[str, Any]) -> int:
-    """Put the backend active profile first while preserving newest-first order."""
     status = str(row.get("status") or "new").lower()
     return 0 if status == "active" else 1
 
@@ -148,6 +149,40 @@ def _quotes_for_email(email: str, limit: int = 10) -> Dict[str, Any]:
         return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
 
 
+def _handoffs_for_email(email: str, limit: int = 10) -> Dict[str, Any]:
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_service_handoffs")
+            .select("*")
+            .eq("email", email)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        rows = [_public_handoff(row) for row in (response.data or [])]
+        return {"ok": True, "rows": rows, "count": len(rows)}
+    except Exception as exc:
+        return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
+
+
+def _support_cases_for_email(email: str, limit: int = 10) -> Dict[str, Any]:
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_support_cases")
+            .select("*")
+            .eq("email", email)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        rows = [_public_case(row) for row in (response.data or [])]
+        return {"ok": True, "rows": rows, "count": len(rows)}
+    except Exception as exc:
+        return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
+
+
 def _readiness_matches_email(row: Dict[str, Any], email: str) -> bool:
     lookup = email.lower()
     payload = row.get("input_payload") if isinstance(row.get("input_payload"), dict) else {}
@@ -221,6 +256,8 @@ def account_summary():
     service_requests = _safe_rows("relocation_service_interest_requests", email, limit=10)
     reports = _reports_for_email(email, limit=10)
     commercial_quotes = _quotes_for_email(email, limit=10)
+    service_handoffs = _handoffs_for_email(email, limit=10)
+    support_cases = _support_cases_for_email(email, limit=10)
     journey_plans = _readiness_runs_for_email(email, planning_only=True, limit=10)
     readiness_checks = _readiness_runs_for_email(email, planning_only=False, limit=10)
 
@@ -231,6 +268,8 @@ def account_summary():
         "timeline": timeline,
         "reports": reports,
         "commercial_quotes": commercial_quotes,
+        "service_handoffs": service_handoffs,
+        "support_cases": support_cases,
         "service_requests": service_requests,
         "journey_plans": journey_plans,
         "readiness_checks": readiness_checks,
@@ -255,6 +294,8 @@ def account_summary():
                 "Use Study Planner for admission and study-visa preparation.",
                 "Use Journey Planner for documents, family, appointments, and settlement.",
                 "Review any issued commercial quote before accepting or paying.",
+                "Review and approve only the exact fields listed in a provider handoff.",
+                "Use Support Center for complaints, refunds, disputes, privacy, provider, or technical issues.",
                 "Save at least one serious route or country option.",
                 "Create opt-in watchlist alerts for deadline or source changes.",
             ],
