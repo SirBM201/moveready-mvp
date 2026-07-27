@@ -5,25 +5,32 @@ import hmac
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Blueprint, jsonify, request
 
 from app.core.config import (
+    AUTH_MAX_ACTIVE_SESSIONS_PER_EMAIL,
     AUTH_MAX_CODE_ATTEMPTS,
     AUTH_OTP_DEV_MODE,
     AUTH_OTP_EXPIRES_MINUTES,
+    AUTH_OTP_MAX_REQUESTS_PER_EMAIL_WINDOW,
+    AUTH_OTP_MAX_REQUESTS_PER_IP_WINDOW,
+    AUTH_OTP_RECENT_SCAN_LIMIT,
+    AUTH_OTP_REQUEST_COOLDOWN_SECONDS,
+    AUTH_OTP_REQUEST_WINDOW_MINUTES,
     AUTH_SESSION_DAYS,
-    EMAIL_OTP_DELIVERY_ENABLED,
     ENV_MODE,
     FLASK_ENV,
     SECRET_KEY,
 )
+from app.services.email_delivery import deliver_login_code, email_delivery_status
 from app.services.supabase_client import get_supabase
 
 bp = Blueprint("auth", __name__)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+CODE_RE = re.compile(r"^\d{6}$")
 
 
 def _now() -> datetime:
@@ -38,7 +45,10 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
     except Exception:
         return None
 
@@ -75,15 +85,24 @@ def _token_hash(token: str) -> str:
     return _hash_value(f"session:{token}")
 
 
+def _client_ip() -> str:
+    forwarded = (request.headers.get("X-Forwarded-For") or "").split(",", 1)[0].strip()
+    return (forwarded or request.remote_addr or "unknown")[:120]
+
+
 def _metadata() -> Dict[str, Any]:
     return {
-        "user_agent": request.headers.get("User-Agent"),
-        "remote_addr": request.headers.get("X-Forwarded-For") or request.remote_addr,
+        "user_agent": _clean_text(request.headers.get("User-Agent"), 500),
+        "remote_addr": _client_ip(),
     }
 
 
 def _dev_code_allowed() -> bool:
-    return bool(AUTH_OTP_DEV_MODE or ENV_MODE == "development" or FLASK_ENV == "development")
+    return bool(
+        AUTH_OTP_DEV_MODE
+        and ENV_MODE.lower() == "development"
+        and FLASK_ENV.lower() == "development"
+    )
 
 
 def _extract_session_token() -> Optional[str]:
@@ -128,16 +147,127 @@ def _public_session(session: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _window_retry_after(rows: List[Dict[str, Any]], now: datetime) -> int:
+    parsed = [_parse_datetime(row.get("created_at")) for row in rows]
+    created = [item for item in parsed if item]
+    if not created:
+        return AUTH_OTP_REQUEST_WINDOW_MINUTES * 60
+    oldest = min(created)
+    elapsed = max(0, int((now - oldest).total_seconds()))
+    return max(1, AUTH_OTP_REQUEST_WINDOW_MINUTES * 60 - elapsed)
+
+
+def _request_rate_limit(email: str) -> Optional[Dict[str, Any]]:
+    now = _now()
+    since = now - timedelta(minutes=AUTH_OTP_REQUEST_WINDOW_MINUTES)
+    client_ip = _client_ip()
+
+    email_response = (
+        get_supabase()
+        .table("relocation_auth_login_codes")
+        .select("id,email,status,attempts,created_at,metadata")
+        .eq("email", email)
+        .gte("created_at", _iso(since))
+        .order("created_at", desc=True)
+        .limit(AUTH_OTP_RECENT_SCAN_LIMIT)
+        .execute()
+    )
+    email_rows = email_response.data or []
+
+    if email_rows:
+        latest_at = _parse_datetime(email_rows[0].get("created_at"))
+        if latest_at:
+            elapsed = int((now - latest_at).total_seconds())
+            if elapsed < AUTH_OTP_REQUEST_COOLDOWN_SECONDS:
+                return {
+                    "error": "otp_request_cooldown_active",
+                    "retry_after_seconds": max(1, AUTH_OTP_REQUEST_COOLDOWN_SECONDS - elapsed),
+                }
+
+    if len(email_rows) >= AUTH_OTP_MAX_REQUESTS_PER_EMAIL_WINDOW:
+        return {
+            "error": "otp_email_request_limit_reached",
+            "retry_after_seconds": _window_retry_after(email_rows, now),
+        }
+
+    if client_ip != "unknown":
+        ip_response = (
+            get_supabase()
+            .table("relocation_auth_login_codes")
+            .select("id,created_at,metadata")
+            .gte("created_at", _iso(since))
+            .order("created_at", desc=True)
+            .limit(AUTH_OTP_RECENT_SCAN_LIMIT)
+            .execute()
+        )
+        ip_rows = [
+            row
+            for row in (ip_response.data or [])
+            if str((row.get("metadata") or {}).get("remote_addr") or "") == client_ip
+        ]
+        if len(ip_rows) >= AUTH_OTP_MAX_REQUESTS_PER_IP_WINDOW:
+            return {
+                "error": "otp_ip_request_limit_reached",
+                "retry_after_seconds": _window_retry_after(ip_rows, now),
+            }
+
+    return None
+
+
+def _expire_pending_codes(email: str) -> None:
+    try:
+        (
+            get_supabase()
+            .table("relocation_auth_login_codes")
+            .update({"status": "expired"})
+            .eq("email", email)
+            .eq("status", "pending")
+            .execute()
+        )
+    except Exception:
+        pass
+
+
+def _trim_active_sessions(email: str) -> None:
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_user_sessions")
+            .select("id,created_at")
+            .eq("email", email)
+            .eq("status", "active")
+            .order("created_at", desc=True)
+            .limit(50)
+            .execute()
+        )
+        for row in (response.data or [])[AUTH_MAX_ACTIVE_SESSIONS_PER_EMAIL:]:
+            get_supabase().table("relocation_user_sessions").update({"status": "revoked"}).eq("id", row.get("id")).execute()
+    except Exception:
+        pass
+
+
 @bp.get("/health")
 def health():
-    return jsonify({
-        "ok": True,
-        "service": "MoveReady account auth",
-        "otp_expires_minutes": AUTH_OTP_EXPIRES_MINUTES,
-        "session_days": AUTH_SESSION_DAYS,
-        "email_delivery_enabled": EMAIL_OTP_DELIVERY_ENABLED,
-        "dev_code_allowed": _dev_code_allowed(),
-    })
+    delivery = email_delivery_status()
+    return jsonify(
+        {
+            "ok": True,
+            "service": "MoveReady account auth",
+            "otp_expires_minutes": AUTH_OTP_EXPIRES_MINUTES,
+            "session_days": AUTH_SESSION_DAYS,
+            "email_delivery_enabled": delivery["enabled"],
+            "email_delivery_configured": delivery["configured"],
+            "email_delivery_provider": delivery["provider"],
+            "email_delivery_missing_configuration": delivery["missing_configuration"],
+            "dev_code_allowed": _dev_code_allowed(),
+            "request_limits": {
+                "cooldown_seconds": AUTH_OTP_REQUEST_COOLDOWN_SECONDS,
+                "window_minutes": AUTH_OTP_REQUEST_WINDOW_MINUTES,
+                "maximum_per_email_window": AUTH_OTP_MAX_REQUESTS_PER_EMAIL_WINDOW,
+                "maximum_per_ip_window": AUTH_OTP_MAX_REQUESTS_PER_IP_WINDOW,
+            },
+        }
+    )
 
 
 @bp.post("/request-code")
@@ -148,6 +278,15 @@ def request_code():
 
     if not email:
         return jsonify({"ok": False, "error": "valid_email_required"}), 400
+
+    try:
+        limited = _request_rate_limit(email)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "otp_rate_limit_check_unavailable", "details": str(exc)[:600]}), 503
+    if limited:
+        return jsonify({"ok": False, **limited}), 429
+
+    _expire_pending_codes(email)
 
     code = f"{secrets.randbelow(1000000):06d}"
     expires_at = _now() + timedelta(minutes=AUTH_OTP_EXPIRES_MINUTES)
@@ -165,13 +304,36 @@ def request_code():
         response = get_supabase().table("relocation_auth_login_codes").insert(row).execute()
         stored = (response.data or [None])[0]
     except Exception as exc:
-        return jsonify({
-            "ok": False,
-            "stored": False,
-            "error": "otp_storage_unavailable",
-            "details": str(exc),
-            "hint": "Run supabase/migrations/019_account_login_otp.sql and redeploy.",
-        }), 503
+        return jsonify(
+            {
+                "ok": False,
+                "stored": False,
+                "error": "otp_storage_unavailable",
+                "details": str(exc)[:600],
+                "hint": "Run supabase/migrations/019_account_login_otp.sql and redeploy.",
+            }
+        ), 503
+
+    delivery = deliver_login_code(email, code, AUTH_OTP_EXPIRES_MINUTES)
+    delivery_ok = bool(delivery.get("ok"))
+    dev_allowed = _dev_code_allowed()
+
+    if not delivery_ok and not dev_allowed:
+        try:
+            get_supabase().table("relocation_auth_login_codes").update({"status": "expired"}).eq("id", stored.get("id") if stored else "").execute()
+        except Exception:
+            pass
+        return jsonify(
+            {
+                "ok": False,
+                "stored": True,
+                "error": "otp_delivery_failed",
+                "delivery_status": delivery.get("status") or "email_delivery_failed",
+                "delivery_provider": delivery.get("provider"),
+                "details": delivery.get("detail"),
+                "hint": "Confirm EMAIL_OTP_PROVIDER, sender domain, and SMTP credentials, then request a new code.",
+            }
+        ), 503
 
     result: Dict[str, Any] = {
         "ok": True,
@@ -179,11 +341,12 @@ def request_code():
         "request_id": stored.get("id") if stored else None,
         "email": email,
         "expires_at": _iso(expires_at),
-        "delivery_status": "queued" if EMAIL_OTP_DELIVERY_ENABLED else "email_delivery_not_configured",
+        "delivery_status": delivery.get("status") or ("sent" if delivery_ok else "development_code_only"),
+        "delivery_provider": delivery.get("provider"),
     }
-    if _dev_code_allowed():
+    if dev_allowed:
         result["dev_code"] = code
-    return jsonify(result), 202 if not EMAIL_OTP_DELIVERY_ENABLED else 200
+    return jsonify(result), 200 if delivery_ok else 202
 
 
 @bp.post("/verify-code")
@@ -194,6 +357,8 @@ def verify_code():
 
     if not email or not code:
         return jsonify({"ok": False, "error": "email_and_code_required"}), 400
+    if not CODE_RE.fullmatch(code):
+        return jsonify({"ok": False, "error": "six_digit_code_required"}), 400
 
     try:
         response = (
@@ -208,7 +373,7 @@ def verify_code():
         )
         login_code = (response.data or [None])[0]
     except Exception as exc:
-        return jsonify({"ok": False, "error": "otp_lookup_unavailable", "details": str(exc)}), 503
+        return jsonify({"ok": False, "error": "otp_lookup_unavailable", "details": str(exc)[:600]}), 503
 
     if not login_code:
         return jsonify({"ok": False, "error": "code_not_found"}), 404
@@ -225,7 +390,13 @@ def verify_code():
         attempts += 1
         status = "locked" if attempts >= AUTH_MAX_CODE_ATTEMPTS else "pending"
         get_supabase().table("relocation_auth_login_codes").update({"attempts": attempts, "status": status}).eq("id", code_id).execute()
-        return jsonify({"ok": False, "error": "invalid_code", "attempts_remaining": max(AUTH_MAX_CODE_ATTEMPTS - attempts, 0)}), 400
+        return jsonify(
+            {
+                "ok": False,
+                "error": "invalid_code",
+                "attempts_remaining": max(AUTH_MAX_CODE_ATTEMPTS - attempts, 0),
+            }
+        ), 400
 
     token = secrets.token_urlsafe(48)
     session_expires_at = _now() + timedelta(days=AUTH_SESSION_DAYS)
@@ -242,9 +413,10 @@ def verify_code():
         get_supabase().table("relocation_auth_login_codes").update({"status": "used", "used_at": _iso(_now())}).eq("id", code_id).execute()
         session_response = get_supabase().table("relocation_user_sessions").insert(session_row).execute()
         session = (session_response.data or [None])[0]
+        _trim_active_sessions(email)
         return jsonify({"ok": True, "session_token": token, "session": _public_session(session or session_row)})
     except Exception as exc:
-        return jsonify({"ok": False, "error": "session_create_failed", "details": str(exc)}), 503
+        return jsonify({"ok": False, "error": "session_create_failed", "details": str(exc)[:600]}), 503
 
 
 @bp.get("/me")
@@ -273,5 +445,5 @@ def logout():
     try:
         get_supabase().table("relocation_user_sessions").update({"status": "revoked"}).eq("id", session.get("id")).execute()
     except Exception as exc:
-        return jsonify({"ok": False, "error": "logout_failed", "details": str(exc)}), 503
+        return jsonify({"ok": False, "error": "logout_failed", "details": str(exc)[:600]}), 503
     return jsonify({"ok": True, "logged_out": True})
