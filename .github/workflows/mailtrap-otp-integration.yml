@@ -1,4 +1,4 @@
-name: Mailtrap SMTP OTP Integration
+name: Mailtrap HTTPS API OTP Integration
 
 on:
   push:
@@ -32,16 +32,13 @@ jobs:
       SUPABASE_URL: https://example.supabase.co
       SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
       EMAIL_OTP_DELIVERY_ENABLED: "true"
-      EMAIL_OTP_PROVIDER: smtp
+      EMAIL_OTP_PROVIDER: mailtrap
       EMAIL_OTP_APP_NAME: MoveReady
       EMAIL_OTP_LOGIN_URL: https://example.com/login
       EMAIL_OTP_FROM: MoveReady <login@example.com>
-      SMTP_HOST: live.smtp.mailtrap.io
-      SMTP_PORT: "587"
-      SMTP_USERNAME: api
-      SMTP_PASSWORD: smoke-test-placeholder
-      SMTP_USE_TLS: "true"
-      SMTP_USE_SSL: "false"
+      EMAIL_OTP_REPLY_TO: support@example.com
+      MAILTRAP_API_TOKEN: smoke-test-placeholder
+      MAILTRAP_API_URL: https://send.api.mailtrap.io/api/send
       AUTH_OTP_DEV_MODE: "false"
 
     steps:
@@ -60,7 +57,7 @@ jobs:
       - name: Compile OTP modules
         run: python -m compileall -q app/routes/auth.py app/services/email_delivery.py app/core/config.py
 
-      - name: Verify Mailtrap SMTP readiness contract
+      - name: Verify Mailtrap HTTPS API readiness contract
         run: |
           python - <<'PY'
           from app.services.email_delivery import email_delivery_status
@@ -68,9 +65,52 @@ jobs:
           status = email_delivery_status()
           assert status['enabled'] is True, status
           assert status['configured'] is True, status
-          assert status['provider'] == 'smtp', status
+          assert status['provider'] == 'mailtrap', status
+          assert status['transport'] == 'https_api', status
           assert status['missing_configuration'] == [], status
-          print('Mailtrap SMTP configuration is recognized as ready without contacting Mailtrap.')
+          print('Mailtrap HTTPS API configuration is recognized as ready without contacting Mailtrap.')
+          PY
+
+      - name: Verify Mailtrap API request payload without a network call
+        run: |
+          python - <<'PY'
+          import json
+          from types import SimpleNamespace
+
+          from app.services import email_delivery
+
+          captured = {}
+
+          class FakeResponse:
+              def __enter__(self):
+                  return self
+
+              def __exit__(self, *_args):
+                  return False
+
+              def read(self):
+                  return json.dumps({'success': True, 'message_ids': ['msg-1']}).encode('utf-8')
+
+          def fake_urlopen(request, timeout=0):
+              captured['url'] = request.full_url
+              captured['headers'] = dict(request.header_items())
+              captured['payload'] = json.loads(request.data.decode('utf-8'))
+              captured['timeout'] = timeout
+              return FakeResponse()
+
+          email_delivery.urllib.request.urlopen = fake_urlopen
+          result = email_delivery._send_mailtrap('owner@example.com', '123456', 10)
+
+          assert result['ok'] is True, result
+          assert result['provider'] == 'mailtrap', result
+          assert captured['url'] == 'https://send.api.mailtrap.io/api/send', captured
+          assert captured['headers']['Authorization'] == 'Bearer smoke-test-placeholder', captured
+          assert captured['payload']['from']['email'] == 'login@example.com', captured
+          assert captured['payload']['to'] == [{'email': 'owner@example.com'}], captured
+          assert captured['payload']['reply_to']['email'] == 'support@example.com', captured
+          assert '123456' in captured['payload']['text'], captured
+          assert captured['timeout'] == 20, captured
+          print('Mailtrap request uses HTTPS, bearer authentication, verified sender fields, and the OTP body.')
           PY
 
       - name: Verify OTP route sends, fails closed, and never exposes production codes
@@ -141,7 +181,7 @@ jobs:
 
           def sent(to_email, code, expires_minutes):
               delivery_calls.append((to_email, code, expires_minutes))
-              return {'ok': True, 'status': 'sent', 'provider': 'smtp'}
+              return {'ok': True, 'status': 'sent', 'provider': 'mailtrap'}
 
           auth.deliver_login_code = sent
           app = create_app()
@@ -152,14 +192,14 @@ jobs:
           assert response.status_code == 200, (response.status_code, payload)
           assert payload['ok'] is True, payload
           assert payload['delivery_status'] == 'sent', payload
-          assert payload['delivery_provider'] == 'smtp', payload
+          assert payload['delivery_provider'] == 'mailtrap', payload
           assert 'dev_code' not in payload, payload
           assert delivery_calls and len(delivery_calls[0][1]) == 6, delivery_calls
           assert store['inserts'] and store['inserts'][0]['code_hash'], store
           assert delivery_calls[0][1] not in str(store['inserts'][0]), store
 
           def failed(_to_email, _code, _expires_minutes):
-              return {'ok': False, 'status': 'smtp_send_failed', 'provider': 'smtp', 'detail': 'simulated failure'}
+              return {'ok': False, 'status': 'mailtrap_http_401', 'provider': 'mailtrap', 'detail': 'simulated failure'}
 
           auth.deliver_login_code = failed
           failure = client.post('/api/auth/request-code', json={'email': 'second@example.com'})
