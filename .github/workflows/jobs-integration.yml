@@ -1,0 +1,69 @@
+name: Jobs Module Integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/routes/jobs.py"
+      - "app/services/job_matching.py"
+      - "app/__init__.py"
+      - "supabase/migrations/031_jobs_execution_platform.sql"
+      - "tests/test_job_matching.py"
+      - ".github/workflows/jobs-integration.yml"
+  pull_request:
+    paths:
+      - "app/routes/jobs.py"
+      - "app/services/job_matching.py"
+      - "app/__init__.py"
+      - "supabase/migrations/031_jobs_execution_platform.sql"
+      - "tests/test_job_matching.py"
+      - ".github/workflows/jobs-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install runtime dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Run Jobs matching tests
+        run: python -m unittest discover -s tests -p "test_job_*.py" -v
+
+      - name: Verify private schema and storage safeguards
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          migration = Path("supabase/migrations/031_jobs_execution_platform.sql").read_text(encoding="utf-8").lower()
+          tables = [
+              "relocation_job_search_profiles",
+              "relocation_job_companies",
+              "relocation_job_company_targets",
+              "relocation_job_recruiters",
+              "relocation_jobs",
+              "relocation_job_resume_assets",
+              "relocation_job_applications",
+          ]
+          for table in tables:
+              assert f"alter table public.{table} enable row level security" in migration, table
+              assert f"revoke all privileges on table public.{table} from public, anon, authenticated" in migration, table
+              assert f"grant all privileges on table public.{table} to service_role" in migration, table
+
+          assert "'job-resume-vault'" in migration
+          assert "'job-resume-vault',\n  false,\n  5242880" in migration
+          assert "application/pdf" in migration
+          assert migration.count('"founder_tier":1') >= 15
+          PY
