@@ -121,7 +121,7 @@ jobs:
           assert required.issubset(expected), sorted(required - expected)
           assert payload["route_contract"]["ok"] is True, payload["route_contract"]
           assert payload["route_contract"]["missing_routes"] == [], payload["route_contract"]
-          assert payload["route_contract"]["expected_count"] == len(required), payload["route_contract"]
+          assert payload["route_contract"]["expected_count"] == len(expected), payload["route_contract"]
 
           routes = {rule.rule for rule in app.url_map.iter_rules()}
           missing_routes = sorted(required - routes)

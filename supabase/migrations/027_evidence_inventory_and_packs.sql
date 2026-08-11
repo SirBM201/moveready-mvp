@@ -1,6 +1,7 @@
 -- Project MoveReady MVP
 -- Private document inventory metadata and generated evidence packs.
--- This migration does not create file-upload or raw-document storage.
+-- This migration does not create file-upload or raw-document storage and does
+-- not store a full document number.
 -- Run after migration 026. Safe to rerun.
 
 create extension if not exists pgcrypto;

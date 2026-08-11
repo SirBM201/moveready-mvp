@@ -47,6 +47,7 @@ jobs:
       SECRET_KEY: github-actions-billing-smoke-only
       SUPABASE_URL: https://example.supabase.co
       SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      MOVEREADY_ADMIN_API_KEY: smoke-admin-key
       COMMERCIAL_QUOTES_ENABLED: "true"
       PAYMENT_LINKS_ENABLED: "false"
       PASSPORT_INDEX_PROVIDER_ENABLED: "false"

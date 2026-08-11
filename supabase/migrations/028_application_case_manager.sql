@@ -1,7 +1,7 @@
 -- Project MoveReady MVP
 -- Private application case records and lifecycle events.
--- Stores planning and status metadata only; no raw application files or full
--- passport, bank, card, OTP, password, or private-key values.
+-- Stores planning and status metadata only; no raw application files or full document number.
+-- Passport, bank, card, OTP, password, and private-key values are also excluded.
 -- Run after migration 027. Safe to rerun.
 
 create extension if not exists pgcrypto;

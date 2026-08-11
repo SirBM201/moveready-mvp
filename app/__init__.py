@@ -59,6 +59,7 @@ def create_app() -> Flask:
         admin_review_evidence_extension,
         admin_review_queue,
         application_case_alerts,
+        application_case_links,
         application_cases,
         application_cases_admin,
         billing,
@@ -92,11 +93,13 @@ def create_app() -> Flask:
         watchlist,
     )
     from app.routes.visa_power_safety import visa_power_check_safe
+    from app.services.application_case_module_patch import apply_application_case_module_patch
     from app.services.journey_module_patch import apply_journey_module_patch
     from app.services.platform_account_modules_patch import apply_platform_account_modules_patch
     from app.services.travel_provider_publication import apply_travel_provider_publication_patch
 
     apply_journey_module_patch()
+    apply_application_case_module_patch()
     apply_travel_provider_publication_patch()
     apply_platform_account_modules_patch()
 
@@ -109,6 +112,7 @@ def create_app() -> Flask:
     app.register_blueprint(evidence_workflow.bp, url_prefix=f"{API_PREFIX}/evidence")
     app.register_blueprint(application_cases.user_bp, url_prefix=f"{API_PREFIX}/applications")
     app.register_blueprint(application_case_alerts.user_bp, url_prefix=f"{API_PREFIX}/applications")
+    app.register_blueprint(application_case_links.bp, url_prefix=f"{API_PREFIX}/applications")
     app.register_blueprint(journey_planner.bp, url_prefix=f"{API_PREFIX}/journey")
     app.register_blueprint(jobs.bp, url_prefix=f"{API_PREFIX}/jobs")
     app.register_blueprint(education_planner.bp, url_prefix=f"{API_PREFIX}/education")
