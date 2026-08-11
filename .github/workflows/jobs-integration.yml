@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - "app/routes/jobs.py"
+      - "app/routes/health.py"
+      - "app/routes/operations.py"
+      - "app/routes/platform_modules.py"
       - "app/services/job_matching.py"
       - "app/__init__.py"
       - "supabase/migrations/031_jobs_execution_platform.sql"
@@ -13,6 +16,9 @@ on:
   pull_request:
     paths:
       - "app/routes/jobs.py"
+      - "app/routes/health.py"
+      - "app/routes/operations.py"
+      - "app/routes/platform_modules.py"
       - "app/services/job_matching.py"
       - "app/__init__.py"
       - "supabase/migrations/031_jobs_execution_platform.sql"
@@ -41,6 +47,54 @@ jobs:
 
       - name: Run Jobs matching tests
         run: python -m unittest discover -s tests -p "test_job_*.py" -v
+
+      - name: Verify Jobs route and platform contracts
+        env:
+          FLASK_ENV: development
+          SECRET_KEY: github-actions-jobs-contract-only
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+        run: |
+          python - <<'PY'
+          from app import create_app
+          from app.routes import operations
+
+          app = create_app()
+          client = app.test_client()
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          required = {
+              "/api/jobs/options",
+              "/api/jobs/profile",
+              "/api/jobs/profile/bootstrap",
+              "/api/jobs/summary",
+              "/api/jobs/companies",
+              "/api/jobs/recruiters",
+              "/api/jobs",
+              "/api/jobs/applications",
+              "/api/jobs/resume-vault",
+          }
+          assert required.issubset(routes), sorted(required - routes)
+          assert client.get("/api/jobs/options").status_code == 401
+
+          build = client.get("/api/build-info").get_json()
+          assert build["features"]["jobs_workspace"] is True
+          assert required <= set(build["expected_endpoints"])
+
+          modules = {item["slug"]: item for item in client.get("/api/platform/modules").get_json()["modules"]}
+          assert modules["jobs"]["availability"] == "available"
+          assert "migration 031" in modules["jobs"]["current_support"].lower()
+
+          schema_codes = {item["code"] for item in operations.SCHEMA_CHECKS}
+          assert {
+              "job_search_profiles",
+              "job_companies",
+              "job_recruiters",
+              "job_company_targets",
+              "jobs",
+              "job_resume_assets",
+              "job_applications",
+          }.issubset(schema_codes)
+          PY
 
       - name: Verify private schema and storage safeguards
         run: |

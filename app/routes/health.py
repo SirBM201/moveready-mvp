@@ -15,7 +15,7 @@ bp = Blueprint("health", __name__)
 
 _PROCESS_STARTED_AT = datetime.now(timezone.utc)
 _PROCESS_STARTED_MONOTONIC = time.monotonic()
-_RELEASE_LABEL = "moveready-account-journey-action-center-2026-07-24"
+_RELEASE_LABEL = "moveready-jobs-execution-platform-2026-08-11"
 
 
 def _env(name: str, default: str = "") -> str:
@@ -95,6 +95,8 @@ def _feature_flags() -> Dict[str, Any]:
         "provider_publication_controls": True,
         "provider_handoffs": True,
         "support_cases": True,
+        "jobs_workspace": True,
+        "jobs_resume_vault": True,
         "visa_power": bool(config.VISA_POWER_ENABLED),
         "passport_index": bool(config.VISA_POWER_ENABLED),
         "passport_provider_cache": True,
@@ -127,6 +129,15 @@ def _expected_endpoints() -> List[str]:
         f"{prefix}/applications/options",
         f"{prefix}/applications",
         f"{prefix}/applications/alerts",
+        f"{prefix}/jobs/options",
+        f"{prefix}/jobs/profile",
+        f"{prefix}/jobs/profile/bootstrap",
+        f"{prefix}/jobs/summary",
+        f"{prefix}/jobs/companies",
+        f"{prefix}/jobs/recruiters",
+        f"{prefix}/jobs",
+        f"{prefix}/jobs/applications",
+        f"{prefix}/jobs/resume-vault",
         f"{prefix}/billing/status",
         f"{prefix}/handoffs",
         f"{prefix}/handoffs/support-cases",
@@ -219,5 +230,6 @@ def build_info():
         "payment_links": "disabled until payment activation controls pass" if not config.PAYMENT_LINKS_ENABLED else "enabled by production configuration",
         "email_login": "controlled by provider readiness and abuse limits",
         "external_notifications": "saved preference does not activate email, WhatsApp, SMS, Telegram, or push delivery",
+        "jobs_workspace": "verified-account data only; resume files use a private bucket and signed downloads",
     }
     return jsonify(payload)

@@ -37,6 +37,8 @@ Implemented foundation:
 - Service availability endpoints and feature flags
 - Service interest/request capture endpoint
 - Admin endpoints for user profiles, generated reports, service requests, watchlist subscriptions, and readiness checks
+- Authenticated Jobs workspace for companies, recruiters, recorded vacancies, applications, resume versions, and interview preparation
+- Private Resume Vault storage with PDF, DOCX, and TXT validation and short-lived signed downloads
 
 ## MVP Mission
 
@@ -68,6 +70,24 @@ Visa Power endpoints now include:
 - `GET /api/visa-power/passport-index/options`
 - `POST /api/visa-power/passport-index/check`
 - `POST /api/visa-power/check`
+
+Jobs endpoints now include:
+
+- `GET /api/jobs/options`
+- `GET|PATCH /api/jobs/profile`
+- `POST /api/jobs/profile/bootstrap`
+- `GET /api/jobs/summary`
+- `GET|POST /api/jobs/companies`
+- `PATCH /api/jobs/companies/<company_id>/tracking`
+- `GET|POST /api/jobs/recruiters`
+- `PATCH /api/jobs/recruiters/<recruiter_id>`
+- `GET|POST /api/jobs`
+- `PATCH /api/jobs/<job_id>`
+- `GET|POST /api/jobs/applications`
+- `PATCH /api/jobs/applications/<application_id>`
+- `GET|POST /api/jobs/resume-vault`
+- `PATCH /api/jobs/resume-vault/<document_id>`
+- `GET /api/jobs/resume-vault/<document_id>/download`
 
 ## Passport Provider Cache
 
@@ -130,6 +150,7 @@ Run these in order when ready:
 11. `supabase/migrations/022_report_account_fields_and_sections.sql`
 12. `sql/026_generated_reports_account_owner.sql`
 13. `supabase/migrations/027_passport_index_provider_cache.sql`
+14. Continue applying the numbered migrations in order through `supabase/migrations/031_jobs_execution_platform.sql`.
 
 Migration 020 keeps legacy `goal` profile schemas compatible with the current `main_goal` payload and creates the account timeline-events table used by Account Center summaries.
 
@@ -138,3 +159,5 @@ Migration 022 adds direct generated-report account fields and syncs report secti
 SQL 026 backfills generated-report account ownership fields from stored input/report payloads and adds indexes for account report lookup.
 
 Migration 027 adds the provider-cache tables for passport ratings, destination access buckets, provider payloads, source review fields, and sync-run logs.
+
+Migration 031 creates the private Jobs data model, the curated company directory, account-owned recruiter and application records, and the private `job-resume-vault` Storage bucket.

@@ -111,6 +111,15 @@ PLATFORM_MODULES: List[Dict[str, Any]] = [
         "current_support": "The Trip Planner is live. Booking handoff remains limited to approved public providers with affiliate disclosure.",
     },
     {
+        "slug": "jobs",
+        "title": "Jobs execution workspace",
+        "category": "employment_execution",
+        "availability": "available",
+        "flag": None,
+        "summary": "Research target employers and recruiters, record vacancies, track applications, manage resume versions, and prepare for interviews.",
+        "current_support": "The verified-account Jobs workspace and private Resume Vault are implemented. Migration 031 is required for storage.",
+    },
+    {
         "slug": "legalization",
         "title": "Notarization, apostille, and legalization",
         "category": "execution_services",
@@ -197,6 +206,7 @@ MODULE_ENDPOINTS = {
     "study-planner": "Admission, academic fit, regulated career, funding, and study-visa preparation.",
     "journey-planner": "Legalization, family, appointment, and settlement planning.",
     "trip-planner": "Trip readiness and controlled booking-provider handoff.",
+    "jobs": "Private company, recruiter, vacancy, application, resume, and interview-preparation execution.",
     "courier": "Trusted passport and sensitive-document courier requests.",
     "legalization": "Notarization, apostille, attestation, translation, and embassy legalization planning.",
     "insurance": "Insurance requirement matching and future quote/provider integrations.",
