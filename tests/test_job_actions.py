@@ -10,6 +10,7 @@ JOB_ACTIONS = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(JOB_ACTIONS)
 build_job_actions = JOB_ACTIONS.build_job_actions
 count_job_actions = JOB_ACTIONS.count_job_actions
+company_target_status = JOB_ACTIONS.company_target_status
 
 
 class JobActionTests(unittest.TestCase):
@@ -74,6 +75,13 @@ class JobActionTests(unittest.TestCase):
 
         self.assertEqual(actions[0]["priority"], "critical")
         self.assertEqual(actions[0]["days_until_due"], 0)
+
+    def test_application_stage_maps_to_company_pipeline(self):
+        self.assertEqual(company_target_status("saved"), "targeting")
+        self.assertEqual(company_target_status("interview"), "interview")
+        self.assertEqual(company_target_status("offer"), "offer")
+        self.assertEqual(company_target_status("visa"), "offer")
+        self.assertEqual(company_target_status("rejected"), "paused")
 
 
 if __name__ == "__main__":

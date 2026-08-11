@@ -6,6 +6,19 @@ from typing import Any, Dict, Iterable, List, Optional
 
 ACTION_WINDOW_DAYS = 14
 
+APPLICATION_COMPANY_TARGET_STATUSES = {
+    "saved": "targeting",
+    "applied": "applied",
+    "interview": "interview",
+    "rejected": "paused",
+    "offer": "offer",
+    "visa": "offer",
+}
+
+
+def company_target_status(application_status: Any) -> str:
+    return APPLICATION_COMPANY_TARGET_STATUSES.get(str(application_status or "saved"), "targeting")
+
 
 def _parse_date(value: Any) -> Optional[date]:
     if not value:

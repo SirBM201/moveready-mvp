@@ -12,7 +12,7 @@ from flask import Blueprint, jsonify, request
 from werkzeug.utils import secure_filename
 
 from app.services.account_identity import get_verified_session_email
-from app.services.job_actions import build_job_actions, count_job_actions
+from app.services.job_actions import build_job_actions, company_target_status, count_job_actions
 from app.services.job_matching import rank_jobs
 from app.services.supabase_client import get_supabase
 
@@ -909,6 +909,17 @@ def _resolve_application_links(row: Dict[str, Any], email: str) -> Tuple[Dict[st
     return row, None
 
 
+def _sync_application_company_target(email: str, row: Dict[str, Any]) -> None:
+    if not row.get("company_id"):
+        return
+    get_supabase().table("relocation_job_company_targets").upsert({
+        "email": email,
+        "company_id": row["company_id"],
+        "priority": "high",
+        "status": company_target_status(row.get("status")),
+    }, on_conflict="email,company_id").execute()
+
+
 @bp.post("/applications")
 def create_job_application():
     email, error = _account()
@@ -922,15 +933,26 @@ def create_job_application():
         if link_error:
             return jsonify({"ok": False, "error": link_error}), 400
         row.setdefault("country", "Canada")
+        if row.get("job_id"):
+            existing = (
+                get_supabase()
+                .table("relocation_job_applications")
+                .select("*")
+                .eq("email", email)
+                .eq("job_id", row["job_id"])
+                .limit(1)
+                .execute()
+            ).data or []
+            if existing:
+                return jsonify({
+                    "ok": True,
+                    "created": False,
+                    "application": existing[0],
+                    "message": "This job is already in Applications.",
+                })
         response = get_supabase().table("relocation_job_applications").insert(row).execute()
-        if row.get("company_id"):
-            get_supabase().table("relocation_job_company_targets").upsert({
-                "email": email,
-                "company_id": row["company_id"],
-                "priority": "high",
-                "status": "applied" if row.get("status") != "saved" else "targeting",
-            }, on_conflict="email,company_id").execute()
-        return jsonify({"ok": True, "application": (response.data or [None])[0]}), 201
+        _sync_application_company_target(email, row)
+        return jsonify({"ok": True, "created": True, "application": (response.data or [None])[0]}), 201
     except Exception as exc:
         return _database_error("create job application", exc)
 
@@ -960,6 +982,7 @@ def update_job_application(application_id: str):
             get_supabase().table("relocation_job_applications")
             .update(update_fields).eq("id", application_id).eq("email", email).execute()
         )
+        _sync_application_company_target(email, resolved)
         return jsonify({"ok": True, "application": (response.data or [None])[0]})
     except Exception as exc:
         return _database_error("update job application", exc)
