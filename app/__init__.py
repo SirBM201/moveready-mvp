@@ -68,6 +68,7 @@ def create_app() -> Flask:
         evidence_workflow,
         health,
         journey_planner,
+        jobs,
         opportunities,
         operations,
         partners,
@@ -109,6 +110,7 @@ def create_app() -> Flask:
     app.register_blueprint(application_cases.user_bp, url_prefix=f"{API_PREFIX}/applications")
     app.register_blueprint(application_case_alerts.user_bp, url_prefix=f"{API_PREFIX}/applications")
     app.register_blueprint(journey_planner.bp, url_prefix=f"{API_PREFIX}/journey")
+    app.register_blueprint(jobs.bp, url_prefix=f"{API_PREFIX}/jobs")
     app.register_blueprint(education_planner.bp, url_prefix=f"{API_PREFIX}/education")
     app.register_blueprint(travel_planner.bp, url_prefix=f"{API_PREFIX}/travel")
     app.register_blueprint(billing.bp, url_prefix=f"{API_PREFIX}/billing")
