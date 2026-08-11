@@ -161,6 +161,52 @@ alter table public.relocation_application_cases
     or application_stage in ('approved', 'refused', 'withdrawn', 'expired', 'closed')
   );
 
+-- Reference hints must remain partial or masked. Existing records are not
+-- blocked during rollout, while all new and updated records are enforced.
+alter table public.relocation_application_cases
+  drop constraint if exists relocation_application_cases_reference_hint_check;
+
+alter table public.relocation_application_cases
+  add constraint relocation_application_cases_reference_hint_check
+  check (
+    authority_reference_hint is null
+    or length(regexp_replace(authority_reference_hint, '[^[:alnum:]]', '', 'g')) <= 8
+  ) not valid;
+
+-- Only web URLs can be attached as application authority sources.
+alter table public.relocation_application_cases
+  drop constraint if exists relocation_application_cases_source_url_check;
+
+alter table public.relocation_application_cases
+  add constraint relocation_application_cases_source_url_check
+  check (
+    official_source_url is null
+    or official_source_url ~* '^https?://'
+  ) not valid;
+
+-- A recorded fee must be non-negative and paired with an ISO-style currency.
+alter table public.relocation_application_cases
+  drop constraint if exists relocation_application_cases_fee_currency_check;
+
+alter table public.relocation_application_cases
+  add constraint relocation_application_cases_fee_currency_check
+  check (
+    (fee_amount is null and fee_currency is null)
+    or (
+      fee_amount is not null
+      and fee_amount >= 0
+      and fee_currency ~ '^[A-Z]{3}$'
+    )
+  ) not valid;
+
+-- Application records are stored only after affirmative account consent.
+alter table public.relocation_application_cases
+  drop constraint if exists relocation_application_cases_storage_consent_check;
+
+alter table public.relocation_application_cases
+  add constraint relocation_application_cases_storage_consent_check
+  check (consent_to_store = true) not valid;
+
 -- These tables contain personal application status, deadlines, authority,
 -- payment, refusal, and decision context. They are backend-only.
 alter table public.relocation_application_cases enable row level security;
