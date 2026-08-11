@@ -4,7 +4,7 @@ import hashlib
 import logging
 import re
 import secrets
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, request
 from werkzeug.utils import secure_filename
 
 from app.services.account_identity import get_verified_session_email
+from app.services.job_actions import build_job_actions, count_job_actions
 from app.services.job_matching import rank_jobs
 from app.services.supabase_client import get_supabase
 
@@ -486,12 +487,8 @@ def jobs_summary():
             .eq("email", email)
             .execute()
         ).data or []
-        today = date.today()
-        follow_up_limit = today + timedelta(days=14)
-        due_follow_ups = [
-            row for row in applications
-            if row.get("follow_up_date") and today <= date.fromisoformat(str(row["follow_up_date"])[:10]) <= follow_up_limit
-        ]
+        actions = build_job_actions(applications, recruiters)
+        action_counts = count_job_actions(actions)
         ranked = rank_jobs([row for row in jobs if row.get("status") in {"open", "discovered"}], profile)
         by_status = {status: sum(1 for row in applications if row.get("status") == status) for status in APPLICATION_STATUSES}
         return jsonify({
@@ -503,11 +500,13 @@ def jobs_summary():
                 "recruiters": len(recruiters),
                 "applications": len(applications),
                 "resume_documents": len(resumes),
-                "follow_ups_due": len(due_follow_ups),
+                "follow_ups_due": action_counts["total"],
             },
             "applications_by_status": by_status,
             "recommended_jobs": ranked[:8],
-            "follow_ups": due_follow_ups[:8],
+            "action_counts": action_counts,
+            "action_items": actions[:12],
+            "follow_ups": [item for item in applications if item.get("follow_up_date")][:8],
             "privacy_note": "Job-search records and resume files are private to the verified MoveReady account. Employer sponsorship and LMIA fields require source verification.",
         })
     except Exception as exc:

@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from flask import Blueprint, jsonify, request
 
 from app.routes import account_auth, application_cases
+from app.services.job_actions import build_job_actions
 from app.services.supabase_client import get_supabase
 
 
@@ -68,13 +69,20 @@ def _auth_email() -> Tuple[Optional[str], Optional[Any]]:
     return email, None
 
 
-def _safe_rows(table: str, email: str, *, order_by: str = "created_at", limit: int = 250) -> Dict[str, Any]:
+def _safe_rows(
+    table: str,
+    email: str,
+    *,
+    order_by: str = "created_at",
+    owner_column: str = "email",
+    limit: int = 250,
+) -> Dict[str, Any]:
     try:
         response = (
             get_supabase()
             .table(table)
             .select("*")
-            .eq("email", email)
+            .eq(owner_column, email)
             .order(order_by, desc=True)
             .limit(limit)
             .execute()
@@ -422,6 +430,24 @@ def _privacy_items(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return items
 
 
+def _job_items(applications: List[Dict[str, Any]], recruiters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [
+        _item(
+            kind=str(action.get("kind") or "job_follow_up"),
+            record_id=action.get("id"),
+            title=_text(action.get("title"), 180) or "Job-search follow-up",
+            summary=_text(action.get("summary"), 700) or "Review the Jobs workspace follow-up.",
+            priority=str(action.get("priority") or "medium"),
+            href=str(action.get("href") or "/jobs"),
+            status=action.get("status"),
+            due_at=action.get("due_at"),
+            created_at=action.get("created_at"),
+            metadata=action.get("metadata") if isinstance(action.get("metadata"), dict) else {},
+        )
+        for action in build_job_actions(applications, recruiters)
+    ]
+
+
 @bp.get("/action-center")
 def action_center():
     email, error_response = _auth_email()
@@ -442,12 +468,15 @@ def action_center():
         "quotes": ("relocation_commercial_quotes", "updated_at"),
         "handoffs": ("relocation_service_handoffs", "updated_at"),
         "support_cases": ("relocation_support_cases", "updated_at"),
-        "privacy_requests": ("relocation_privacy_requests", "updated_at"),
+        "privacy_requests": ("relocation_privacy_requests", "updated_at", "email"),
+        "job_applications": ("relocation_job_applications", "updated_at", "email"),
+        "job_recruiters": ("relocation_job_recruiters", "updated_at", "owner_email"),
     }
     loaded: Dict[str, List[Dict[str, Any]]] = {}
     errors: Dict[str, str] = {}
-    for name, (table, order_by) in sources.items():
-        result = _safe_rows(table, email or "", order_by=order_by)
+    for name, source in sources.items():
+        table, order_by, *owner_columns = source
+        result = _safe_rows(table, email or "", order_by=order_by, owner_column=owner_columns[0] if owner_columns else "email")
         loaded[name] = result["rows"]
         if not result["ok"]:
             errors[name] = result["error"]
@@ -462,6 +491,7 @@ def action_center():
         "handoffs": _handoff_items(loaded["handoffs"]),
         "support_cases": _support_items(loaded["support_cases"]),
         "privacy_requests": _privacy_items(loaded["privacy_requests"]),
+        "jobs": _job_items(loaded["job_applications"], loaded["job_recruiters"]),
     }
 
     actions: List[Dict[str, Any]] = []
@@ -492,5 +522,5 @@ def action_center():
         "sections": sections,
         "partial_errors": errors,
         "empty_state": "No urgent account action was detected. Continue to verify official sources and review your account before spending or submitting." if not actions else None,
-        "safety_note": "The Action Center prioritizes existing private records. It does not replace an official authority deadline, time zone, appointment instruction, payment confirmation, legal advice, provider communication, or immigration decision.",
+        "safety_note": "The Action Center prioritizes existing private records, including job-search follow-ups. It does not send messages or replace an official authority deadline, time zone, appointment instruction, payment confirmation, legal advice, provider communication, hiring decision, or immigration decision.",
     })
