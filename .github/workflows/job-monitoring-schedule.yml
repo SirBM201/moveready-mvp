@@ -16,17 +16,18 @@ jobs:
   scan-due-watches:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      ADMIN_KEY: ${{ secrets.MOVEREADY_ADMIN_KEY }}
     steps:
       - name: Explain inactive scheduler configuration
-        if: ${{ secrets.MOVEREADY_ADMIN_KEY == '' }}
+        if: ${{ env.ADMIN_KEY == '' }}
         run: |
           echo "Scheduled monitoring is implemented but inactive."
           echo "Add the existing Railway admin key as the repository secret MOVEREADY_ADMIN_KEY."
 
       - name: Scan due official employer watches
-        if: ${{ secrets.MOVEREADY_ADMIN_KEY != '' }}
+        if: ${{ env.ADMIN_KEY != '' }}
         env:
-          ADMIN_KEY: ${{ secrets.MOVEREADY_ADMIN_KEY }}
           BACKEND_URL: ${{ vars.MOVEREADY_BACKEND_URL || 'https://moveready-mvp-production.up.railway.app' }}
         run: |
           curl --fail-with-body --show-error --silent \
