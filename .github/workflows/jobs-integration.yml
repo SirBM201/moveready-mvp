@@ -5,31 +5,45 @@ on:
     branches: [main]
     paths:
       - "app/routes/jobs.py"
+      - "app/routes/job_automation.py"
       - "app/routes/health.py"
       - "app/routes/account_action_center.py"
       - "app/routes/operations.py"
       - "app/routes/platform_modules.py"
+      - "app/core/config.py"
       - "app/services/job_matching.py"
       - "app/services/job_actions.py"
+      - "app/services/job_discovery.py"
+      - "app/services/job_documents.py"
       - "app/__init__.py"
       - "supabase/migrations/031_jobs_execution_platform.sql"
+      - "supabase/migrations/032_job_discovery_and_application_assistance.sql"
       - "tests/test_job_matching.py"
       - "tests/test_job_actions.py"
+      - "tests/test_job_automation.py"
       - ".github/workflows/jobs-integration.yml"
+      - ".github/workflows/job-monitoring-schedule.yml"
   pull_request:
     paths:
       - "app/routes/jobs.py"
+      - "app/routes/job_automation.py"
       - "app/routes/health.py"
       - "app/routes/account_action_center.py"
       - "app/routes/operations.py"
       - "app/routes/platform_modules.py"
+      - "app/core/config.py"
       - "app/services/job_matching.py"
       - "app/services/job_actions.py"
+      - "app/services/job_discovery.py"
+      - "app/services/job_documents.py"
       - "app/__init__.py"
       - "supabase/migrations/031_jobs_execution_platform.sql"
+      - "supabase/migrations/032_job_discovery_and_application_assistance.sql"
       - "tests/test_job_matching.py"
       - "tests/test_job_actions.py"
+      - "tests/test_job_automation.py"
       - ".github/workflows/jobs-integration.yml"
+      - ".github/workflows/job-monitoring-schedule.yml"
   workflow_dispatch:
 
 permissions:
@@ -78,17 +92,24 @@ jobs:
               "/api/jobs",
               "/api/jobs/applications",
               "/api/jobs/resume-vault",
+              "/api/jobs/automation/overview",
+              "/api/jobs/automation/watches/bootstrap",
+              "/api/jobs/automation/scan",
+              "/api/admin/jobs/automation/scheduled-scan",
           }
           assert required.issubset(routes), sorted(required - routes)
           assert client.get("/api/jobs/options").status_code == 401
 
           build = client.get("/api/build-info").get_json()
           assert build["features"]["jobs_workspace"] is True
+          assert build["features"]["jobs_official_source_monitoring"] is True
+          assert build["features"]["jobs_truthful_document_drafts"] is True
+          assert build["features"]["jobs_controlled_application_handoff"] is True
           assert required <= set(build["expected_endpoints"])
 
           modules = {item["slug"]: item for item in client.get("/api/platform/modules").get_json()["modules"]}
           assert modules["jobs"]["availability"] == "available"
-          assert "migration 031" in modules["jobs"]["current_support"].lower()
+          assert "migrations 031 and 032" in modules["jobs"]["current_support"].lower()
 
           schema_codes = {item["code"] for item in operations.SCHEMA_CHECKS}
           assert {
@@ -99,6 +120,12 @@ jobs:
               "jobs",
               "job_resume_assets",
               "job_applications",
+              "job_watches",
+              "job_scan_runs",
+              "job_alerts",
+              "job_document_drafts",
+              "job_application_assistance",
+              "job_assistance_events",
           }.issubset(schema_codes)
           PY
 
@@ -126,4 +153,20 @@ jobs:
           assert "'job-resume-vault',\n  false,\n  5242880" in migration
           assert "application/pdf" in migration
           assert migration.count('"founder_tier":1') >= 15
+
+          automation = Path("supabase/migrations/032_job_discovery_and_application_assistance.sql").read_text(encoding="utf-8").lower()
+          private_tables = [
+              "relocation_job_watches",
+              "relocation_job_scan_runs",
+              "relocation_job_alerts",
+              "relocation_job_document_drafts",
+              "relocation_job_application_assistance",
+              "relocation_job_assistance_events",
+          ]
+          for table in private_tables:
+              assert f"alter table public.{table} enable row level security" in automation, table
+              assert f"revoke all privileges on table public.{table} from public, anon, authenticated" in automation, table
+              assert f"grant all privileges on table public.{table} to service_role" in automation, table
+          assert "no automatic submission" in automation
+          assert "user_confirmations" in automation
           PY

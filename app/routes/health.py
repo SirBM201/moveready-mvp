@@ -15,7 +15,7 @@ bp = Blueprint("health", __name__)
 
 _PROCESS_STARTED_AT = datetime.now(timezone.utc)
 _PROCESS_STARTED_MONOTONIC = time.monotonic()
-_RELEASE_LABEL = "moveready-jobs-execution-platform-2026-08-11"
+_RELEASE_LABEL = "moveready-controlled-job-automation-2026-08-12"
 
 
 def _env(name: str, default: str = "") -> str:
@@ -97,6 +97,9 @@ def _feature_flags() -> Dict[str, Any]:
         "support_cases": True,
         "jobs_workspace": True,
         "jobs_resume_vault": True,
+        "jobs_official_source_monitoring": True,
+        "jobs_truthful_document_drafts": True,
+        "jobs_controlled_application_handoff": True,
         "visa_power": bool(config.VISA_POWER_ENABLED),
         "passport_index": bool(config.VISA_POWER_ENABLED),
         "passport_provider_cache": True,
@@ -138,6 +141,9 @@ def _expected_endpoints() -> List[str]:
         f"{prefix}/jobs",
         f"{prefix}/jobs/applications",
         f"{prefix}/jobs/resume-vault",
+        f"{prefix}/jobs/automation/overview",
+        f"{prefix}/jobs/automation/watches/bootstrap",
+        f"{prefix}/jobs/automation/scan",
         f"{prefix}/billing/status",
         f"{prefix}/handoffs",
         f"{prefix}/handoffs/support-cases",
@@ -153,6 +159,7 @@ def _expected_endpoints() -> List[str]:
         f"{prefix}/admin/application-cases",
         f"{prefix}/admin/application-case-alerts",
         f"{prefix}/admin/application-cases/alerts/scan",
+        f"{prefix}/admin/jobs/automation/scheduled-scan",
         f"{prefix}/admin/privacy-requests",
     ]
 
@@ -231,5 +238,6 @@ def build_info():
         "email_login": "controlled by provider readiness and abuse limits",
         "external_notifications": "saved preference does not activate email, WhatsApp, SMS, Telegram, or push delivery",
         "jobs_workspace": "verified-account data only; resume files use a private bucket and signed downloads",
+        "jobs_automation": "official employer and supported public ATS sources only; no automatic submission; document drafts require explicit truth confirmations",
     }
     return jsonify(payload)

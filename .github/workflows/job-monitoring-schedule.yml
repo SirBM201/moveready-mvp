@@ -1,0 +1,38 @@
+name: MoveReady Official Job Monitoring
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: moveready-official-job-monitoring
+  cancel-in-progress: false
+
+jobs:
+  scan-due-watches:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Explain inactive scheduler configuration
+        if: ${{ secrets.MOVEREADY_ADMIN_KEY == '' }}
+        run: |
+          echo "Scheduled monitoring is implemented but inactive."
+          echo "Add the existing Railway admin key as the repository secret MOVEREADY_ADMIN_KEY."
+
+      - name: Scan due official employer watches
+        if: ${{ secrets.MOVEREADY_ADMIN_KEY != '' }}
+        env:
+          ADMIN_KEY: ${{ secrets.MOVEREADY_ADMIN_KEY }}
+          BACKEND_URL: ${{ vars.MOVEREADY_BACKEND_URL || 'https://moveready-mvp-production.up.railway.app' }}
+        run: |
+          curl --fail-with-body --show-error --silent \
+            --request POST \
+            --header "Accept: application/json" \
+            --header "Content-Type: application/json" \
+            --header "X-MoveReady-Admin-Key: ${ADMIN_KEY}" \
+            --data '{}' \
+            "${BACKEND_URL%/}/api/admin/jobs/automation/scheduled-scan"

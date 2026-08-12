@@ -117,7 +117,7 @@ PLATFORM_MODULES: List[Dict[str, Any]] = [
         "availability": "available",
         "flag": None,
         "summary": "Research target employers and recruiters, record vacancies, track applications, manage resume versions, and prepare for interviews.",
-        "current_support": "The verified-account Jobs workspace and private Resume Vault are implemented. Migration 031 is required for storage.",
+        "current_support": "The verified-account Jobs workspace, private Resume Vault, official-source vacancy monitors, truthful drafts, alerts, and controlled employer-page handoff are implemented. Migrations 031 and 032 are required for storage.",
     },
     {
         "slug": "legalization",
@@ -206,7 +206,7 @@ MODULE_ENDPOINTS = {
     "study-planner": "Admission, academic fit, regulated career, funding, and study-visa preparation.",
     "journey-planner": "Legalization, family, appointment, and settlement planning.",
     "trip-planner": "Trip readiness and controlled booking-provider handoff.",
-    "jobs": "Private company, recruiter, vacancy, application, resume, and interview-preparation execution.",
+    "jobs": "Private employer targeting, official-source vacancy monitoring, truthful application drafts, controlled employer-page handoff, recruiter tracking, applications, resume storage, and interview preparation.",
     "courier": "Trusted passport and sensitive-document courier requests.",
     "legalization": "Notarization, apostille, attestation, translation, and embassy legalization planning.",
     "insurance": "Insurance requirement matching and future quote/provider integrations.",

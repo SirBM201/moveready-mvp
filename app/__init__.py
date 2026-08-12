@@ -69,6 +69,7 @@ def create_app() -> Flask:
         evidence_workflow,
         health,
         journey_planner,
+        job_automation,
         jobs,
         opportunities,
         operations,
@@ -115,6 +116,7 @@ def create_app() -> Flask:
     app.register_blueprint(application_case_links.bp, url_prefix=f"{API_PREFIX}/applications")
     app.register_blueprint(journey_planner.bp, url_prefix=f"{API_PREFIX}/journey")
     app.register_blueprint(jobs.bp, url_prefix=f"{API_PREFIX}/jobs")
+    app.register_blueprint(job_automation.user_bp, url_prefix=f"{API_PREFIX}/jobs")
     app.register_blueprint(education_planner.bp, url_prefix=f"{API_PREFIX}/education")
     app.register_blueprint(travel_planner.bp, url_prefix=f"{API_PREFIX}/travel")
     app.register_blueprint(billing.bp, url_prefix=f"{API_PREFIX}/billing")
@@ -149,6 +151,7 @@ def create_app() -> Flask:
     app.register_blueprint(admin_review_queue.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(application_cases_admin.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(application_case_alerts.admin_bp, url_prefix=f"{API_PREFIX}/admin")
+    app.register_blueprint(job_automation.admin_bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(account_controls_admin.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(billing_admin.bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(evidence_admin.bp, url_prefix=f"{API_PREFIX}/admin")

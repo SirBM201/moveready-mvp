@@ -93,6 +93,18 @@ Set these Railway variables only after the operational process is ready:
 
 Do not set `PAYMENT_LINKS_ENABLED=true` until every active checkout URL is approved, amount-matched, domain-verified, and connected to a documented refund and payment-verification process.
 
+## 31. Jobs execution platform
+
+`supabase/migrations/031_jobs_execution_platform.sql`
+
+Creates the verified-account Jobs profile, curated employer directory, private employer targets, recruiter records, saved vacancies, application pipeline, and private Resume Vault metadata and Storage bucket.
+
+## 32. Job discovery and controlled application assistance
+
+`supabase/migrations/032_job_discovery_and_application_assistance.sql`
+
+Adds verified career facts, official employer/public ATS monitors, scan runs, private vacancy alerts, editable tailored resume and cover-letter drafts, truth confirmations, readiness checks, employer-page handoffs, and user-confirmed submission events. All new tables are backend-only with RLS and revoked browser roles. No route performs an automatic job application submission.
+
 ## Important
 
 The seed data is for MVP testing only. It does not contain final legal or immigration guidance. Detailed route facts should be reviewed and approved from official sources before production use.
@@ -110,5 +122,6 @@ Protected admin API routes accept one of these headers:
 The backend reads the key from:
 
 - `MOVEREADY_ADMIN_API_KEY`
+- `MOVEREADY_ADMIN_KEY`
 - `MOVE_READY_ADMIN_API_KEY`
 - `ADMIN_API_KEY`
