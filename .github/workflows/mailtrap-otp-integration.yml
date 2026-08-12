@@ -119,7 +119,7 @@ jobs:
           from types import SimpleNamespace
 
           from app import create_app
-          from app.routes import auth
+          from app.routes import account_auth
 
 
           class FakeQuery:
@@ -175,7 +175,7 @@ jobs:
 
 
           store = {'inserts': [], 'updates': []}
-          auth.get_supabase = lambda: FakeSupabase(store)
+          account_auth.get_supabase = lambda: FakeSupabase(store)
 
           delivery_calls = []
 
@@ -183,7 +183,7 @@ jobs:
               delivery_calls.append((to_email, code, expires_minutes))
               return {'ok': True, 'status': 'sent', 'provider': 'mailtrap'}
 
-          auth.deliver_login_code = sent
+          account_auth.deliver_login_code = sent
           app = create_app()
           client = app.test_client()
 
@@ -201,18 +201,18 @@ jobs:
           def failed(_to_email, _code, _expires_minutes):
               return {'ok': False, 'status': 'mailtrap_http_401', 'provider': 'mailtrap', 'detail': 'simulated failure'}
 
-          auth.deliver_login_code = failed
+          account_auth.deliver_login_code = failed
           failure = client.post('/api/auth/request-code', json={'email': 'second@example.com'})
           failure_payload = failure.get_json()
           assert failure.status_code == 503, (failure.status_code, failure_payload)
-          assert failure_payload['error'] == 'otp_delivery_failed', failure_payload
+          assert failure_payload['error'] == 'email_delivery_unavailable', failure_payload
           assert any(item.get('status') == 'expired' for item in store['updates']), store
           assert 'dev_code' not in failure_payload, failure_payload
 
           malformed = client.post('/api/auth/verify-code', json={'email': 'owner@example.com', 'code': '12AB'})
           assert malformed.status_code == 400, malformed.get_json()
-          assert malformed.get_json()['error'] == 'six_digit_code_required'
+          assert malformed.get_json()['error'] == 'valid_email_and_six_digit_code_required'
 
-          assert auth._dev_code_allowed() is False
+          assert account_auth._dev_code_allowed() is False
           print('OTP delivery is invoked, failed delivery invalidates the code, and production responses never expose it.')
           PY

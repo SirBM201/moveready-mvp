@@ -201,6 +201,6 @@ grant all privileges on table public.relocation_job_assistance_events to service
 
 comment on table public.relocation_job_watches is 'Private official employer or public ATS vacancy monitors; arbitrary web search and automatic applications are out of scope.';
 comment on table public.relocation_job_document_drafts is 'Private, editable application drafts generated only from account-owned profile, resume, and verified career facts.';
-comment on table public.relocation_job_application_assistance is 'User-controlled employer-page handoff and submission confirmation; never evidence of submission without the user confirmation event.';
+comment on table public.relocation_job_application_assistance is 'User-controlled employer-page handoff with no automatic submission; never evidence of submission without the user confirmation event.';
 
 notify pgrst, 'reload schema';
