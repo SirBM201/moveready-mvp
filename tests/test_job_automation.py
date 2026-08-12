@@ -2,6 +2,7 @@ import unittest
 
 from app.services.job_discovery import (
     adapter_request_url,
+    candidate_matches_target_country,
     candidate_content_hash,
     candidate_fingerprint,
     parse_source,
@@ -23,7 +24,7 @@ class JobAutomationDiscoveryTests(unittest.TestCase):
           "url":"https://plastics.example/jobs/production-supervisor",
           "description":"Lead PET injection moulding production and train operators.",
           "datePosted":"2026-08-12",
-          "jobLocation":{"address":{"addressCountry":"Canada","addressRegion":"Ontario","addressLocality":"Toronto"}}
+          "jobLocation":{"address":{"addressCountry":"CA","addressRegion":"Ontario","addressLocality":"Toronto"}}
         }
         </script></html>
         """
@@ -78,6 +79,8 @@ class JobAutomationDiscoveryTests(unittest.TestCase):
         )
         self.assertEqual(len(result["jobs"]), 1)
         self.assertEqual(result["jobs"][0]["source_name"], "Official Workday career site")
+        self.assertEqual(result["jobs"][0]["country"], "Canada")
+        self.assertEqual(result["jobs"][0]["province"], "Ontario")
         self.assertIn("/Example_Careers/job/", result["jobs"][0]["job_url"])
         self.assertTrue(result["complete_listing"])
         self.assertEqual(
@@ -89,6 +92,37 @@ class JobAutomationDiscoveryTests(unittest.TestCase):
         body = '<a href="https://example.wd1.myworkdayjobs.com/Example_Careers">Search current opportunities</a>'
         link = job_discovery._discover_supported_ats_link(body, "https://www.example.com/careers")
         self.assertEqual(link, "https://example.wd1.myworkdayjobs.com/Example_Careers")
+
+    def test_official_listing_link_is_followed_without_leaving_employer_domain(self):
+        body = '<a href="/careers/job-search">Search open jobs</a><a href="https://unrelated.example/jobs">Jobs elsewhere</a>'
+        link = job_discovery._discover_official_listing_link(body, "https://www.example.com/careers")
+        self.assertEqual(link, "https://www.example.com/careers/job-search")
+
+    def test_generic_table_locations_are_not_relabelled_as_canada(self):
+        body = """
+        <table>
+          <tr><td><a href="/jobs/1">Production Supervisor</a></td><td>Employer Inc</td><td>United States of America</td><td>Kansas City</td></tr>
+          <tr><td><a href="/jobs/2">Injection Moulding Lead</a></td><td>Bolton, ON</td><td>21105</td></tr>
+        </table>
+        """
+        result = parse_source(
+            body,
+            content_type="text/html",
+            source_url="https://example.com/careers/portal",
+            adapter="generic",
+            keywords=["Production Supervisor", "Injection Moulding"],
+        )
+        self.assertEqual(len(result["jobs"]), 2)
+        by_title = {row["job_title"]: row for row in result["jobs"]}
+        self.assertEqual(by_title["Production Supervisor"]["country"], "United States")
+        self.assertFalse(candidate_matches_target_country(by_title["Production Supervisor"], "Canada"))
+        self.assertEqual(by_title["Injection Moulding Lead"]["country"], "Canada")
+        self.assertEqual(by_title["Injection Moulding Lead"]["province"], "Ontario")
+        self.assertTrue(candidate_matches_target_country(by_title["Injection Moulding Lead"], "Canada"))
+
+    def test_target_country_requires_source_location_evidence(self):
+        self.assertFalse(candidate_matches_target_country({"job_title": "Production Lead"}, "Canada"))
+        self.assertTrue(candidate_matches_target_country({"country": "Canada"}, "Canada"))
 
 
 class JobAutomationDocumentTests(unittest.TestCase):

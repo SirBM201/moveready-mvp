@@ -46,6 +46,48 @@ IGNORED_KEYWORD_TOKENS = {
 JOB_LINK_HINTS = {
     "apply", "career", "careers", "employment", "job", "jobs", "opening", "opportunity", "position", "vacancy",
 }
+LISTING_LINK_LABELS = {
+    "current opportunities", "find jobs", "job listings", "job search", "open positions",
+    "search jobs", "search open jobs", "search opportunities", "view job postings",
+}
+CANADIAN_PROVINCES = {
+    "ab": "Alberta",
+    "alberta": "Alberta",
+    "bc": "British Columbia",
+    "british columbia": "British Columbia",
+    "mb": "Manitoba",
+    "manitoba": "Manitoba",
+    "nb": "New Brunswick",
+    "new brunswick": "New Brunswick",
+    "newfoundland and labrador": "Newfoundland and Labrador",
+    "nl": "Newfoundland and Labrador",
+    "nova scotia": "Nova Scotia",
+    "ns": "Nova Scotia",
+    "nt": "Northwest Territories",
+    "northwest territories": "Northwest Territories",
+    "nu": "Nunavut",
+    "nunavut": "Nunavut",
+    "on": "Ontario",
+    "ontario": "Ontario",
+    "pe": "Prince Edward Island",
+    "prince edward island": "Prince Edward Island",
+    "qc": "Quebec",
+    "quebec": "Quebec",
+    "québec": "Quebec",
+    "saskatchewan": "Saskatchewan",
+    "sk": "Saskatchewan",
+    "yt": "Yukon",
+    "yukon": "Yukon",
+}
+COUNTRY_ALIASES = {
+    "ca": "Canada",
+    "can": "Canada",
+    "canada": "Canada",
+    "mexico": "Mexico",
+    "united states": "United States",
+    "united states of america": "United States",
+    "usa": "United States",
+}
 
 
 def clean_text(value: Any, limit: int = 4000) -> str:
@@ -218,6 +260,12 @@ class _JobHtmlParser(HTMLParser):
         self._json_parts: List[str] = []
         self._link_href = ""
         self._link_parts: List[str] = []
+        self.rows: List[Dict[str, Any]] = []
+        self._row_depth = 0
+        self._row_cells: List[str] = []
+        self._row_links: List[Tuple[str, str]] = []
+        self._cell_depth = 0
+        self._cell_parts: List[str] = []
 
     def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
         attributes = {key.casefold(): value or "" for key, value in attrs}
@@ -227,6 +275,15 @@ class _JobHtmlParser(HTMLParser):
         if tag.casefold() == "a" and attributes.get("href"):
             self._link_href = attributes["href"]
             self._link_parts = []
+        if tag.casefold() == "tr":
+            self._row_depth += 1
+            if self._row_depth == 1:
+                self._row_cells = []
+                self._row_links = []
+        if self._row_depth and tag.casefold() in {"td", "th"}:
+            self._cell_depth += 1
+            if self._cell_depth == 1:
+                self._cell_parts = []
 
     def handle_endtag(self, tag: str) -> None:
         if tag.casefold() == "script" and self._json_depth:
@@ -236,15 +293,86 @@ class _JobHtmlParser(HTMLParser):
                 self.json_blocks.append(block)
             self._json_parts = []
         if tag.casefold() == "a" and self._link_href:
-            self.links.append((self._link_href, clean_text(" ".join(self._link_parts), 220)))
+            link = (self._link_href, clean_text(" ".join(self._link_parts), 220))
+            self.links.append(link)
+            if self._row_depth:
+                self._row_links.append(link)
             self._link_href = ""
             self._link_parts = []
+        if self._row_depth and tag.casefold() in {"td", "th"} and self._cell_depth:
+            self._cell_depth -= 1
+            if self._cell_depth == 0:
+                value = clean_text(" ".join(self._cell_parts), 500)
+                if value:
+                    self._row_cells.append(value)
+                self._cell_parts = []
+        if tag.casefold() == "tr" and self._row_depth:
+            self._row_depth -= 1
+            if self._row_depth == 0 and (self._row_cells or self._row_links):
+                self.rows.append({"cells": self._row_cells, "links": self._row_links})
+                self._row_cells = []
+                self._row_links = []
 
     def handle_data(self, data: str) -> None:
         if self._json_depth:
             self._json_parts.append(data)
         if self._link_href:
             self._link_parts.append(data)
+        if self._cell_depth:
+            self._cell_parts.append(data)
+
+
+def _normalized_country(value: Any) -> str:
+    raw = clean_text(value, 100).casefold().replace(".", "")
+    raw = re.sub(r"\s+", " ", raw).strip()
+    return COUNTRY_ALIASES.get(raw, clean_text(value, 100))
+
+
+def candidate_matches_target_country(candidate: Dict[str, Any], target_country: Any) -> bool:
+    target = _normalized_country(target_country)
+    if not target:
+        return True
+    candidate_country = _normalized_country(candidate.get("country"))
+    return bool(candidate_country) and candidate_country.casefold() == target.casefold()
+
+
+def _infer_location(values: Sequence[Any]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    cells = [clean_text(value, 300) for value in values if clean_text(value, 300)]
+    country: Optional[str] = None
+    province: Optional[str] = None
+    city: Optional[str] = None
+    for index, cell in enumerate(cells):
+        normalized = "" if cell.casefold() in {"ca", "can"} else _normalized_country(cell)
+        if normalized in COUNTRY_ALIASES.values():
+            country = normalized
+            if index + 1 < len(cells):
+                possible_city = cells[index + 1]
+                if _normalized_country(possible_city) not in COUNTRY_ALIASES.values():
+                    city = possible_city
+            break
+    for cell in cells:
+        parts = [clean_text(part, 100) for part in re.split(r"[,|]", cell) if clean_text(part, 100)]
+        for part_index, part in enumerate(parts):
+            normalized_part = "" if part.casefold() in {"ca", "can"} else _normalized_country(part)
+            if normalized_part in COUNTRY_ALIASES.values():
+                country = normalized_part
+            province_value = CANADIAN_PROVINCES.get(part.casefold())
+            if province_value:
+                if not country or country == "Canada":
+                    country = "Canada"
+                    province = province_value
+                    if part_index:
+                        possible_city = parts[part_index - 1]
+                        if possible_city.casefold() not in CANADIAN_PROVINCES:
+                            city = possible_city
+        normalized_cell = re.sub(r"[^a-zà-ſ ]+", " ", cell.casefold())
+        normalized_cell = re.sub(r"\s+", " ", normalized_cell).strip()
+        if re.search(r"\bcanada\b", normalized_cell):
+            country = "Canada"
+        if normalized_cell in CANADIAN_PROVINCES:
+            country = "Canada"
+            province = CANADIAN_PROVINCES[normalized_cell]
+    return country, province, city
 
 
 def _walk_json(value: Any) -> Iterable[Dict[str, Any]]:
@@ -282,7 +410,7 @@ def _job_location(value: Any) -> Tuple[Optional[str], Optional[str], Optional[st
         country_value = address.get("addressCountry")
         if isinstance(country_value, dict):
             country_value = country_value.get("name")
-        country = clean_text(country_value, 100) or None
+        country = _normalized_country(country_value) or None
         province = clean_text(address.get("addressRegion"), 100) or None
         city = clean_text(address.get("addressLocality"), 100) or None
         if country or province or city:
@@ -332,7 +460,33 @@ def _parse_jsonld(body: str, source_url: str, *, include_generic_links: bool) ->
                 jobs.append(candidate)
     if jobs or not include_generic_links:
         return jobs
+    row_link_keys = set()
+    for row in parser.rows:
+        cells = row.get("cells") if isinstance(row.get("cells"), list) else []
+        country, province, city = _infer_location(cells)
+        for href, label in row.get("links") or []:
+            combined = f"{href} {label}".casefold()
+            if not label or len(label) < 4 or not any(hint in combined for hint in JOB_LINK_HINTS):
+                continue
+            job_url = urljoin(source_url, href)
+            if urlparse(job_url).scheme not in {"http", "https"}:
+                continue
+            row_link_keys.add((href, label))
+            title = clean_text(cells[0], 220) if cells else label
+            jobs.append({
+                "job_title": title or label,
+                "job_url": job_url,
+                "source_url": source_url,
+                "source_name": "Official employer career page",
+                "description_summary": "",
+                "country": country,
+                "province": province,
+                "city": city,
+                "skills": [],
+            })
     for href, label in parser.links:
+        if (href, label) in row_link_keys:
+            continue
         combined = f"{href} {label}".casefold()
         if not label or len(label) < 4 or not any(hint in combined for hint in JOB_LINK_HINTS):
             continue
@@ -351,6 +505,38 @@ def _parse_jsonld(body: str, source_url: str, *, include_generic_links: bool) ->
             "skills": [],
         })
     return jobs
+
+
+def _discover_official_listing_link(body: str, source_url: str) -> Optional[str]:
+    parser = _JobHtmlParser()
+    parser.feed(body)
+    ranked: List[Tuple[int, str]] = []
+    current = source_url.casefold().rstrip("/")
+    for href, label in parser.links:
+        candidate = urljoin(source_url, href)
+        if candidate.casefold().rstrip("/") == current:
+            continue
+        if not source_host_is_allowed(candidate, [source_url]):
+            continue
+        try:
+            candidate = validate_public_https_url(candidate, resolve_dns=False)
+        except ValueError:
+            continue
+        normalized_label = clean_text(label, 160).casefold()
+        path = urlparse(candidate).path.casefold().rstrip("/")
+        score = 0
+        if normalized_label in LISTING_LINK_LABELS:
+            score += 10
+        if any(value in normalized_label for value in ("search jobs", "job postings", "current opportunities", "open positions")):
+            score += 7
+        if re.search(r"/(jobs?|job-search|job-listings|openings|opportunities|portal)$", path):
+            score += 6
+        adapter = detect_adapter(candidate, "auto")
+        if adapter in {"greenhouse", "lever", "workday", "smartrecruiters"}:
+            score += 12
+        if score:
+            ranked.append((score, candidate))
+    return max(ranked, default=(0, ""), key=lambda item: item[0])[1] or None
 
 
 def _discover_supported_ats_link(body: str, source_url: str) -> Optional[str]:
@@ -375,6 +561,7 @@ def _parse_greenhouse(body: str, source_url: str) -> List[Dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         location = item.get("location") if isinstance(item.get("location"), dict) else {}
+        country, province, city = _infer_location([location.get("name")])
         title = clean_text(item.get("title"), 220)
         if not title:
             continue
@@ -384,9 +571,9 @@ def _parse_greenhouse(body: str, source_url: str) -> List[Dict[str, Any]]:
             "source_url": source_url,
             "source_name": "Official Greenhouse job board",
             "description_summary": clean_text(item.get("content"), 4000),
-            "country": None,
-            "province": None,
-            "city": clean_text(location.get("name"), 100) or None,
+            "country": country,
+            "province": province,
+            "city": city or clean_text(location.get("name"), 100) or None,
             "employment_type": None,
             "posted_at": _iso_datetime(item.get("updated_at")),
             "expires_at": None,
@@ -403,6 +590,7 @@ def _parse_lever(body: str, source_url: str) -> List[Dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         categories = item.get("categories") if isinstance(item.get("categories"), dict) else {}
+        country, province, city = _infer_location([categories.get("location")])
         title = clean_text(item.get("text"), 220)
         if not title:
             continue
@@ -412,9 +600,9 @@ def _parse_lever(body: str, source_url: str) -> List[Dict[str, Any]]:
             "source_url": source_url,
             "source_name": "Official Lever job board",
             "description_summary": clean_text(item.get("descriptionPlain") or item.get("description"), 4000),
-            "country": None,
-            "province": None,
-            "city": clean_text(categories.get("location"), 100) or None,
+            "country": country,
+            "province": province,
+            "city": city or clean_text(categories.get("location"), 100) or None,
             "employment_type": clean_text(categories.get("commitment"), 100) or None,
             "posted_at": None,
             "expires_at": None,
@@ -436,15 +624,16 @@ def _parse_workday(body: str, source_url: str) -> List[Dict[str, Any]]:
         external_path = str(item.get("externalPath") or "")
         if not title or not external_path:
             continue
+        country, province, city = _infer_location([item.get("locationsText")])
         output.append({
             "job_title": title,
             "job_url": urljoin(source_base, external_path.lstrip("/")),
             "source_url": source_url,
             "source_name": "Official Workday career site",
             "description_summary": clean_text(item.get("bulletFields") or item.get("subtitles"), 4000),
-            "country": None,
-            "province": None,
-            "city": clean_text(item.get("locationsText"), 100) or None,
+            "country": country,
+            "province": province,
+            "city": city or clean_text(item.get("locationsText"), 100) or None,
             "employment_type": None,
             "posted_at": None,
             "expires_at": None,
@@ -478,7 +667,7 @@ def _parse_smartrecruiters(body: str, source_url: str) -> List[Dict[str, Any]]:
             "source_url": source_url,
             "source_name": "Official SmartRecruiters career site",
             "description_summary": clean_text(item.get("jobAd") or item.get("industry"), 4000),
-            "country": clean_text(location.get("country"), 100) or None,
+            "country": _normalized_country(location.get("country")) or None,
             "province": clean_text(location.get("region"), 100) or None,
             "city": clean_text(location.get("city"), 100) or None,
             "employment_type": clean_text(employment.get("label"), 100) or None,
@@ -561,7 +750,7 @@ def parse_source(body: str, *, content_type: str, source_url: str, adapter: str,
     return {"adapter": adapter, "jobs": output, "complete_listing": complete}
 
 
-def fetch_source(source_url: str, requested_adapter: str, keywords: Sequence[str]) -> Dict[str, Any]:
+def fetch_source(source_url: str, requested_adapter: str, keywords: Sequence[str], *, _listing_hops: int = 0) -> Dict[str, Any]:
     validated = validate_public_https_url(source_url)
     adapter = detect_adapter(validated, requested_adapter)
     request_url = validate_public_https_url(adapter_request_url(validated, adapter))
@@ -600,8 +789,13 @@ def fetch_source(source_url: str, requested_adapter: str, keywords: Sequence[str
     if not parsed.get("jobs") and adapter in {"jsonld", "generic"}:
         linked_ats = _discover_supported_ats_link(body, validated)
         if linked_ats and linked_ats.casefold().rstrip("/") != validated.casefold().rstrip("/"):
-            linked = fetch_source(linked_ats, "auto", keywords)
+            linked = fetch_source(linked_ats, "auto", keywords, _listing_hops=_listing_hops + 1)
             return {**linked, "requested_url": validated, "discovered_via": linked_ats}
+        if _listing_hops < 1:
+            listing_url = _discover_official_listing_link(body, validated)
+            if listing_url:
+                linked = fetch_source(listing_url, "auto", keywords, _listing_hops=_listing_hops + 1)
+                return {**linked, "requested_url": validated, "discovered_via": listing_url}
     return {
         **parsed,
         "requested_url": validated,

@@ -14,6 +14,32 @@ alter table public.relocation_jobs
   add column if not exists last_seen_at timestamptz,
   add column if not exists last_checked_at timestamptz;
 
+-- Point the starter monitors at the official listing pages that expose the
+-- vacancies rather than at the surrounding employer-culture pages.
+update public.relocation_job_companies
+set career_page = 'https://career.alpla.com/en/jobs',
+    source_url = 'https://career.alpla.com/en/jobs',
+    source_status = 'verified',
+    last_verified_at = '2026-08-12T00:00:00Z',
+    updated_at = now()
+where slug = 'alpla';
+
+update public.relocation_job_companies
+set career_page = 'https://www.winpak.com/job-listings',
+    source_url = 'https://www.winpak.com/job-listings',
+    source_status = 'verified',
+    last_verified_at = '2026-08-12T00:00:00Z',
+    updated_at = now()
+where slug = 'winpak';
+
+update public.relocation_job_companies
+set career_page = 'https://www.amcor.com/careers/job-search',
+    source_url = 'https://www.amcor.com/careers/job-search',
+    source_status = 'verified',
+    last_verified_at = '2026-08-12T00:00:00Z',
+    updated_at = now()
+where slug in ('amcor', 'berry-global');
+
 create unique index if not exists relocation_jobs_owner_source_fingerprint_uidx
 on public.relocation_jobs (owner_email, source_fingerprint)
 where owner_email is not null and source_fingerprint is not null;

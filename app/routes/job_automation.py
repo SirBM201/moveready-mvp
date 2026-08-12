@@ -13,6 +13,7 @@ from app.services.account_identity import get_verified_session_email
 from app.services.job_discovery import (
     candidate_content_hash,
     candidate_fingerprint,
+    candidate_matches_target_country,
     clean_text,
     detect_adapter,
     fetch_source,
@@ -374,8 +375,8 @@ def _scan_watch(watch: Dict[str, Any], *, trigger_type: str) -> Dict[str, Any]:
         for candidate in fetched.get("jobs") or []:
             if not source_host_is_allowed(str(candidate.get("job_url") or ""), allowed_job_hosts):
                 continue
-            candidate["country"] = candidate.get("country") or watch.get("country") or "Canada"
-            candidate["province"] = candidate.get("province") or watch.get("province")
+            if not candidate_matches_target_country(candidate, watch.get("country")):
+                continue
             fingerprint = candidate_fingerprint(candidate, watch_id)
             content_hash = candidate_content_hash(candidate)
             seen_fingerprints.add(fingerprint)
@@ -492,7 +493,7 @@ def _scan_watch(watch: Dict[str, Any], *, trigger_type: str) -> Dict[str, Any]:
             "watch_id": watch_id,
             "status": status,
             "adapter": adapter,
-            "discovered_count": len(fetched.get("jobs") or []),
+            "discovered_count": len(seen_fingerprints),
             "new_count": new_count,
             "changed_count": changed_count,
             "closed_count": closed_count,
