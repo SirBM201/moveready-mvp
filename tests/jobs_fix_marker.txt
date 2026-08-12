@@ -1,1 +1,0 @@
-Production regression: zero-row Supabase lookups must return None instead of triggering PostgREST singular 406 handling.
