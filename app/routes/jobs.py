@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 from app.services.account_identity import get_verified_session_email
 from app.services.job_actions import build_job_actions, company_target_status, count_job_actions
 from app.services.job_matching import rank_jobs
+from app.services.job_visibility import job_is_visible_to_account
 from app.services.supabase_client import get_supabase
 
 
@@ -188,6 +189,19 @@ def _visible_company(company_id: str, email: str) -> Optional[Dict[str, Any]]:
     if row.get("is_curated") or str(row.get("owner_email") or "").casefold() == email.casefold():
         return row
     return None
+
+
+def _visible_job(job_id: str, email: str) -> Optional[Dict[str, Any]]:
+    response = (
+        get_supabase()
+        .table("relocation_jobs")
+        .select("*")
+        .eq("id", job_id)
+        .maybe_single()
+        .execute()
+    )
+    row = response.data
+    return row if job_is_visible_to_account(row, email) else None
 
 
 def _validate_documents(email: str, document_ids: Sequence[Any]) -> Tuple[List[str], Optional[str]]:
@@ -881,7 +895,7 @@ def _application_row(payload: Dict[str, Any], email: str, partial: bool = False)
 
 def _resolve_application_links(row: Dict[str, Any], email: str) -> Tuple[Dict[str, Any], Optional[str]]:
     if row.get("job_id"):
-        job = _owned_row("relocation_jobs", str(row["job_id"]), email)
+        job = _visible_job(str(row["job_id"]), email)
         if not job:
             return row, "job_not_found"
         row.setdefault("job_title", job.get("job_title"))
