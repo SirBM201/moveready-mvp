@@ -1,0 +1,1 @@
+CI should validate the hardened lookup patch.
