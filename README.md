@@ -39,6 +39,8 @@ Implemented foundation:
 - Admin endpoints for user profiles, generated reports, service requests, watchlist subscriptions, and readiness checks
 - Authenticated Jobs workspace for companies, recruiters, recorded vacancies, applications, resume versions, and interview preparation
 - Private Resume Vault storage with PDF, DOCX, and TXT validation and short-lived signed downloads
+- Official employer and public ATS vacancy monitoring with private change alerts
+- Truth-reviewed tailored resume and cover-letter drafts with controlled employer-page handoff
 
 ## MVP Mission
 
@@ -88,6 +90,15 @@ Jobs endpoints now include:
 - `GET|POST /api/jobs/resume-vault`
 - `PATCH /api/jobs/resume-vault/<document_id>`
 - `GET /api/jobs/resume-vault/<document_id>/download`
+- `GET /api/jobs/automation/overview`
+- `POST /api/jobs/automation/watches/bootstrap`
+- `POST /api/jobs/automation/scan`
+- `POST /api/jobs/automation/jobs/<job_id>/prepare`
+- `POST /api/jobs/automation/jobs/<job_id>/documents`
+- `PATCH /api/jobs/automation/documents/<draft_id>`
+- `POST /api/jobs/automation/applications/<application_id>/handoff`
+- `POST /api/jobs/automation/applications/<application_id>/confirm`
+- `POST /api/admin/jobs/automation/scheduled-scan`
 
 ## Passport Provider Cache
 
@@ -150,7 +161,7 @@ Run these in order when ready:
 11. `supabase/migrations/022_report_account_fields_and_sections.sql`
 12. `sql/026_generated_reports_account_owner.sql`
 13. `supabase/migrations/027_passport_index_provider_cache.sql`
-14. Continue applying the numbered migrations in order through `supabase/migrations/031_jobs_execution_platform.sql`.
+14. Continue applying the numbered migrations in order through `supabase/migrations/032_job_discovery_and_application_assistance.sql`.
 
 Migration 020 keeps legacy `goal` profile schemas compatible with the current `main_goal` payload and creates the account timeline-events table used by Account Center summaries.
 
@@ -161,3 +172,5 @@ SQL 026 backfills generated-report account ownership fields from stored input/re
 Migration 027 adds the provider-cache tables for passport ratings, destination access buckets, provider payloads, source review fields, and sync-run logs.
 
 Migration 031 creates the private Jobs data model, the curated company directory, account-owned recruiter and application records, and the private `job-resume-vault` Storage bucket.
+
+Migration 032 adds verified career facts, official-source vacancy watches, scan history, private job alerts, truthful application drafts, readiness checks, employer-page handoffs, and user-confirmed submission audit events. The protected scheduled-scan endpoint can be called by one approved scheduler; the app never submits an employer form automatically.

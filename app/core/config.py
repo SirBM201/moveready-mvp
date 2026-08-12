@@ -55,6 +55,7 @@ OPENAI_MODEL = env("OPENAI_MODEL", "gpt-4o-mini")
 
 ADMIN_API_KEY = (
     env("MOVEREADY_ADMIN_API_KEY")
+    or env("MOVEREADY_ADMIN_KEY")
     or env("MOVE_READY_ADMIN_API_KEY")
     or env("ADMIN_API_KEY")
 )

@@ -368,9 +368,9 @@ def update_job_profile():
         if years is None:
             return jsonify({"ok": False, "error": "years_experience_must_be_between_0_and_60"}), 400
         row["years_experience"] = years
-    for field in ("target_roles", "skills", "later_countries", "preferred_provinces"):
+    for field in ("target_roles", "skills", "later_countries", "preferred_provinces", "career_facts"):
         if field in payload:
-            row[field] = _string_list(payload.get(field), 30, 120)
+            row[field] = _string_list(payload.get(field), 30, 360 if field == "career_facts" else 120)
     if "work_authorization_status" in payload:
         status = _text(payload.get("work_authorization_status"), 80)
         if status not in WORK_AUTHORIZATION_STATUSES:
@@ -424,6 +424,7 @@ def bootstrap_founder_profile():
                         "Ferromatik", "Demark", "Sacmi", "operator training",
                         "startup and restart optimization",
                     ],
+                    "career_facts": [],
                     "primary_country": "Canada",
                     "later_countries": ["Portugal", "Finland", "Germany", "Australia", "New Zealand"],
                     "preferred_provinces": ["Ontario", "Manitoba"],
