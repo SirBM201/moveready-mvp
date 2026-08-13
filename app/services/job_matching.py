@@ -19,13 +19,30 @@ def _tokens(values: Iterable[Any]) -> Set[str]:
     return tokens
 
 
-def score_job(job: Dict[str, Any], profile: Dict[str, Any] | None) -> Tuple[int, List[str]]:
-    """Return a transparent starter match score, not an employment prediction.
+def _country(value: Any) -> str:
+    return str(value or "").strip().casefold()
 
-    The score is deliberately deterministic so Sprint 1 can rank user-saved
-    opportunities without an AI provider. A later matching service can replace
-    this function while preserving the API contract.
-    """
+
+def _is_local(job: Dict[str, Any], profile: Dict[str, Any]) -> bool:
+    current_country = _country(profile.get("current_country"))
+    return bool(current_country) and _country(job.get("country")) == current_country
+
+
+def _authorized_for_job(job: Dict[str, Any], profile: Dict[str, Any]) -> bool:
+    country = _country(job.get("country"))
+    authorized = {_country(item) for item in profile.get("work_authorized_countries") or []}
+    if country and country in authorized:
+        return True
+    # Preserve the legacy single-country status for existing accounts while 034 rolls out.
+    if country == _country(profile.get("primary_country")):
+        return str(profile.get("work_authorization_status") or "") in {
+            "citizen", "permanent_resident", "open_permit",
+        }
+    return False
+
+
+def score_job(job: Dict[str, Any], profile: Dict[str, Any] | None) -> Tuple[int, List[str]]:
+    """Return transparent skills/role fit, not an employment or visa prediction."""
     if not profile:
         return 0, ["Complete a job-search profile to calculate a match."]
 
@@ -46,10 +63,10 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any] | None) -> Tuple[int,
 
     skill_overlap = skill_tokens & profile_skill_tokens
     if skill_overlap:
-        score += min(20, len(skill_overlap) * 5)
+        score += min(25, len(skill_overlap) * 5)
         reasons.append(f"Shared skills: {', '.join(sorted(skill_overlap)[:4])}.")
 
-    if str(job.get("country") or "").casefold() == str(profile.get("primary_country") or "").casefold():
+    if _country(job.get("country")) == _country(profile.get("primary_country")):
         score += 10
         reasons.append("Matches your primary target country.")
 
@@ -64,27 +81,77 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any] | None) -> Tuple[int,
         score += 10
         reasons.append("Seniority aligns with your recorded experience.")
 
-    sponsorship = str(job.get("visa_sponsorship_status") or "unknown")
-    if sponsorship == "confirmed":
-        score += 10
-        reasons.append("Employer sponsorship is marked confirmed; verify it on the vacancy.")
-    elif sponsorship == "possible":
-        score += 5
-        reasons.append("Sponsorship is marked possible and still requires vacancy-level verification.")
-
     if str(job.get("status") or "open") == "open":
         score += 5
 
     return min(score, 100), reasons or ["No strong match signal has been recorded yet."]
 
 
+def application_viability(job: Dict[str, Any], profile: Dict[str, Any] | None, skill_score: int) -> Tuple[int, str, List[str]]:
+    """Score whether applying is realistic, separately from technical fit.
+
+    This deliberately fails low when an international vacancy explicitly requires
+    existing authorization and the user has not recorded that authorization.
+    """
+    if not profile:
+        return 0, "unknown", ["Complete your work-location and authorization profile before prioritizing this vacancy."]
+
+    scope = str(profile.get("search_scope") or "international").casefold()
+    local = _is_local(job, profile)
+    reasons: List[str] = []
+
+    if scope == "local" and not local:
+        return 0, "out_of_scope", ["This vacancy is outside your selected local job-search scope."]
+    if scope == "international" and local:
+        return 0, "out_of_scope", ["This vacancy is local, while your current search is set to international only."]
+
+    if local:
+        return skill_score, "recommended" if skill_score >= 65 else "consider", ["Local vacancy: immigration sponsorship is not used to reduce its priority."]
+
+    authorized = _authorized_for_job(job, profile)
+    sponsorship = str(job.get("visa_sponsorship_status") or "unknown").casefold()
+    requirement = str(job.get("work_authorization_requirement") or "unknown").casefold()
+
+    if authorized:
+        reasons.append("You have recorded work authorization for this vacancy country.")
+        return skill_score, "recommended" if skill_score >= 65 else "consider", reasons
+
+    if sponsorship == "not_available" or requirement == "existing_required":
+        reasons.append("The vacancy requires existing work authorization or explicitly does not offer sponsorship.")
+        return min(skill_score, 20), "not_recommended", reasons
+
+    if sponsorship == "confirmed" or requirement == "employer_support_confirmed":
+        reasons.append("Employer support is recorded as confirmed; verify the official vacancy before applying.")
+        return min(100, skill_score + 10), "recommended" if skill_score >= 55 else "consider", reasons
+
+    if sponsorship == "possible" or requirement == "employer_support_possible":
+        reasons.append("Employer support may be possible but still needs vacancy-level verification.")
+        return min(skill_score, 75), "consider", reasons
+
+    reasons.append("Your work authorization for this country is not recorded and sponsorship is not confirmed.")
+    return min(skill_score, 50), "verify_authorization", reasons
+
+
 def rank_jobs(jobs: Sequence[Dict[str, Any]], profile: Dict[str, Any] | None) -> List[Dict[str, Any]]:
     ranked: List[Dict[str, Any]] = []
     for row in jobs:
         score, reasons = score_job(row, profile)
-        ranked.append({**row, "match_score": score, "match_reasons": reasons})
+        viability_score, priority, viability_reasons = application_viability(row, profile, score)
+        ranked.append({
+            **row,
+            "match_score": score,
+            "match_reasons": reasons,
+            "application_priority_score": viability_score,
+            "application_priority": priority,
+            "application_priority_reasons": viability_reasons,
+            "is_local_job": bool(profile and _is_local(row, profile)),
+        })
     return sorted(
         ranked,
-        key=lambda item: (int(item.get("match_score") or 0), str(item.get("updated_at") or "")),
+        key=lambda item: (
+            int(item.get("application_priority_score") or 0),
+            int(item.get("match_score") or 0),
+            str(item.get("updated_at") or ""),
+        ),
         reverse=True,
     )
