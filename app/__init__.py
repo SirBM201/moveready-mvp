@@ -95,6 +95,7 @@ def create_app() -> Flask:
     )
     from app.routes.visa_power_safety import visa_power_check_safe
     from app.services.application_case_module_patch import apply_application_case_module_patch
+    from app.services.job_automation_postgrest_compat import apply_postgrest_zero_row_compat
     from app.services.job_automation_profile_patch import apply_job_automation_profile_patch
     from app.services.journey_module_patch import apply_journey_module_patch
     from app.services.platform_account_modules_patch import apply_platform_account_modules_patch
@@ -104,6 +105,7 @@ def create_app() -> Flask:
     apply_application_case_module_patch()
     apply_travel_provider_publication_patch()
     apply_platform_account_modules_patch()
+    apply_postgrest_zero_row_compat()
     apply_job_automation_profile_patch(job_automation)
 
     app.register_blueprint(health.bp)
