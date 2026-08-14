@@ -2,28 +2,29 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.supabase_client import get_supabase
-
 _PATCH_FLAG = "_moveready_zero_row_compat"
 
 
 def apply_postgrest_zero_row_compat() -> None:
-    """Normalize Supabase/PostgREST maybe_single() zero-row behavior.
+    """Normalize PostgREST maybe_single() zero-row behavior without I/O.
 
-    The deployed PostgREST client can return HTTP 406 and then None for
-    ``maybe_single`` when no row exists. MoveReady uses ``maybe_single`` only
-    for optional/existence lookups where zero rows is valid state. Preserve the
-    existing dict-or-None contract by executing those requests with ordinary
-    JSON list semantics and collapsing the result to the first row.
+    MoveReady uses ``maybe_single`` for optional/existence lookups where zero
+    rows is a valid state. Patch the PostgREST request-builder class directly so
+    Flask application creation remains side-effect free: importing/creating the
+    app must not instantiate a Supabase client, validate live credentials, or
+    issue a database request.
     """
-    probe = (
-        get_supabase()
-        .table("relocation_jobs")
-        .select("id")
-        .limit(1)
-        .maybe_single()
-    )
-    builder_cls = probe.__class__
+    try:
+        from postgrest._sync.request_builder import SyncMaybeSingleRequestBuilder
+    except ImportError:
+        # Compatibility with postgrest releases that expose the builder from
+        # the public package namespace.
+        try:
+            from postgrest import SyncMaybeSingleRequestBuilder  # type: ignore
+        except ImportError:
+            return
+
+    builder_cls = SyncMaybeSingleRequestBuilder
     if getattr(builder_cls, _PATCH_FLAG, False):
         return
 
