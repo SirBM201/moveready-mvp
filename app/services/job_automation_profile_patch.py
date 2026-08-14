@@ -47,13 +47,10 @@ def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
     jobs_module._visible_company = _safe_visible_company
     jobs_module._visible_job = _safe_visible_job
 
-    # The automation user blueprint is already registered under /api/jobs by
-    # create_app. Adding the route here avoids changing the stable app-factory
-    # wiring while keeping the new Migration 034 contract additive.
-    if "job_search_scope.update_search_scope" not in job_automation_module.user_bp.view_functions:
-        job_automation_module.user_bp.add_url_rule(
-            "/profile/search-scope",
-            endpoint="update_search_scope",
-            view_func=update_search_scope,
-            methods=["PATCH"],
-        )
+    # create_app invokes this patch once before registering user_bp.
+    job_automation_module.user_bp.add_url_rule(
+        "/profile/search-scope",
+        endpoint="update_search_scope",
+        view_func=update_search_scope,
+        methods=["PATCH"],
+    )
