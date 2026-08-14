@@ -51,6 +51,21 @@ class JobMatchingTests(unittest.TestCase):
         self.assertEqual(ranked[0]["id"], "supported")
         self.assertGreater(ranked[0]["application_priority_score"], ranked[1]["application_priority_score"])
 
+    def test_ranked_payload_exposes_ui_viability_contract(self):
+        ranked = rank_jobs([{
+            "id": "supported",
+            "job_title": "Injection Molding Process Technician",
+            "country": "Germany",
+            "status": "open",
+            "work_authorization_requirement": "employer_support_confirmed",
+            "visa_sponsorship_status": "confirmed",
+        }], PROFILE)
+        job = ranked[0]
+        self.assertEqual(job["search_scope_classification"], "international")
+        self.assertEqual(job["application_viability_score"], job["application_priority_score"])
+        self.assertEqual(job["viability_reasons"], job["application_priority_reasons"])
+        self.assertIn(job["application_priority"], {"recommended", "consider"})
+
     def test_high_skill_match_is_not_recommended_when_sponsorship_refused(self):
         score, _ = score_job({"job_title": "PET Injection Molding Production Supervisor", "skills": ["PET preforms", "Husky", "process troubleshooting"], "country": "Canada", "province": "Ontario", "status": "open"}, PROFILE)
         viability, priority, reasons = application_viability({"country": "Canada", "work_authorization_requirement": "existing_required", "visa_sponsorship_status": "not_available"}, PROFILE, score)
