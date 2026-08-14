@@ -33,7 +33,6 @@ def _authorized_for_job(job: Dict[str, Any], profile: Dict[str, Any]) -> bool:
     authorized = {_country(item) for item in profile.get("work_authorized_countries") or []}
     if country and country in authorized:
         return True
-    # Preserve the legacy single-country status for existing accounts while 034 rolls out.
     if country == _country(profile.get("primary_country")):
         return str(profile.get("work_authorization_status") or "") in {
             "citizen", "permanent_resident", "open_permit",
@@ -88,11 +87,7 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any] | None) -> Tuple[int,
 
 
 def application_viability(job: Dict[str, Any], profile: Dict[str, Any] | None, skill_score: int) -> Tuple[int, str, List[str]]:
-    """Score whether applying is realistic, separately from technical fit.
-
-    This deliberately fails low when an international vacancy explicitly requires
-    existing authorization and the user has not recorded that authorization.
-    """
+    """Score whether applying is realistic, separately from technical fit."""
     if not profile:
         return 0, "unknown", ["Complete your work-location and authorization profile before prioritizing this vacancy."]
 
@@ -137,14 +132,20 @@ def rank_jobs(jobs: Sequence[Dict[str, Any]], profile: Dict[str, Any] | None) ->
     for row in jobs:
         score, reasons = score_job(row, profile)
         viability_score, priority, viability_reasons = application_viability(row, profile, score)
+        local = bool(profile and _is_local(row, profile))
         ranked.append({
             **row,
             "match_score": score,
             "match_reasons": reasons,
+            # Canonical V1 names used by the UI and analytics.
+            "application_viability_score": viability_score,
             "application_priority_score": viability_score,
             "application_priority": priority,
+            "viability_reasons": viability_reasons,
             "application_priority_reasons": viability_reasons,
-            "is_local_job": bool(profile and _is_local(row, profile)),
+            "search_scope_classification": "local" if local else "international",
+            # Backward-compatible convenience flag for existing consumers.
+            "is_local_job": local,
         })
     return sorted(
         ranked,
