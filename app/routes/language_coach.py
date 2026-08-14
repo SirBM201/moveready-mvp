@@ -131,17 +131,52 @@ def review():
     return jsonify({"ok": True, "due": [{**m, "question": by_id.get(m.get("question_id"))} for m in mistakes if by_id.get(m.get("question_id"))]})
 
 
-@bp.get("/progress")
-def progress():
-    email, error = _account()
-    if error: return error
+def _progress_stats(email):
     attempts = get_supabase().table("relocation_language_attempts").select("is_correct,difficulty,question_id,created_at").eq("email", email).order("created_at", desc=True).limit(500).execute().data or []
     questions = get_supabase().table("relocation_language_questions").select("id,language,skill").limit(1000).execute().data or []
     qmap = {q["id"]: q for q in questions}; stats = {"english": {"attempted":0,"correct":0}, "french": {"attempted":0,"correct":0}}
     for a in attempts:
         q = qmap.get(a.get("question_id")) or {}; lang = q.get("language")
         if lang in stats: stats[lang]["attempted"] += 1; stats[lang]["correct"] += 1 if a.get("is_correct") else 0
-    for lang, item in stats.items():
+    for item in stats.values():
         item["accuracy_percent"] = round(item["correct"] * 100 / item["attempted"]) if item["attempted"] else 0
         item["readiness"] = "building" if item["attempted"] < 10 else "developing" if item["accuracy_percent"] < 70 else "progressing" if item["accuracy_percent"] < 85 else "strong_practice_readiness"
-    return jsonify({"ok": True, "languages": stats, "note": "Practice readiness is not an official IELTS, TEF, CLB or NCLC score."})
+    return stats
+
+
+@bp.get("/progress")
+def progress():
+    email, error = _account()
+    if error: return error
+    return jsonify({"ok": True, "languages": _progress_stats(email), "note": "Practice readiness is not an official IELTS, TEF, CLB or NCLC score."})
+
+
+@bp.get("/qualification-actions")
+def qualification_actions():
+    email, error = _account()
+    if error: return error
+    profile = _one(get_supabase().table("relocation_language_profiles").select("*").eq("email", email)) or {}
+    stats = _progress_stats(email)
+    selection = str(profile.get("language_selection") or "english").lower()
+    selected = ["english", "french"] if selection == "both" else [selection if selection in {"english", "french"} else "english"]
+    actions = []
+    for language in selected:
+        current = int(profile.get(f"{language}_current_level") or 0)
+        target = int(profile.get(f"{language}_target_level") or 7)
+        progress_item = stats[language]
+        exam = profile.get(f"{language}_exam") or ("IELTS General" if language == "english" else "TEF Canada")
+        gap = max(0, target - current)
+        if progress_item["attempted"] < 10:
+            action = "complete_diagnostic_and_foundation_practice"
+            priority = "high"
+        elif gap > 0 or progress_item["accuracy_percent"] < 70:
+            action = "continue_targeted_practice"
+            priority = "high"
+        elif progress_item["accuracy_percent"] < 85:
+            action = "strengthen_exam_readiness"
+            priority = "medium"
+        else:
+            action = "maintain_and_review"
+            priority = "low"
+        actions.append({"language": language, "exam": exam, "current_target_level": target, "profile_level": current, "target_gap": gap, "practice": progress_item, "action": action, "priority": priority, "href": "/language-coach"})
+    return jsonify({"ok": True, "language_selection": selection, "user_choice_preserved": True, "actions": actions, "note": "MoveReady may recommend language preparation for a pathway, but it does not override the user's English/French/Both selection and these practice indicators are not official exam scores."})
