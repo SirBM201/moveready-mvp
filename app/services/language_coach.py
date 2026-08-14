@@ -16,6 +16,37 @@ def _level(value: Any) -> int:
         return 0
 
 
+def placement_level(correct: int, attempted: int) -> int:
+    """Return a conservative 0-5 internal placement level, never an official exam score."""
+    if attempted <= 0:
+        return 0
+    ratio = max(0.0, min(1.0, correct / attempted))
+    if ratio < 0.30:
+        return 1
+    if ratio < 0.50:
+        return 2
+    if ratio < 0.70:
+        return 3
+    if ratio < 0.85:
+        return 4
+    return 5
+
+
+def adaptive_difficulty(attempts: List[Dict[str, Any]], default: int = 1) -> int:
+    """Choose the next 1-5 practice difficulty from recent performance."""
+    recent = attempts[:20]
+    if not recent:
+        return max(1, min(5, default))
+    current = max(1, min(5, int(recent[0].get("difficulty") or default)))
+    correct = sum(1 for row in recent if row.get("is_correct"))
+    accuracy = correct / len(recent)
+    if len(recent) >= 5 and accuracy >= 0.80:
+        return min(5, current + 1)
+    if len(recent) >= 5 and accuracy < 0.55:
+        return max(1, current - 1)
+    return current
+
+
 def build_learning_plan(payload: Dict[str, Any]) -> Dict[str, Any]:
     selection = str(payload.get("language_selection") or "english").strip().lower()
     if selection not in {"english", "french", "both"}:
