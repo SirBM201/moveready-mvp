@@ -74,6 +74,37 @@ class JobMatchingTests(unittest.TestCase):
         self.assertEqual(priority, "not_recommended")
         self.assertTrue(reasons)
 
+    def test_discovered_no_sponsorship_text_blocks_high_match(self):
+        ranked = rank_jobs([{
+            "id": "source-blocked",
+            "job_title": "PET Injection Molding Production Supervisor",
+            "skills": ["PET preforms", "Husky", "process troubleshooting"],
+            "country": "Canada",
+            "province": "Ontario",
+            "status": "open",
+            "description_summary": "Applicants must currently be authorized to work in Canada. No visa sponsorship is available.",
+        }], PROFILE)
+        job = ranked[0]
+        self.assertGreaterEqual(job["match_score"], 75)
+        self.assertEqual(job["visa_sponsorship_status"], "not_available")
+        self.assertEqual(job["work_authorization_requirement"], "existing_required")
+        self.assertEqual(job["application_priority"], "not_recommended")
+        self.assertLessEqual(job["application_viability_score"], 20)
+
+    def test_discovered_sponsorship_text_can_raise_viability(self):
+        ranked = rank_jobs([{
+            "id": "source-supported",
+            "job_title": "Injection Molding Process Technician",
+            "country": "Germany",
+            "status": "open",
+            "description_summary": "Visa sponsorship is available for this position. Relocation assistance is provided.",
+        }], PROFILE)
+        job = ranked[0]
+        self.assertEqual(job["visa_sponsorship_status"], "confirmed")
+        self.assertEqual(job["work_authorization_requirement"], "employer_support_confirmed")
+        self.assertEqual(job["relocation_support_status"], "confirmed")
+        self.assertIn(job["application_priority"], {"recommended", "consider"})
+
     def test_local_job_does_not_require_sponsorship(self):
         viability, priority, reasons = application_viability({"country": "Kuwait"}, PROFILE, 80)
         self.assertEqual(viability, 80)
