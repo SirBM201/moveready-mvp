@@ -33,7 +33,7 @@ def create_app() -> Flask:
     app.before_request(attach_verified_session_email_to_json)
     from app.services.passport_index_provider_travelbuddy_patch import apply_patch
     apply_patch()
-    from app.routes import (account, account_action_center, account_auth, account_controls, account_controls_admin, admin, admin_review_evidence_extension, admin_review_queue, application_case_alerts, application_case_links, application_cases, application_cases_admin, billing, billing_admin, education_planner, evidence_admin, evidence_workflow, health, journey_planner, job_automation, jobs, language_coach, opportunities, operations, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, service_handoff_safety, service_handoffs, settlement_execution, source_governance, timeline, travel_planner, visa_power, watchlist)
+    from app.routes import (account, account_action_center, account_auth, account_controls, account_controls_admin, admin, admin_review_evidence_extension, admin_review_queue, application_case_alerts, application_case_links, application_cases, application_cases_admin, billing, billing_admin, education_planner, evidence_admin, evidence_workflow, health, journey_planner, job_automation, jobs, language_coach, language_coach_extension, opportunities, operations, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, service_handoff_safety, service_handoffs, settlement_execution, source_governance, timeline, travel_planner, visa_power, watchlist)
     from app.routes.visa_power_safety import visa_power_check_safe
     from app.services.application_case_module_patch import apply_application_case_module_patch
     from app.services.job_automation_postgrest_compat import apply_postgrest_zero_row_compat
@@ -56,6 +56,7 @@ def create_app() -> Flask:
     app.register_blueprint(jobs.bp, url_prefix=f"{API_PREFIX}/jobs")
     app.register_blueprint(job_automation.user_bp, url_prefix=f"{API_PREFIX}/jobs")
     app.register_blueprint(language_coach.bp, url_prefix=f"{API_PREFIX}/language-coach")
+    app.register_blueprint(language_coach_extension.bp, url_prefix=f"{API_PREFIX}/language-coach")
     app.register_blueprint(education_planner.bp, url_prefix=f"{API_PREFIX}/education")
     app.register_blueprint(travel_planner.bp, url_prefix=f"{API_PREFIX}/travel")
     app.register_blueprint(billing.bp, url_prefix=f"{API_PREFIX}/billing")
