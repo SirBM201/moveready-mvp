@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 
+from app.services.job_authorization import extract_authorization_signals
+
 
 IGNORED_TOKENS = {
     "a", "an", "and", "for", "in", "lead", "of", "or", "the", "to",
@@ -38,6 +40,19 @@ def _authorized_for_job(job: Dict[str, Any], profile: Dict[str, Any]) -> bool:
             "citizen", "permanent_resident", "open_permit",
         }
     return False
+
+
+def _with_authorization_signals(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill unknown vacancy authorization fields from explicit source wording."""
+    extracted = extract_authorization_signals(job)
+    enriched = dict(job)
+    for key in ("work_authorization_requirement", "visa_sponsorship_status", "relocation_support_status"):
+        if not str(enriched.get(key) or "").strip() or str(enriched.get(key)).casefold() == "unknown":
+            enriched[key] = extracted[key]
+    if extracted.get("authorization_evidence"):
+        enriched["authorization_evidence"] = extracted["authorization_evidence"]
+        enriched["sponsorship_evidence"] = extracted.get("sponsorship_evidence")
+    return enriched
 
 
 def score_job(job: Dict[str, Any], profile: Dict[str, Any] | None) -> Tuple[int, List[str]]:
@@ -91,6 +106,7 @@ def application_viability(job: Dict[str, Any], profile: Dict[str, Any] | None, s
     if not profile:
         return 0, "unknown", ["Complete your work-location and authorization profile before prioritizing this vacancy."]
 
+    job = _with_authorization_signals(job)
     scope = str(profile.get("search_scope") or "international").casefold()
     local = _is_local(job, profile)
     reasons: List[str] = []
@@ -130,21 +146,20 @@ def application_viability(job: Dict[str, Any], profile: Dict[str, Any] | None, s
 def rank_jobs(jobs: Sequence[Dict[str, Any]], profile: Dict[str, Any] | None) -> List[Dict[str, Any]]:
     ranked: List[Dict[str, Any]] = []
     for row in jobs:
-        score, reasons = score_job(row, profile)
-        viability_score, priority, viability_reasons = application_viability(row, profile, score)
-        local = bool(profile and _is_local(row, profile))
+        enriched_row = _with_authorization_signals(row)
+        score, reasons = score_job(enriched_row, profile)
+        viability_score, priority, viability_reasons = application_viability(enriched_row, profile, score)
+        local = bool(profile and _is_local(enriched_row, profile))
         ranked.append({
-            **row,
+            **enriched_row,
             "match_score": score,
             "match_reasons": reasons,
-            # Canonical V1 names used by the UI and analytics.
             "application_viability_score": viability_score,
             "application_priority_score": viability_score,
             "application_priority": priority,
             "viability_reasons": viability_reasons,
             "application_priority_reasons": viability_reasons,
             "search_scope_classification": "local" if local else "international",
-            # Backward-compatible convenience flag for existing consumers.
             "is_local_job": local,
         })
     return sorted(
