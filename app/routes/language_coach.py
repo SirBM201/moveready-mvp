@@ -24,16 +24,8 @@ def _one(query):
 
 
 def _profile_payload(payload):
-    plan = build_learning_plan(payload)
-    diagnostic = payload.get("diagnostic") or {}
-    targets = payload.get("targets") or {}
-    return plan, {
-        "language_selection": plan["language_selection"], "english_allocation": plan["allocation"]["english"], "french_allocation": plan["allocation"]["french"],
-        "daily_minutes": plan["daily_minutes"], "english_exam": "IELTS General", "french_exam": "TEF Canada",
-        "english_current_level": int(diagnostic.get("english", 0) or 0), "french_current_level": int(diagnostic.get("french", 0) or 0),
-        "english_target_level": int(targets.get("english", 7) or 7), "french_target_level": int(targets.get("french", 7) or 7),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
+    plan = build_learning_plan(payload); diagnostic = payload.get("diagnostic") or {}; targets = payload.get("targets") or {}
+    return plan, {"language_selection": plan["language_selection"], "english_allocation": plan["allocation"]["english"], "french_allocation": plan["allocation"]["french"], "daily_minutes": plan["daily_minutes"], "english_exam": "IELTS General", "french_exam": "TEF Canada", "english_current_level": int(diagnostic.get("english", 0) or 0), "french_current_level": int(diagnostic.get("french", 0) or 0), "english_target_level": int(targets.get("english", 7) or 7), "french_target_level": int(targets.get("french", 7) or 7), "updated_at": datetime.now(timezone.utc).isoformat()}
 
 
 @bp.get("/catalog")
@@ -49,8 +41,7 @@ def plan(): return jsonify({"ok": True, "plan": build_learning_plan(request.get_
 def get_profile():
     email, error = _account()
     if error: return error
-    row = _one(get_supabase().table("relocation_language_profiles").select("*").eq("email", email))
-    return jsonify({"ok": True, "profile": row})
+    return jsonify({"ok": True, "profile": _one(get_supabase().table("relocation_language_profiles").select("*").eq("email", email))})
 
 
 @bp.put("/profile")
@@ -85,12 +76,19 @@ def diagnostic():
     if error: return error
     language = str(request.args.get("language") or "english").lower()
     if language not in {"english", "french"}: return jsonify({"ok": False, "error": "unsupported_language"}), 400
-    rows = _questions(language, limit=30)
-    selected = []
-    for level in range(1, 6):
-        level_rows = [r for r in rows if int(r.get("difficulty") or 1) == level]
-        selected.extend(level_rows[:2])
+    rows = _questions(language, limit=30); selected = []
+    for level in range(1, 6): selected.extend([r for r in rows if int(r.get("difficulty") or 1) == level][:2])
     return jsonify({"ok": True, "language": language, "questions": selected, "answer_key_withheld": True, "purpose": "placement_not_official_exam_score"})
+
+
+def _record_daily_progress(email, language, correct, response_seconds=None):
+    today = datetime.now(timezone.utc).date().isoformat()
+    existing = _one(get_supabase().table("relocation_language_daily_progress").select("*").eq("email", email).eq("activity_date", today)) or {}
+    seconds = max(0, int(response_seconds or 0)); minutes = max(1, round(seconds / 60)) if seconds else 1
+    row = {"email": email, "activity_date": today, "english_minutes": int(existing.get("english_minutes") or 0) + (minutes if language == "english" else 0), "french_minutes": int(existing.get("french_minutes") or 0) + (minutes if language == "french" else 0), "questions_attempted": int(existing.get("questions_attempted") or 0) + 1, "questions_correct": int(existing.get("questions_correct") or 0) + (1 if correct else 0), "momentum_points": int(existing.get("momentum_points") or 0) + (2 if correct else 1)}
+    if existing.get("id"): get_supabase().table("relocation_language_daily_progress").update(row).eq("id", existing["id"]).execute()
+    else: get_supabase().table("relocation_language_daily_progress").insert(row).execute()
+    return row
 
 
 @bp.post("/attempts")
@@ -109,15 +107,15 @@ def record_attempt():
     elif not correct:
         row = {"email": email, "question_id": question_id, "mistake_count": int((existing or {}).get("mistake_count") or 0) + 1, "correct_streak": 0, "next_review_at": (now + timedelta(days=1)).isoformat(), "last_answer": answer, "last_attempt_at": now.isoformat(), "mastered_at": None}
         (get_supabase().table("relocation_language_mistakes").update(row).eq("id", existing["id"]) if existing else get_supabase().table("relocation_language_mistakes").insert(row)).execute()
-    return jsonify({"ok": True, "correct": correct, "correct_answer": question.get("correct_answer"), "explanation": question.get("explanation"), "next_action": "review_mistake" if not correct else "continue"})
+    daily = _record_daily_progress(email, str(question.get("language") or "english"), correct, payload.get("response_seconds"))
+    return jsonify({"ok": True, "correct": correct, "correct_answer": question.get("correct_answer"), "explanation": question.get("explanation"), "next_action": "review_mistake" if not correct else "continue", "daily_progress": daily})
 
 
 @bp.get("/mistakes")
 def mistakes():
     email, error = _account()
     if error: return error
-    rows = get_supabase().table("relocation_language_mistakes").select("*").eq("email", email).order("next_review_at").limit(50).execute().data or []
-    return jsonify({"ok": True, "mistakes": rows})
+    return jsonify({"ok": True, "mistakes": get_supabase().table("relocation_language_mistakes").select("*").eq("email", email).order("next_review_at").limit(50).execute().data or []})
 
 
 @bp.get("/review")
@@ -125,22 +123,18 @@ def review():
     email, error = _account()
     if error: return error
     now = datetime.now(timezone.utc).isoformat(); mistakes = get_supabase().table("relocation_language_mistakes").select("*").eq("email", email).lte("next_review_at", now).is_("mastered_at", "null").order("next_review_at").limit(10).execute().data or []
-    ids = [m.get("question_id") for m in mistakes if m.get("question_id")]
-    questions = get_supabase().table("relocation_language_questions").select("id,language,exam,skill,difficulty,prompt,choices,content_origin").in_("id", ids).execute().data or [] if ids else []
-    by_id = {q["id"]: q for q in questions}
+    ids = [m.get("question_id") for m in mistakes if m.get("question_id")]; questions = get_supabase().table("relocation_language_questions").select("id,language,exam,skill,difficulty,prompt,choices,content_origin").in_("id", ids).execute().data or [] if ids else []; by_id = {q["id"]: q for q in questions}
     return jsonify({"ok": True, "due": [{**m, "question": by_id.get(m.get("question_id"))} for m in mistakes if by_id.get(m.get("question_id"))]})
 
 
 def _progress_stats(email):
-    attempts = get_supabase().table("relocation_language_attempts").select("is_correct,difficulty,question_id,created_at").eq("email", email).order("created_at", desc=True).limit(500).execute().data or []
-    questions = get_supabase().table("relocation_language_questions").select("id,language,skill").limit(1000).execute().data or []
-    qmap = {q["id"]: q for q in questions}; stats = {"english": {"attempted":0,"correct":0}, "french": {"attempted":0,"correct":0}}
+    attempts = get_supabase().table("relocation_language_attempts").select("is_correct,difficulty,question_id,attempted_at").eq("email", email).order("attempted_at", desc=True).limit(500).execute().data or []
+    questions = get_supabase().table("relocation_language_questions").select("id,language,skill").limit(1000).execute().data or []; qmap = {q["id"]: q for q in questions}; stats = {"english": {"attempted":0,"correct":0}, "french": {"attempted":0,"correct":0}}
     for a in attempts:
         q = qmap.get(a.get("question_id")) or {}; lang = q.get("language")
         if lang in stats: stats[lang]["attempted"] += 1; stats[lang]["correct"] += 1 if a.get("is_correct") else 0
     for item in stats.values():
-        item["accuracy_percent"] = round(item["correct"] * 100 / item["attempted"]) if item["attempted"] else 0
-        item["readiness"] = "building" if item["attempted"] < 10 else "developing" if item["accuracy_percent"] < 70 else "progressing" if item["accuracy_percent"] < 85 else "strong_practice_readiness"
+        item["accuracy_percent"] = round(item["correct"] * 100 / item["attempted"]) if item["attempted"] else 0; item["readiness"] = "building" if item["attempted"] < 10 else "developing" if item["accuracy_percent"] < 70 else "progressing" if item["accuracy_percent"] < 85 else "strong_practice_readiness"
     return stats
 
 
@@ -148,35 +142,21 @@ def _progress_stats(email):
 def progress():
     email, error = _account()
     if error: return error
-    return jsonify({"ok": True, "languages": _progress_stats(email), "note": "Practice readiness is not an official IELTS, TEF, CLB or NCLC score."})
+    daily = get_supabase().table("relocation_language_daily_progress").select("*").eq("email", email).order("activity_date", desc=True).limit(14).execute().data or []
+    active_days = sum(1 for row in daily if int(row.get("questions_attempted") or 0) > 0); momentum = sum(int(row.get("momentum_points") or 0) for row in daily)
+    return jsonify({"ok": True, "languages": _progress_stats(email), "daily": daily, "momentum": {"active_days_last_14": active_days, "points_last_14": momentum, "model": "non_punitive"}, "note": "Practice readiness is not an official IELTS, TEF, CLB or NCLC score. Momentum rewards continued activity and is not reset to zero after one missed day."})
 
 
 @bp.get("/qualification-actions")
 def qualification_actions():
     email, error = _account()
     if error: return error
-    profile = _one(get_supabase().table("relocation_language_profiles").select("*").eq("email", email)) or {}
-    stats = _progress_stats(email)
-    selection = str(profile.get("language_selection") or "english").lower()
-    selected = ["english", "french"] if selection == "both" else [selection if selection in {"english", "french"} else "english"]
-    actions = []
+    profile = _one(get_supabase().table("relocation_language_profiles").select("*").eq("email", email)) or {}; stats = _progress_stats(email); selection = str(profile.get("language_selection") or "english").lower(); selected = ["english", "french"] if selection == "both" else [selection if selection in {"english", "french"} else "english"]; actions = []
     for language in selected:
-        current = int(profile.get(f"{language}_current_level") or 0)
-        target = int(profile.get(f"{language}_target_level") or 7)
-        progress_item = stats[language]
-        exam = profile.get(f"{language}_exam") or ("IELTS General" if language == "english" else "TEF Canada")
-        gap = max(0, target - current)
-        if progress_item["attempted"] < 10:
-            action = "complete_diagnostic_and_foundation_practice"
-            priority = "high"
-        elif gap > 0 or progress_item["accuracy_percent"] < 70:
-            action = "continue_targeted_practice"
-            priority = "high"
-        elif progress_item["accuracy_percent"] < 85:
-            action = "strengthen_exam_readiness"
-            priority = "medium"
-        else:
-            action = "maintain_and_review"
-            priority = "low"
+        current = int(profile.get(f"{language}_current_level") or 0); target = int(profile.get(f"{language}_target_level") or 7); progress_item = stats[language]; exam = profile.get(f"{language}_exam") or ("IELTS General" if language == "english" else "TEF Canada"); gap = max(0, target-current)
+        if progress_item["attempted"] < 10: action, priority = "complete_diagnostic_and_foundation_practice", "high"
+        elif gap > 0 or progress_item["accuracy_percent"] < 70: action, priority = "continue_targeted_practice", "high"
+        elif progress_item["accuracy_percent"] < 85: action, priority = "strengthen_exam_readiness", "medium"
+        else: action, priority = "maintain_and_review", "low"
         actions.append({"language": language, "exam": exam, "current_target_level": target, "profile_level": current, "target_gap": gap, "practice": progress_item, "action": action, "priority": priority, "href": "/language-coach"})
     return jsonify({"ok": True, "language_selection": selection, "user_choice_preserved": True, "actions": actions, "note": "MoveReady may recommend language preparation for a pathway, but it does not override the user's English/French/Both selection and these practice indicators are not official exam scores."})
