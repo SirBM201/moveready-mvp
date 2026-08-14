@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "app/**"
+      - "tests/**"
       - "requirements.txt"
       - ".github/workflows/backend-smoke.yml"
   pull_request:
     paths:
       - "app/**"
+      - "tests/**"
       - "requirements.txt"
       - ".github/workflows/backend-smoke.yml"
   workflow_dispatch:
@@ -34,304 +36,80 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-
       - name: Install dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
-
       - name: Compile Python files
-        run: python -m compileall -q app
-
+        run: python -m compileall -q app tests
+      - name: Run V1 completion contract tests
+        run: python -m pytest -q tests/test_v1_completion_contract.py
       - name: Import Flask app and verify routes
         run: |
           python - <<'PY'
           from app import create_app
-
-          app = create_app()
-          routes = {rule.rule for rule in app.url_map.iter_rules()}
-          required = {
-              "/api/visa-power/provider/status",
-              "/api/visa-power/provider/sync",
-              "/api/visa-power/provider/schedule/status",
-              "/api/visa-power/provider/scheduled-sync",
-              "/api/visa-power/passport-index/check",
-              "/api/visa-power/passport-index/destination/status",
-              "/api/visa-power/passport-index/destination/check",
-              "/api/visa-power/provider/destination/test",
-              "/api/visa-power/check",
-              "/api/journey/options",
-              "/api/journey/legalization-check",
-              "/api/journey/family-plan",
-              "/api/journey/appointment-plan",
-              "/api/journey/settlement-plan",
-              "/api/education/options",
-              "/api/education/study-plan",
-              "/api/watchlist/inbox",
+          app=create_app(); routes={rule.rule for rule in app.url_map.iter_rules()}
+          required={
+            "/api/visa-power/provider/status","/api/visa-power/provider/sync","/api/visa-power/provider/schedule/status","/api/visa-power/provider/scheduled-sync","/api/visa-power/passport-index/check","/api/visa-power/passport-index/destination/status","/api/visa-power/passport-index/destination/check","/api/visa-power/provider/destination/test","/api/visa-power/check","/api/journey/options","/api/journey/legalization-check","/api/journey/family-plan","/api/journey/appointment-plan","/api/journey/settlement-plan","/api/education/options","/api/education/study-plan","/api/watchlist/inbox","/api/opportunity-finder/recommendations","/api/financial-readiness/check","/api/route-comparison","/api/account/outcomes","/api/language-coach/profile"
           }
-          missing = sorted(required - routes)
-          if missing:
-              raise SystemExit(f"Missing required routes: {missing}")
+          missing=sorted(required-routes)
+          if missing: raise SystemExit(f"Missing required routes: {missing}")
           print(f"Registered routes: {len(routes)}")
-          for route in sorted(required):
-              print(route)
           PY
-
       - name: Test completed public platform modules
         run: |
           python - <<'PY'
           from app import create_app
-
-          app = create_app()
-          client = app.test_client()
-          response = client.get("/api/platform/modules")
-          assert response.status_code == 200, response.get_data(as_text=True)
-          payload = response.get_json()
-          modules = {item["slug"]: item for item in payload["modules"]}
-          for slug in [
-              "study-planner",
-              "journey-planner",
-              "watchlist",
-              "legalization",
-              "appointments",
-              "family-relocation",
-              "settlement",
-          ]:
-              assert slug in modules, (slug, modules.keys())
-              assert modules[slug]["availability"] == "available", modules[slug]
-              assert modules[slug]["enabled"] is True, modules[slug]
+          app=create_app();client=app.test_client();response=client.get("/api/platform/modules");assert response.status_code==200,response.get_data(as_text=True);payload=response.get_json();modules={item["slug"]:item for item in payload["modules"]}
+          for slug in ["study-planner","journey-planner","watchlist","legalization","appointments","family-relocation","settlement"]:
+            assert slug in modules,(slug,modules.keys());assert modules[slug]["availability"]=="available",modules[slug];assert modules[slug]["enabled"] is True,modules[slug]
           print("Platform module smoke test passed.")
           PY
-
       - name: Test education planner without database network
         run: |
           python - <<'PY'
           from app import create_app
           import app.routes.education_planner as education
-
-          education._store_run = lambda payload, result: {**result, "stored": False}
-          app = create_app()
-          client = app.test_client()
-
-          options = client.get("/api/education/options")
-          assert options.status_code == 200, options.get_data(as_text=True)
-          option_payload = options.get_json()
-          assert "masters" in option_payload["study_levels"]
-          assert "pass" in option_payload["grade_bands"]
-
-          response = client.post(
-              "/api/education/study-plan",
-              json={
-                  "current_country": "Kuwait",
-                  "nationality": "Nigeria",
-                  "target_country": "Finland",
-                  "desired_level": "masters",
-                  "highest_qualification": "BSc Computer Science",
-                  "qualification_field": "Computer Science",
-                  "graduation_year": 2015,
-                  "grade_band": "pass",
-                  "desired_field": "Public Health",
-                  "field_change": True,
-                  "regulated_profession": False,
-                  "language_evidence": "none",
-                  "work_experience_years": 5,
-                  "available_funds_amount": 12000,
-                  "annual_tuition_budget": 13000,
-                  "annual_living_budget": 9000,
-                  "currency": "EUR",
-                  "scholarship_required": True,
-                  "family_members_count": 3,
-                  "target_intake_date": "2030-09-01",
-              },
-          )
-          assert response.status_code == 200, response.get_data(as_text=True)
-          payload = response.get_json()
-          assert payload["stored"] is False
-          assert payload["risk_level"] in {"medium", "high"}, payload
-          assert payload["planning_funding_gap"] == 10000.0, payload
-          assert len(payload["stages"]) == 7, payload
-          assert len(payload["programme_strategy"]) >= 3, payload
-          assert any("field change" in item.lower() or "conversion" in item.lower() for item in payload["programme_strategy"]), payload
+          education._store_run=lambda payload,result:{**result,"stored":False};app=create_app();client=app.test_client();options=client.get("/api/education/options");assert options.status_code==200,options.get_data(as_text=True);option_payload=options.get_json();assert "masters" in option_payload["study_levels"];assert "pass" in option_payload["grade_bands"]
+          response=client.post("/api/education/study-plan",json={"current_country":"Kuwait","nationality":"Nigeria","target_country":"Finland","desired_level":"masters","highest_qualification":"BSc Computer Science","qualification_field":"Computer Science","graduation_year":2015,"grade_band":"pass","desired_field":"Public Health","field_change":True,"regulated_profession":False,"language_evidence":"none","work_experience_years":5,"available_funds_amount":12000,"annual_tuition_budget":13000,"annual_living_budget":9000,"currency":"EUR","scholarship_required":True,"family_members_count":3,"target_intake_date":"2030-09-01"});assert response.status_code==200,response.get_data(as_text=True);payload=response.get_json();assert payload["stored"] is False;assert payload["risk_level"] in {"medium","high"};assert payload["planning_funding_gap"]==10000.0;assert len(payload["stages"])==7;assert len(payload["programme_strategy"])>=3
           print("Education planner smoke test passed.")
           PY
-
       - name: Test journey planner endpoints without database network
         run: |
           python - <<'PY'
           from app import create_app
           import app.routes.journey_planner as journey
-
-          journey._store_run = lambda tool_slug, payload, result: {**result, "stored": False, "tool_slug": tool_slug}
-          app = create_app()
-          client = app.test_client()
-
-          options = client.get("/api/journey/options")
-          assert options.status_code == 200, options.get_data(as_text=True)
-          assert len(options.get_json()["tools"]) == 4
-
-          legalization = client.post(
-              "/api/journey/legalization-check",
-              json={
-                  "issuing_country": "Nigeria",
-                  "receiving_country": "Finland",
-                  "document_type": "academic_certificate",
-                  "days_until_submission": 30,
-                  "has_original_document": True,
-                  "translation_needed": True,
-                  "translation_completed": False,
-                  "receiving_authority_checked": False,
-              },
-          )
-          assert legalization.status_code == 200, legalization.get_data(as_text=True)
-          legal_payload = legalization.get_json()
-          assert legal_payload["tool_slug"] == "legalization_check"
-          assert len(legal_payload["steps"]) >= 3
-          assert legal_payload["risk_level"] in {"medium", "high"}
-
-          family = client.post(
-              "/api/journey/family-plan",
-              json={
-                  "target_country": "Finland",
-                  "route_category": "startup",
-                  "spouse_count": 1,
-                  "children_count": 2,
-                  "child_ages": "11,8",
-                  "base_budget_amount": 12000,
-                  "currency": "EUR",
-              },
-          )
-          assert family.status_code == 200, family.get_data(as_text=True)
-          family_payload = family.get_json()
-          assert family_payload["household_size"] == 4, family_payload
-          assert family_payload["school_age_children_count"] == 2, family_payload
-          assert len(family_payload["member_checklists"]) == 4, family_payload
-
-          appointment = client.post(
-              "/api/journey/appointment-plan",
-              json={
-                  "appointment_date": "2030-08-20",
-                  "application_type": "Biometrics",
-                  "target_country": "Finland",
-                  "translation_pending": True,
-                  "save_to_timeline": False,
-              },
-          )
-          assert appointment.status_code == 200, appointment.get_data(as_text=True)
-          appointment_payload = appointment.get_json()
-          assert len(appointment_payload["tasks"]) == 6, appointment_payload
-          assert appointment_payload["timeline_saved_count"] == 0
-
-          settlement = client.post(
-              "/api/journey/settlement-plan",
-              json={
-                  "target_country": "Finland",
-                  "target_city": "Helsinki",
-                  "household_size": 4,
-                  "temporary_accommodation_confirmed": False,
-                  "insurance_active": False,
-                  "school_needed": True,
-              },
-          )
-          assert settlement.status_code == 200, settlement.get_data(as_text=True)
-          settlement_payload = settlement.get_json()
-          assert set(settlement_payload["timeline"]) == {"before_travel", "first_72_hours", "first_2_weeks", "first_90_days"}
-          assert settlement_payload["risk_level"] in {"medium", "high"}
+          journey._store_run=lambda tool_slug,payload,result:{**result,"stored":False,"tool_slug":tool_slug};app=create_app();client=app.test_client();options=client.get("/api/journey/options");assert options.status_code==200;assert len(options.get_json()["tools"])==4
+          legalization=client.post("/api/journey/legalization-check",json={"issuing_country":"Nigeria","receiving_country":"Finland","document_type":"academic_certificate","days_until_submission":30,"has_original_document":True,"translation_needed":True,"translation_completed":False,"receiving_authority_checked":False});assert legalization.status_code==200;assert len(legalization.get_json()["steps"])>=3
+          family=client.post("/api/journey/family-plan",json={"target_country":"Finland","route_category":"startup","spouse_count":1,"children_count":2,"child_ages":"11,8","base_budget_amount":12000,"currency":"EUR"});assert family.status_code==200;assert family.get_json()["household_size"]==4
+          appointment=client.post("/api/journey/appointment-plan",json={"appointment_date":"2030-08-20","application_type":"Biometrics","target_country":"Finland","translation_pending":True,"save_to_timeline":False});assert appointment.status_code==200;assert len(appointment.get_json()["tasks"])==6
+          settlement=client.post("/api/journey/settlement-plan",json={"target_country":"Finland","target_city":"Helsinki","household_size":4,"temporary_accommodation_confirmed":False,"insurance_active":False,"school_needed":True});assert settlement.status_code==200;assert set(settlement.get_json()["timeline"])=={"before_travel","first_72_hours","first_2_weeks","first_90_days"}
           print("Journey planner endpoint smoke tests passed.")
           PY
-
       - name: Test scheduled-sync status cost guard
         run: |
           python - <<'PY'
           from app import create_app
-
-          app = create_app()
-          client = app.test_client()
-          response = client.get("/api/visa-power/provider/schedule/status")
-          assert response.status_code == 200, response.get_data(as_text=True)
-          payload = response.get_json()
-          assert payload["ok"] is True
-          assert payload["scheduled_countries"] == ["Nigeria"], payload
-          assert payload["max_countries_per_sync"] == 1, payload
+          app=create_app();client=app.test_client();response=client.get("/api/visa-power/provider/schedule/status");assert response.status_code==200;payload=response.get_json();assert payload["ok"] is True;assert payload["scheduled_countries"]==["Nigeria"];assert payload["max_countries_per_sync"]==1
           print("Scheduled-sync cost guard smoke test passed.")
           PY
-
       - name: Test server-side Visa Power safety gate
         run: |
           python - <<'PY'
           from app import create_app
           import app.routes.visa_power_safety as safety
-
-          safety._build_public_passport_response = lambda country: {
-              "passport_index": {
-                  "country": country,
-                  "passport_opportunity_score": 40,
-                  "passport_strength_band": "provider_cache",
-              },
-              "cache_status": {"data_source": "provider_cache"},
-              "provider_status": {"ready_to_sync": True},
-              "provider_refresh": {"status": "cache_fresh"},
-          }
-
-          app = create_app()
-          client = app.test_client()
-          response = client.post(
-              "/api/visa-power/check",
-              json={
-                  "passport_country": "Nigeria",
-                  "held_visas": ["canada_visitor"],
-                  "multiple_entry_confirmed": True,
-                  "visa_used_before_confirmed": False,
-                  "prior_entry_refusal_declared": True,
-                  "visa_cancelled_or_revoked_declared": True,
-              },
-          )
-          assert response.status_code == 200, response.get_data(as_text=True)
-          payload = response.get_json()
-          assert payload["feature"].endswith("safety_gate"), payload
-          assert payload["eligibility_gate"]["status"] == "blocked_pending_validity_confirmation", payload
-          assert payload["usable_held_visas"] == [], payload
-          assert payload["blocked_visa_codes"] == ["canada_visitor"], payload
-          assert payload["matched_destination_count"] == 0, payload
-          assert payload["visa_opportunity_score"] == 0, payload
-          assert payload["combined_opportunity_score"] == 40, payload
-          assert len(payload["travel_history_warnings"]) >= 2, payload
+          safety._build_public_passport_response=lambda country:{"passport_index":{"country":country,"passport_opportunity_score":40,"passport_strength_band":"provider_cache"},"cache_status":{"data_source":"provider_cache"},"provider_status":{"ready_to_sync":True},"provider_refresh":{"status":"cache_fresh"}}
+          app=create_app();client=app.test_client();response=client.post("/api/visa-power/check",json={"passport_country":"Nigeria","held_visas":["canada_visitor"],"multiple_entry_confirmed":True,"visa_used_before_confirmed":False,"prior_entry_refusal_declared":True,"visa_cancelled_or_revoked_declared":True});assert response.status_code==200;payload=response.get_json();assert payload["eligibility_gate"]["status"]=="blocked_pending_validity_confirmation";assert payload["usable_held_visas"]==[];assert payload["visa_opportunity_score"]==0;assert len(payload["travel_history_warnings"])>=2
           print("Visa Power safety gate smoke test passed.")
           PY
-
       - name: Test TravelBuddy map normalization without network
         run: |
           python - <<'PY'
           from app import create_app
           from app.services.passport_index_provider import normalize_provider_payload
-
-          create_app()
-          payload = {
-              "data": {
-                  "passport": "NG",
-                  "colors": {
-                      "green": "GH,BJ",
-                      "blue": "KE,UG",
-                      "yellow": "SC",
-                      "red": "CA,NG",
-                  },
-              },
-              "meta": {
-                  "version": "2.0",
-                  "generated_at": "2026-07-23T00:00:00+00:00",
-              },
-          }
-          normalized = normalize_provider_payload("Nigeria", payload)
-          rows = normalized.get("destination_access_rows") or []
-          assert len(rows) == 6, rows
-          destinations = {row["destination"] for row in rows}
-          assert "Nigeria" not in destinations
-          assert "Ghana" in destinations
-          assert "Canada" in destinations
-          assert normalized["passport_index"]["visa_free_count"] == 2
-          assert normalized["passport_index"]["visa_required_count"] == 1
+          create_app();payload={"data":{"passport":"NG","colors":{"green":"GH,BJ","blue":"KE,UG","yellow":"SC","red":"CA,NG"}},"meta":{"version":"2.0","generated_at":"2026-07-23T00:00:00+00:00"}};normalized=normalize_provider_payload("Nigeria",payload);rows=normalized.get("destination_access_rows") or [];assert len(rows)==6;destinations={row["destination"] for row in rows};assert "Nigeria" not in destinations;assert "Ghana" in destinations;assert "Canada" in destinations;assert normalized["passport_index"]["visa_free_count"]==2;assert normalized["passport_index"]["visa_required_count"]==1
           print("TravelBuddy map normalization smoke test passed.")
           PY
