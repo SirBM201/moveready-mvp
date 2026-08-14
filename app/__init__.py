@@ -19,7 +19,6 @@ def _parse_origins(origins_raw: str) -> Tuple[Union[str, List[str]], bool]:
 
 def create_app() -> Flask:
     app = Flask(__name__)
-
     secret_key = (SECRET_KEY or "").strip()
     if not secret_key:
         if os.getenv("FLASK_ENV") == "development":
@@ -27,72 +26,14 @@ def create_app() -> Flask:
             warnings.warn("Using temporary SECRET_KEY in development only")
         else:
             raise RuntimeError("SECRET_KEY environment variable is required in production")
-
-    app.config.update(
-        SECRET_KEY=secret_key,
-        SESSION_COOKIE_NAME=SESSION_COOKIE_NAME,
-        SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SECURE=SESSION_COOKIE_SECURE,
-        SESSION_COOKIE_SAMESITE=SESSION_COOKIE_SAMESITE,
-        SESSION_COOKIE_PATH="/",
-        PERMANENT_SESSION_LIFETIME=PERMANENT_SESSION_LIFETIME,
-    )
-
+    app.config.update(SECRET_KEY=secret_key, SESSION_COOKIE_NAME=SESSION_COOKIE_NAME, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SECURE=SESSION_COOKIE_SECURE, SESSION_COOKIE_SAMESITE=SESSION_COOKIE_SAMESITE, SESSION_COOKIE_PATH="/", PERMANENT_SESSION_LIFETIME=PERMANENT_SESSION_LIFETIME)
     origins, supports_credentials = _parse_origins(CORS_ORIGINS)
     CORS(app, resources={r"/*": {"origins": origins}}, supports_credentials=supports_credentials)
-
     from app.services.account_session_context import attach_verified_session_email_to_json
-
     app.before_request(attach_verified_session_email_to_json)
-
     from app.services.passport_index_provider_travelbuddy_patch import apply_patch
-
     apply_patch()
-
-    from app.routes import (
-        account,
-        account_action_center,
-        account_auth,
-        account_controls,
-        account_controls_admin,
-        admin,
-        admin_review_evidence_extension,
-        admin_review_queue,
-        application_case_alerts,
-        application_case_links,
-        application_cases,
-        application_cases_admin,
-        billing,
-        billing_admin,
-        education_planner,
-        evidence_admin,
-        evidence_workflow,
-        health,
-        journey_planner,
-        job_automation,
-        jobs,
-        opportunities,
-        operations,
-        partners,
-        passport_destination_detail,
-        passport_provider,
-        passport_provider_schedule,
-        platform_modules,
-        profiles,
-        readiness_tools,
-        relocation_public,
-        reports,
-        saved_route_reports,
-        saved_routes,
-        service_handoff_safety,
-        service_handoffs,
-        settlement_execution,
-        source_governance,
-        timeline,
-        travel_planner,
-        visa_power,
-        watchlist,
-    )
+    from app.routes import (account, account_action_center, account_auth, account_controls, account_controls_admin, admin, admin_review_evidence_extension, admin_review_queue, application_case_alerts, application_case_links, application_cases, application_cases_admin, billing, billing_admin, education_planner, evidence_admin, evidence_workflow, health, journey_planner, job_automation, jobs, language_coach, opportunities, operations, partners, passport_destination_detail, passport_provider, passport_provider_schedule, platform_modules, profiles, readiness_tools, relocation_public, reports, saved_route_reports, saved_routes, service_handoff_safety, service_handoffs, settlement_execution, source_governance, timeline, travel_planner, visa_power, watchlist)
     from app.routes.visa_power_safety import visa_power_check_safe
     from app.services.application_case_module_patch import apply_application_case_module_patch
     from app.services.job_automation_postgrest_compat import apply_postgrest_zero_row_compat
@@ -100,14 +41,7 @@ def create_app() -> Flask:
     from app.services.journey_module_patch import apply_journey_module_patch
     from app.services.platform_account_modules_patch import apply_platform_account_modules_patch
     from app.services.travel_provider_publication import apply_travel_provider_publication_patch
-
-    apply_journey_module_patch()
-    apply_application_case_module_patch()
-    apply_travel_provider_publication_patch()
-    apply_platform_account_modules_patch()
-    apply_postgrest_zero_row_compat()
-    apply_job_automation_profile_patch(job_automation)
-
+    apply_journey_module_patch(); apply_application_case_module_patch(); apply_travel_provider_publication_patch(); apply_platform_account_modules_patch(); apply_postgrest_zero_row_compat(); apply_job_automation_profile_patch(job_automation)
     app.register_blueprint(health.bp)
     app.register_blueprint(relocation_public.bp, url_prefix=f"{API_PREFIX}/relocation")
     app.register_blueprint(platform_modules.bp, url_prefix=f"{API_PREFIX}/platform")
@@ -121,6 +55,7 @@ def create_app() -> Flask:
     app.register_blueprint(journey_planner.bp, url_prefix=f"{API_PREFIX}/journey")
     app.register_blueprint(jobs.bp, url_prefix=f"{API_PREFIX}/jobs")
     app.register_blueprint(job_automation.user_bp, url_prefix=f"{API_PREFIX}/jobs")
+    app.register_blueprint(language_coach.bp, url_prefix=f"{API_PREFIX}/language-coach")
     app.register_blueprint(education_planner.bp, url_prefix=f"{API_PREFIX}/education")
     app.register_blueprint(travel_planner.bp, url_prefix=f"{API_PREFIX}/travel")
     app.register_blueprint(billing.bp, url_prefix=f"{API_PREFIX}/billing")
@@ -136,16 +71,8 @@ def create_app() -> Flask:
     app.register_blueprint(account.bp, url_prefix=f"{API_PREFIX}/account")
     app.register_blueprint(account_controls.bp, url_prefix=f"{API_PREFIX}/account")
     app.register_blueprint(account_action_center.bp, url_prefix=f"{API_PREFIX}/account")
-
-    # `/api/handoffs` is the established frontend contract. The more explicit
-    # `/api/service-handoffs` path is retained as a compatibility alias.
     app.register_blueprint(service_handoffs.user_bp, url_prefix=f"{API_PREFIX}/handoffs")
-    app.register_blueprint(
-        service_handoffs.user_bp,
-        url_prefix=f"{API_PREFIX}/service-handoffs",
-        name="service_handoffs_alias",
-    )
-
+    app.register_blueprint(service_handoffs.user_bp, url_prefix=f"{API_PREFIX}/service-handoffs", name="service_handoffs_alias")
     app.register_blueprint(passport_provider.bp, url_prefix=f"{API_PREFIX}/visa-power")
     app.register_blueprint(passport_provider_schedule.bp, url_prefix=f"{API_PREFIX}/visa-power")
     app.register_blueprint(passport_destination_detail.bp, url_prefix=f"{API_PREFIX}/visa-power")
@@ -162,17 +89,12 @@ def create_app() -> Flask:
     app.register_blueprint(service_handoffs.admin_bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(source_governance.admin_bp, url_prefix=f"{API_PREFIX}/admin")
     app.register_blueprint(operations.admin_bp, url_prefix=f"{API_PREFIX}/admin")
-
-    # Keep stable URLs while replacing legacy handlers with stricter safety gates
-    # and runtime extensions.
     app.view_functions["passport_provider.visa_power_check_live"] = visa_power_check_safe
     app.view_functions["service_handoffs_admin.update_handoff_status"] = service_handoff_safety.safe_update_handoff_status
     app.view_functions["service_handoffs_admin.update_support_case"] = service_handoff_safety.safe_update_support_case
     app.view_functions["admin_review_queue.review_queue"] = admin_review_evidence_extension.review_queue_with_evidence
     app.view_functions["journey_planner.settlement_plan"] = settlement_execution.settlement_plan_with_timeline
-
     @app.get("/")
     def root():
         return jsonify({"ok": True, "service": "MoveReady API", "api_prefix": API_PREFIX})
-
     return app
