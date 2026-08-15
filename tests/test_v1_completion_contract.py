@@ -10,11 +10,11 @@ def test_v1_completion_routes_are_registered(monkeypatch):
     app = create_app()
     routes = _routes(app)
     expected = {
-        "/api/v1/opportunity-finder/recommendations",
-        "/api/v1/financial-readiness/check",
-        "/api/v1/route-comparison",
-        "/api/v1/account/outcomes",
-        "/api/v1/language-coach/profile",
+        "/api/opportunity-finder/recommendations",
+        "/api/financial-readiness/check",
+        "/api/route-comparison",
+        "/api/account/outcomes",
+        "/api/language-coach/profile",
     }
     assert expected.issubset(routes), sorted(expected - routes)
 
