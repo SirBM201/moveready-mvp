@@ -36,7 +36,12 @@ def _safe_visible_job(job_id: str, email: str) -> Optional[Dict[str, Any]]:
 
 
 def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
-    """Harden zero-row Jobs lookups and attach additive career-scope endpoints."""
+    """Harden zero-row Jobs lookups and attach additive career-scope endpoints.
+
+    The route mutation is deliberately idempotent because create_app() is used
+    more than once in tests and can also be called repeatedly by application
+    factories. Flask blueprints cannot be mutated after first registration.
+    """
     job_automation_module._profile = _safe_profile
 
     from app.routes import jobs as jobs_module
@@ -47,10 +52,19 @@ def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
     jobs_module._visible_company = _safe_visible_company
     jobs_module._visible_job = _safe_visible_job
 
-    # create_app invokes this patch once before registering user_bp.
-    job_automation_module.user_bp.add_url_rule(
+    user_bp = job_automation_module.user_bp
+    endpoint = "update_search_scope"
+
+    # Blueprint setup is process-global. Add the route only before the first
+    # registration and only when it has not already been attached.
+    if getattr(user_bp, "_got_registered_once", False):
+        return
+    if endpoint in getattr(user_bp, "view_functions", {}):
+        return
+
+    user_bp.add_url_rule(
         "/profile/search-scope",
-        endpoint="update_search_scope",
+        endpoint=endpoint,
         view_func=update_search_scope,
         methods=["PATCH"],
     )
