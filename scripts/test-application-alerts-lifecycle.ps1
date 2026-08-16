@@ -51,9 +51,10 @@ try {
     }
     Add-Result 'Admin Privacy Barrier' 'PASS' 'Anonymous alert scan rejected'
 
+    # Application case collection contract is /api/applications; case resources are /api/applications/<case_ref>.
     # Create a deterministic temporary case. 48h is safely inside the scanner's <=72h rule.
     $Deadline = [DateTime]::UtcNow.AddHours(48).ToString('o')
-    $Created = Call-Api POST '/api/applications/cases' @{
+    $Created = Call-Api POST '/api/applications' @{
         case_title = "$Tag controlled deadline alert test"
         target_country = 'Finland'
         route_category = 'startup'
@@ -96,7 +97,7 @@ try {
 
     # Move the deadline beyond 14 days so the <=72h candidate becomes obsolete and no replacement deadline alert is generated.
     $SafeDeadline = [DateTime]::UtcNow.AddDays(30).ToString('o')
-    $Updated = Call-Api PATCH "/api/applications/cases/$CaseRef" @{
+    $Updated = Call-Api PATCH "/api/applications/$CaseRef" @{
         next_deadline_at = $SafeDeadline
         notes = 'Stage 2E.2 alert condition removed before cleanup.'
     }
@@ -113,7 +114,7 @@ try {
     Add-Result 'Automatic Resolution' 'PASS' 'Obsolete generated alert automatically resolved'
 
     # Archive the temporary case. The scanner only considers active/attention_required/completed cases.
-    $Archived = Call-Api PATCH "/api/applications/cases/$CaseRef" @{
+    $Archived = Call-Api PATCH "/api/applications/$CaseRef" @{
         status = 'archived'
         notes = 'Stage 2E.2 controlled production test complete; temporary case archived.'
     }
@@ -127,9 +128,9 @@ finally {
     # Best-effort cleanup if the main flow failed after creating the case.
     if ($CaseRef) {
         try {
-            $Current = Call-Api GET "/api/applications/cases/$CaseRef"
+            $Current = Call-Api GET "/api/applications/$CaseRef"
             if ($Current.application_case.status -ne 'archived') {
-                Call-Api PATCH "/api/applications/cases/$CaseRef" @{
+                Call-Api PATCH "/api/applications/$CaseRef" @{
                     status='archived'
                     notes='Stage 2E.2 best-effort cleanup after test execution.'
                 } | Out-Null
