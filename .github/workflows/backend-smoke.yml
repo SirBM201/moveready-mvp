@@ -94,8 +94,11 @@ jobs:
               if missing:
                   raise SystemExit(f"Migration 037 missing Stage 2F.5D.2B contract terms: {missing}")
 
-              lowered = latest_sql.lower()
-              if "rapidapi" in lowered:
+              # Safety comments are expected to mention RapidAPI/provider links.
+              # Reject only an actual RapidAPI URL, which would indicate promotion
+              # of third-party provider evidence into the official-source layer.
+              rapidapi_urls = re.findall(r"https?://[^\s'\";,)]*rapidapi[^\s'\";,)]*", latest_sql, flags=re.I)
+              if rapidapi_urls:
                   raise SystemExit("Migration 037 must not promote RapidAPI/provider URLs as official sources")
 
           print(f"Migration contract passed: {len(files)} files; latest={latest.name}")
