@@ -56,7 +56,6 @@ $ApplicationOptions=Call-Api GET '/api/applications/options'
 Add-Result 'Contracts' 'PASS' 'Evidence and application option contracts available'
 
 try {
-    # Metadata only: production requires document_label, not label.
     $DocBody=@{
         document_type='passport'; document_label="$Tag passport metadata"; owner_scope='main_applicant';
         status='available'; translation_status='not_required'; legalization_status='not_required';
@@ -85,30 +84,30 @@ try {
     if ($FoundPack.Count -lt 1) { throw 'Generated evidence pack could not be read back.' }
     Add-Result 'Evidence Pack Read' 'PASS' 'Generated pack retrieved'
 
-    # Production contract uses case_title and application stage preparing.
+    # Application Case Manager contract:
+    # POST/GET /api/applications and GET/PATCH /api/applications/<case_ref>.
     $CaseBody=@{
         case_title="$Tag Finland startup test case"; target_country='Finland'; route_category='startup';
         application_stage='research'; evidence_pack_id=$PackId; notes="$Tag temporary lifecycle test";
         consent_to_store=$true; source_page='/stage2d-test'
     }
-    $Case=Call-Api POST '/api/applications/cases' $CaseBody
+    $Case=Call-Api POST '/api/applications' $CaseBody
     $CaseRef=Get-CaseRef $Case
     if (-not $CaseRef) { throw 'Application case create returned no case reference.' }
     Add-Result 'Case Create' 'PASS' 'Temporary application case created'
 
-    $Cases=Call-Api GET '/api/applications/cases'
+    $Cases=Call-Api GET '/api/applications'
     $FoundCase=@(@($Cases.application_cases) | Where-Object { "$($_.case_ref)" -eq $CaseRef -or "$($_.id)" -eq $CaseRef })
     if ($FoundCase.Count -lt 1) { throw 'Created application case could not be read back.' }
     Add-Result 'Case Read' 'PASS' 'Application case retrieved'
 
-    $Updated=Call-Api PATCH "/api/applications/cases/$CaseRef" @{ application_stage='preparing'; notes="$Tag transitioned by production lifecycle test" }
+    $Updated=Call-Api PATCH "/api/applications/$CaseRef" @{ application_stage='preparing'; notes="$Tag transitioned by production lifecycle test" }
     $UpdatedStage=$Updated.application_stage
     if (-not $UpdatedStage -and $Updated.application_case) { $UpdatedStage=$Updated.application_case.application_stage }
     if ($UpdatedStage -ne 'preparing') { throw "Case transition did not persist preparing stage. Actual=$UpdatedStage" }
     Add-Result 'Case Transition' 'PASS' 'research -> preparing persisted'
 
-    # Detail endpoint includes the event timeline.
-    $Detail=Call-Api GET "/api/applications/cases/$CaseRef"
+    $Detail=Call-Api GET "/api/applications/$CaseRef"
     $EventRows=@($Detail.events)
     if ($EventRows.Count -lt 1) { throw 'Application case detail returned no lifecycle events.' }
     Add-Result 'Case Events' 'PASS' "$($EventRows.Count) case event(s) retrieved"
@@ -126,11 +125,10 @@ catch {
     Add-Result 'Lifecycle Execution' 'FAIL' $_.Exception.Message
 }
 finally {
-    # Conservative cleanup. Closing requires a decision date and result summary by contract.
     if ($CaseRef) {
         try {
             $Today=(Get-Date).ToString('yyyy-MM-dd')
-            Call-Api PATCH "/api/applications/cases/$CaseRef" @{
+            Call-Api PATCH "/api/applications/$CaseRef" @{
                 application_stage='closed'; status='archived'; decision_date=$Today;
                 result_summary="$Tag temporary functional test closed"; notes="$Tag cleanup"
             } | Out-Null
