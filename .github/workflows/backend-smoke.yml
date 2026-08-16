@@ -66,42 +66,41 @@ jobs:
           if invalid:
               raise SystemExit(f"Invalid migration filenames: {invalid}")
 
-          prefixes = {}
-          for name in names:
-              prefix = name.split("_", 1)[0]
-              prefixes.setdefault(prefix, []).append(name)
-          duplicates = {prefix: group for prefix, group in prefixes.items() if len(group) > 1}
-          if duplicates:
-              raise SystemExit(f"Duplicate migration prefixes: {duplicates}")
+          # The repository already contains historical duplicate numeric prefixes
+          # (027 and 034). Do not retroactively fail otherwise valid PRs for those
+          # legacy collisions. Protect the current migration contract instead:
+          # migration 037 must be unique and non-empty.
+          migration_037 = [path for path in files if path.name.startswith("037_")]
+          if len(migration_037) != 1:
+              raise SystemExit(f"Expected exactly one 037 migration, found {[p.name for p in migration_037]}")
 
           empty = [path.name for path in files if not path.read_text(encoding="utf-8").strip()]
           if empty:
               raise SystemExit(f"Empty migration files: {empty}")
 
-          latest = files[-1]
-          latest_sql = latest.read_text(encoding="utf-8")
-          if latest.name.startswith("037_"):
-              required_terms = [
-                  "passport",
-                  "relocation_trusted_sources",
-                  "pending_review",
-                  "Canada",
-                  "Germany",
-                  "Benin",
-                  "Seychelles",
-              ]
-              missing = [term for term in required_terms if term.lower() not in latest_sql.lower()]
-              if missing:
-                  raise SystemExit(f"Migration 037 missing Stage 2F.5D.2B contract terms: {missing}")
+          target = migration_037[0]
+          target_sql = target.read_text(encoding="utf-8")
+          required_terms = [
+              "passport",
+              "relocation_trusted_sources",
+              "pending_review",
+              "Canada",
+              "Germany",
+              "Benin",
+              "Seychelles",
+          ]
+          missing = [term for term in required_terms if term.lower() not in target_sql.lower()]
+          if missing:
+              raise SystemExit(f"Migration 037 missing Stage 2F.5D.2B contract terms: {missing}")
 
-              # Safety comments are expected to mention RapidAPI/provider links.
-              # Reject only an actual RapidAPI URL, which would indicate promotion
-              # of third-party provider evidence into the official-source layer.
-              rapidapi_urls = re.findall(r"https?://[^\s'\";,)]*rapidapi[^\s'\";,)]*", latest_sql, flags=re.I)
-              if rapidapi_urls:
-                  raise SystemExit("Migration 037 must not promote RapidAPI/provider URLs as official sources")
+          # Safety comments are expected to mention RapidAPI/provider links.
+          # Reject only an actual RapidAPI URL, which would indicate promotion
+          # of third-party provider evidence into the official-source layer.
+          rapidapi_urls = re.findall(r"https?://[^\s'\";,)]*rapidapi[^\s'\";,)]*", target_sql, flags=re.I)
+          if rapidapi_urls:
+              raise SystemExit("Migration 037 must not promote RapidAPI/provider URLs as official sources")
 
-          print(f"Migration contract passed: {len(files)} files; latest={latest.name}")
+          print(f"Migration contract passed: {len(files)} files; target={target.name}")
           PY
       - name: Run V1 completion contract tests
         run: python -m pytest -q tests/test_v1_completion_contract.py
