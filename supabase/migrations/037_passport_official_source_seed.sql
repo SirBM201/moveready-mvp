@@ -86,7 +86,7 @@ with seed(destination_name, source_url, purpose, priority, notes) as (
     seed.notes
   from seed
   join public.relocation_countries c
-    on lower(trim(c.name)) = lower(seed.destination_name)
+    on lower(trim(c.country_name)) = lower(seed.destination_name)
   join public.relocation_trusted_sources s
     on s.source_url = seed.source_url
    and s.source_type in ('government', 'embassy')
@@ -126,11 +126,11 @@ begin
   select count(*) into mapped
   from public.relocation_passport_official_source_mappings m
   join public.relocation_countries c on c.id = m.destination_country_id
-  where lower(c.name) in ('benin','canada','germany','seychelles')
+  where lower(c.country_name) in ('benin','canada','germany','seychelles')
     and m.status = 'active';
 
   if mapped < expected then
-    raise exception 'Stage 2F.5D.2B expected at least % active destination mappings, found %. Check relocation_countries names and trusted-source seed compatibility.', expected, mapped;
+    raise exception 'Stage 2F.5D.2B expected at least % active destination mappings, found %. Check relocation_countries country_name values and trusted-source seed compatibility.', expected, mapped;
   end if;
 
   select count(*) into invalid
