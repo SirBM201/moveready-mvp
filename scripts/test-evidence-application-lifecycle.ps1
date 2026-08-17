@@ -174,6 +174,9 @@ function Start-TestSession {
     }
 
     $Email = $script:TestEmail.Trim().ToLowerInvariant()
+    if ($Email -eq "your_moveready_login_email" -or $Email -notmatch "^[^@\s]+@[^@\s]+\.[^@\s]+$") {
+        throw "Replace YOUR_MOVEREADY_LOGIN_EMAIL with the real email address used for your MoveReady account."
+    }
     Write-Host "Requesting one OTP through the configured MoveReady test-email provider..." -ForegroundColor Yellow
     $Request = Invoke-RestMethod `
         -Method Post `
