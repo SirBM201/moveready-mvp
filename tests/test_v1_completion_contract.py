@@ -28,6 +28,7 @@ def test_build_info_reports_v1_safety_contract(monkeypatch):
     payload = response.get_json()
     assert payload["route_contract"]["ok"] is True
     assert payload["contract_versions"]["financial_readiness"] == "b09-v1"
+    assert payload["contract_versions"]["opportunity_finder"] == "b11-v1"
     safety = payload["safety_contract"]
     for key in ("opportunity_finder", "route_comparison", "financial_readiness", "account_outcomes"):
         assert key in safety

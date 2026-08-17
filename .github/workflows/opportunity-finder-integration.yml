@@ -1,0 +1,80 @@
+name: Opportunity Route Finder Integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/routes/opportunity_finder.py"
+      - "app/routes/relocation_public.py"
+      - "app/routes/route_comparison.py"
+      - "app/routes/financial_readiness.py"
+      - "app/routes/health.py"
+      - "app/services/opportunity_finder.py"
+      - "tests/test_opportunity_finder*.py"
+      - "tests/test_v1_completion_contract.py"
+      - "docs/B11_OPPORTUNITY_ROUTE_FINDER.md"
+      - "docs/API_ROUTES.md"
+      - ".github/workflows/opportunity-finder-integration.yml"
+  pull_request:
+    paths:
+      - "app/routes/opportunity_finder.py"
+      - "app/routes/relocation_public.py"
+      - "app/routes/route_comparison.py"
+      - "app/routes/financial_readiness.py"
+      - "app/routes/health.py"
+      - "app/services/opportunity_finder.py"
+      - "tests/test_opportunity_finder*.py"
+      - "tests/test_v1_completion_contract.py"
+      - "docs/B11_OPPORTUNITY_ROUTE_FINDER.md"
+      - "docs/API_ROUTES.md"
+      - ".github/workflows/opportunity-finder-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      FLASK_ENV: development
+      SECRET_KEY: github-actions-b11-contract-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install runtime dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Run B11 Opportunity / Route Finder tests
+        run: python -m unittest discover -s tests -p "test_opportunity_finder*.py" -v
+
+      - name: Run build-contract regression
+        run: python -m unittest discover -s tests -p "test_v1_completion_contract.py" -v
+
+      - name: Verify shared route-detail consumers
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          public_routes = Path("app/routes/relocation_public.py").read_text()
+          comparison = Path("app/routes/route_comparison.py").read_text()
+          financial = Path("app/routes/financial_readiness.py").read_text()
+          finder = Path("app/routes/opportunity_finder.py").read_text()
+
+          assert "def _route_detail(" in public_routes
+          assert "official_sources" in public_routes
+          assert "relocation_public._route_detail" in comparison
+          assert "relocation_public._route_detail" in financial
+          assert "relocation_public._route_detail" in finder
+          PY
