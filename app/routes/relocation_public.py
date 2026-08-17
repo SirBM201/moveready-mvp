@@ -141,6 +141,7 @@ def _fallback_route_detail(country_code: str, route_code: str) -> Optional[Dict[
         "review_due_at": None,
         "freshness_status": "available_starter",
         "summary": route["summary"],
+        "version": {},
         "raw": {"source": "backend_fallback", "budget_range": route["budget_range"]},
         "facts": [
             {"fact_key": key, "fact_label": label, "fact_value": value, "fact_payload": {}, "display_order": index * 10}
@@ -157,6 +158,7 @@ def _fallback_route_detail(country_code: str, route_code: str) -> Optional[Dict[
         "insurance_requirements": [
             {"insurance_type": "Travel or health insurance", "is_required": True, "minimum_coverage_amount": None, "currency_code": "EUR", "details": "Confirm coverage, dates, destination, and minimum amount from the official route or consular instructions before purchase."}
         ],
+        "official_sources": [],
     }
 
 
@@ -212,6 +214,127 @@ def _route_versions(route_id: str, columns: str = "*") -> List[Dict[str, Any]]:
         return response.data or []
     except Exception:
         return []
+
+
+def _route_sources(route_version_id: str) -> List[Dict[str, Any]]:
+    try:
+        response = (
+            get_supabase()
+            .table("relocation_route_sources")
+            .select(
+                "usage_note,relocation_trusted_sources("
+                "id,source_name,source_url,source_type,owner_organization,reliability_level,"
+                "status,last_checked_at,next_review_due_at)"
+            )
+            .eq("route_version_id", route_version_id)
+            .execute()
+        )
+    except Exception:
+        return []
+
+    sources: List[Dict[str, Any]] = []
+    for row in response.data or []:
+        source = row.get("relocation_trusted_sources") or {}
+        if source:
+            sources.append({**source, "usage_note": row.get("usage_note")})
+    return sources
+
+
+def _route_detail(route: Dict[str, Any]) -> Dict[str, Any]:
+    """Return one reusable public route detail contract for API and internal consumers."""
+    summary = _route_summary_row(route)
+    active_version_id = summary.get("active_version_id")
+    versions = route.get("relocation_route_versions") or []
+    active_version = next(
+        (version for version in versions if version.get("id") == active_version_id),
+        versions[0] if versions else {},
+    )
+
+    facts: List[Dict[str, Any]] = []
+    documents: List[Dict[str, Any]] = []
+    budget_items: List[Dict[str, Any]] = []
+    insurance: List[Dict[str, Any]] = []
+    official_sources: List[Dict[str, Any]] = []
+
+    if active_version_id:
+        try:
+            facts = (
+                get_supabase()
+                .table("relocation_route_facts")
+                .select("fact_key,fact_label,fact_value,fact_payload,display_order")
+                .eq("route_version_id", active_version_id)
+                .order("display_order")
+                .execute()
+                .data
+                or []
+            )
+            documents = (
+                get_supabase()
+                .table("relocation_document_requirements")
+                .select("document_name,requirement_level,applies_to,details,display_order")
+                .eq("route_version_id", active_version_id)
+                .order("display_order")
+                .execute()
+                .data
+                or []
+            )
+            budget_items = (
+                get_supabase()
+                .table("relocation_budget_items")
+                .select("item_name,item_category,amount_min,amount_max,currency_code,is_required,notes")
+                .or_(f"route_version_id.eq.{active_version_id},country_id.eq.{route.get('country_id')}")
+                .execute()
+                .data
+                or []
+            )
+            insurance = (
+                get_supabase()
+                .table("relocation_insurance_requirements")
+                .select("insurance_type,is_required,minimum_coverage_amount,currency_code,details")
+                .or_(f"route_version_id.eq.{active_version_id},country_id.eq.{route.get('country_id')}")
+                .execute()
+                .data
+                or []
+            )
+            official_sources = _route_sources(active_version_id)
+        except Exception:
+            # Fail closed: do not present partial database reads as verified route data.
+            facts = []
+            documents = []
+            budget_items = []
+            insurance = []
+            official_sources = []
+
+    version_fields = {
+        key: active_version.get(key)
+        for key in (
+            "id",
+            "version_label",
+            "status",
+            "risk_level",
+            "route_summary",
+            "eligibility_notes",
+            "proof_of_funds_notes",
+            "family_notes",
+            "processing_time_notes",
+            "validity_notes",
+            "official_fee_notes",
+            "refusal_risk_notes",
+            "source_confidence",
+            "verified_at",
+            "review_due_at",
+        )
+    }
+    return {
+        **summary,
+        "version": version_fields,
+        "raw": route,
+        "facts": facts,
+        "documents": documents,
+        "budget_items": budget_items,
+        "insurance_requirements": insurance,
+        "official_sources": official_sources,
+    }
 
 
 def _route_summary_row(route: Dict[str, Any]) -> Dict[str, Any]:
@@ -435,64 +558,7 @@ def route_detail(route_id: str):
             return jsonify({"ok": False, "error": "route_not_found"}), 404
 
         route["relocation_route_versions"] = _route_versions(route.get("id"))
-        summary = _route_summary_row(route)
-        active_version_id = summary.get("active_version_id")
-
-        facts: List[Dict[str, Any]] = []
-        documents: List[Dict[str, Any]] = []
-        budget_items: List[Dict[str, Any]] = []
-        insurance: List[Dict[str, Any]] = []
-
-        if active_version_id:
-            facts_response = (
-                get_supabase()
-                .table("relocation_route_facts")
-                .select("fact_key,fact_label,fact_value,fact_payload,display_order")
-                .eq("route_version_id", active_version_id)
-                .order("display_order")
-                .execute()
-            )
-            facts = facts_response.data or []
-
-            documents_response = (
-                get_supabase()
-                .table("relocation_document_requirements")
-                .select("document_name,requirement_level,applies_to,details,display_order")
-                .eq("route_version_id", active_version_id)
-                .order("display_order")
-                .execute()
-            )
-            documents = documents_response.data or []
-
-            budget_response = (
-                get_supabase()
-                .table("relocation_budget_items")
-                .select("item_name,item_category,amount_min,amount_max,currency_code,is_required,notes")
-                .or_(f"route_version_id.eq.{active_version_id},country_id.eq.{route.get('country_id')}")
-                .execute()
-            )
-            budget_items = budget_response.data or []
-
-            insurance_response = (
-                get_supabase()
-                .table("relocation_insurance_requirements")
-                .select("insurance_type,is_required,minimum_coverage_amount,currency_code,details")
-                .or_(f"route_version_id.eq.{active_version_id},country_id.eq.{route.get('country_id')}")
-                .execute()
-            )
-            insurance = insurance_response.data or []
-
-        return jsonify({
-            "ok": True,
-            "route": {
-                **summary,
-                "raw": route,
-                "facts": facts,
-                "documents": documents,
-                "budget_items": budget_items,
-                "insurance_requirements": insurance,
-            },
-        })
+        return jsonify({"ok": True, "route": _route_detail(route)})
     except Exception as exc:
         return jsonify({"ok": False, "error": "route_detail_unavailable", "details": str(exc)}), 503
 

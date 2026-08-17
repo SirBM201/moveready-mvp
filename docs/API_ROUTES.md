@@ -35,7 +35,7 @@ Base prefix: `/api`
 
 `GET /api/relocation/routes/by-code/EE/startup-founder`
 
-Returns the public route, active route version summary, route facts, document requirements, budget items, insurance requirements, risk level, source confidence, verified date, and review due date.
+Returns the public route, active route version summary, route facts, document requirements, budget items, insurance requirements, linked trusted-source records, risk level, source confidence, verified date, and review due date.
 
 This is useful for stable frontend pages because the page can use country and route codes instead of database UUIDs.
 
@@ -57,6 +57,14 @@ Optional query params:
 Returns one opportunity record by stable opportunity code.
 
 The endpoint uses `relocation_opportunities` after migration `005_official_opportunities.sql`. If the table is not present yet, it returns conservative starter fallback records so the frontend does not break during deployment.
+
+## Opportunity / Route Finder
+
+`GET /api/opportunity-finder/recommendations`
+
+Requires a verified account session and an existing relocation profile. Returns `contract_version=b11-v1`, profile-alignment pathway leads, qualification gaps, matching public route candidates, evidence, recorded planning costs, timeline/risk notes, official-source provenance, target-country opportunity records, and next actions.
+
+Scores are alignment signals, not eligibility or approval decisions. Route provenance fails closed when official-source verification is missing or due for review. The privacy-limited profile snapshot never includes name, email, phone, notes, or document data.
 
 ## Watchlist And Alerts
 
