@@ -33,8 +33,9 @@ class V1CompletionContractTests(unittest.TestCase):
         self.assertTrue(payload["route_contract"]["ok"])
         self.assertEqual(payload["contract_versions"]["financial_readiness"], "b09-v1")
         self.assertEqual(payload["contract_versions"]["opportunity_finder"], "b11-v1")
+        self.assertEqual(payload["contract_versions"]["documents_applications"], "b12-v1")
         safety = payload["safety_contract"]
-        for key in ("opportunity_finder", "route_comparison", "financial_readiness", "account_outcomes"):
+        for key in ("opportunity_finder", "route_comparison", "financial_readiness", "documents_applications", "account_outcomes"):
             self.assertIn(key, safety)
         self.assertIn("no invented family multiplier", safety["financial_readiness"].lower())
         features = payload["features"]

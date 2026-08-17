@@ -9,6 +9,7 @@ from app.services.supabase_client import get_supabase
 
 
 bp = Blueprint("application_case_links", __name__)
+CONTRACT_VERSION = "b12-v1"
 
 
 def _auth_email() -> Tuple[Optional[str], Optional[str]]:
@@ -47,19 +48,19 @@ def application_links():
     errors: Dict[str, str] = {}
     try:
         profile_rows = _rows("relocation_user_profiles", email, limit=50)
-    except Exception as exc:
+    except Exception:
         profile_rows = []
-        errors["profiles"] = str(exc)
+        errors["profiles"] = "profile_choices_unavailable"
     try:
         saved_route_rows = _rows("relocation_saved_routes", email, limit=100)
-    except Exception as exc:
+    except Exception:
         saved_route_rows = []
-        errors["saved_routes"] = str(exc)
+        errors["saved_routes"] = "saved_route_choices_unavailable"
     try:
         evidence_rows = _rows("relocation_evidence_packs", email, limit=100)
-    except Exception as exc:
+    except Exception:
         evidence_rows = []
-        errors["evidence_packs"] = str(exc)
+        errors["evidence_packs"] = "evidence_pack_choices_unavailable"
 
     profiles = [
         {
@@ -101,6 +102,7 @@ def application_links():
     return jsonify(
         {
             "ok": True,
+            "contract_version": CONTRACT_VERSION,
             "account_email": email,
             "profiles": profiles,
             "saved_routes": saved_routes,

@@ -85,7 +85,9 @@ jobs:
           assert 'relocation_user_profiles' in source
           assert 'relocation_saved_routes' in source
           assert 'relocation_evidence_packs' in source
+          assert 'CONTRACT_VERSION = "b12-v1"' in source
           assert 'privacy_note' in source
+          assert 'str(exc)' not in source
           for forbidden in ['file_content', 'passport_number', 'document_number', 'bank_account_number', 'card_number', 'otp', 'password', 'private_key']:
               assert forbidden not in source, forbidden
           print('Application link choices expose account-owned IDs and short labels without raw documents or sensitive references.')

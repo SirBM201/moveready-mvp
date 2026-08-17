@@ -100,6 +100,7 @@ jobs:
           assert options.status_code == 200, options.get_data(as_text=True)
           payload = options.get_json()
           assert payload['ok'] is True, payload
+          assert payload['contract_version'] == 'b12-v1', payload
           assert 'additional_documents_requested' in payload['application_stages'], payload
           assert 'refused' in payload['terminal_stages'], payload
           assert 'raw' in payload['storage_boundary'].lower(), payload

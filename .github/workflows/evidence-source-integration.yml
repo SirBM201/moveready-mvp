@@ -127,6 +127,7 @@ jobs:
           assert options.status_code == 200, options.get_data(as_text=True)
           payload = options.get_json()
           assert payload['ok'] is True, payload
+          assert payload['contract_version'] == 'b12-v1', payload
           assert 'passport' in payload['document_types'], payload
           assert 'misrepresentation_concern' in {item['key'] for item in payload['refusal_reason_options']}, payload
           assert 'raw' in payload['storage_boundary'].lower(), payload
