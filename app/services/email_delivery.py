@@ -4,18 +4,22 @@ import html
 import json
 import logging
 import os
+import re
 import smtplib
 import socket
 import ssl
 import urllib.error
 import urllib.request
 from email.message import EmailMessage
+from urllib.parse import urlsplit
 from email.utils import parseaddr
 from typing import Any, Dict, List, Optional, Tuple
 
 
 MAILTRAP_PROVIDER_NAMES = {"mailtrap", "mailtrap_api", "mailtrap-api"}
 MAILTRAP_SANDBOX_PROVIDER_NAMES = {"mailtrap_sandbox", "mailtrap-sandbox", "mailtrap_sandbox_api"}
+MAILTRAP_SEND_ENDPOINT = "https://send.api.mailtrap.io/api/send"
+MAILTRAP_SANDBOX_HOST = "sandbox.api.mailtrap.io"
 logger = logging.getLogger(__name__)
 
 
@@ -61,15 +65,50 @@ def _mailtrap_sandbox_token() -> str:
     return _env("MAILTRAP_SANDBOX_API_TOKEN") or _mailtrap_token()
 
 
+def _validated_mailtrap_endpoint(value: str, *, host: str, path_pattern: str) -> str:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except (TypeError, ValueError):
+        return ""
+    path = parsed.path.rstrip("/")
+    if (
+        parsed.scheme.lower() != "https"
+        or (parsed.hostname or "").lower() != host
+        or port not in {None, 443}
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or not re.fullmatch(path_pattern, path)
+    ):
+        return ""
+    return f"https://{host}{path}"
+
+
+def _mailtrap_endpoint() -> str:
+    return _validated_mailtrap_endpoint(
+        _env("MAILTRAP_API_URL", MAILTRAP_SEND_ENDPOINT),
+        host="send.api.mailtrap.io",
+        path_pattern=r"/api/send",
+    )
+
+
+def _mailtrap_sandbox_id() -> str:
+    sandbox_id = _env("MAILTRAP_SANDBOX_ID") or _env("MAILTRAP_INBOX_ID")
+    return sandbox_id if re.fullmatch(r"[A-Za-z0-9_-]+", sandbox_id) else ""
+
+
 def _mailtrap_sandbox_endpoint() -> str:
     explicit = _env("MAILTRAP_SANDBOX_API_URL")
     if explicit:
-        return explicit
-    account_id = _env("MAILTRAP_ACCOUNT_ID")
-    inbox_id = _env("MAILTRAP_INBOX_ID")
-    if account_id and inbox_id:
-        return f"https://sandbox.api.mailtrap.io/api/send/{account_id}/{inbox_id}"
-    return ""
+        return _validated_mailtrap_endpoint(
+            explicit,
+            host=MAILTRAP_SANDBOX_HOST,
+            path_pattern=r"/api/send/[A-Za-z0-9_-]+",
+        )
+    sandbox_id = _mailtrap_sandbox_id()
+    return f"https://{MAILTRAP_SANDBOX_HOST}/api/send/{sandbox_id}" if sandbox_id else ""
 
 
 def email_delivery_status() -> Dict[str, Any]:
@@ -81,6 +120,8 @@ def email_delivery_status() -> Dict[str, Any]:
     if provider in MAILTRAP_PROVIDER_NAMES:
         if not _mailtrap_token():
             missing.append("MAILTRAP_API_TOKEN")
+        if not _mailtrap_endpoint():
+            missing.append("MAILTRAP_API_URL")
         _sender_name, sender_email = _sender_parts()
         if not sender_email:
             missing.append("EMAIL_OTP_FROM")
@@ -90,7 +131,7 @@ def email_delivery_status() -> Dict[str, Any]:
         if not _mailtrap_sandbox_token():
             missing.append("MAILTRAP_SANDBOX_API_TOKEN")
         if not _mailtrap_sandbox_endpoint():
-            missing.append("MAILTRAP_SANDBOX_API_URL_OR_ACCOUNT_AND_INBOX_ID")
+            missing.append("MAILTRAP_SANDBOX_ID_OR_VALID_API_URL")
         _sender_name, sender_email = _sender_parts()
         if not sender_email:
             missing.append("EMAIL_OTP_FROM")
@@ -139,7 +180,14 @@ def email_delivery_status() -> Dict[str, Any]:
 def _message_body(code: str, expires_minutes: int) -> str:
     app_name = _env("EMAIL_OTP_APP_NAME", "MoveReady")
     login_url = _env("EMAIL_OTP_LOGIN_URL")
-    lines = [f"Your {app_name} sign-in code is {code}.", "", f"This code expires in {expires_minutes} minutes.", "", "MoveReady staff will never ask you to send this code by email, chat, or phone.", "If you did not request this code, you can safely ignore this email."]
+    lines = [
+        f"Your {app_name} sign-in code is {code}.",
+        "",
+        f"This code expires in {expires_minutes} minutes.",
+        "",
+        "MoveReady staff will never ask you to send this code by email, chat, or phone.",
+        "If you did not request this code, you can safely ignore this email.",
+    ]
     if login_url:
         lines.extend(["", f"Login page: {login_url}"])
     return "\n".join(lines)
@@ -151,47 +199,120 @@ def _message_html(code: str, expires_minutes: int) -> str:
     safe_login_url = html.escape(login_url, quote=True)
     safe_code = html.escape(code)
     login_link = f'<p><a href="{safe_login_url}">Open {app_name} login</a></p>' if login_url else ""
-    return f"""<div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827;max-width:560px"><p>Your {app_name} sign-in code is:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">{safe_code}</p><p>This code expires in {expires_minutes} minutes.</p>{login_link}<p style="color:#6b7280">MoveReady staff will never ask you to send this code by email, chat, or phone.</p><p style="color:#6b7280">If you did not request this code, you can safely ignore this email.</p></div>"""
+    return f"""
+    <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111827;max-width:560px">
+      <p>Your {app_name} sign-in code is:</p>
+      <p style="font-size:28px;font-weight:700;letter-spacing:4px">{safe_code}</p>
+      <p>This code expires in {expires_minutes} minutes.</p>
+      {login_link}
+      <p style="color:#6b7280">MoveReady staff will never ask you to send this code by email, chat, or phone.</p>
+      <p style="color:#6b7280">If you did not request this code, you can safely ignore this email.</p>
+    </div>
+    """.strip()
 
 
 def _subject() -> str:
-    return f"Your {_env('EMAIL_OTP_APP_NAME', 'MoveReady')} sign-in code"
+    app_name = _env("EMAIL_OTP_APP_NAME", "MoveReady")
+    return f"Your {app_name} sign-in code"
 
 
-def _http_email_payload(to_email: str, code: str, expires_minutes: int) -> Dict[str, Any]:
+def _mailtrap_payload(to_email: str, code: str, expires_minutes: int) -> Dict[str, Any]:
     from_name, from_email = _sender_parts()
-    payload: Dict[str, Any] = {"from": {"email": from_email, "name": from_name or "MoveReady"}, "to": [{"email": to_email}], "subject": _subject(), "text": _message_body(code, expires_minutes), "html": _message_html(code, expires_minutes), "category": "authentication"}
+    payload: Dict[str, Any] = {
+        "from": {"email": from_email, "name": from_name or "MoveReady"},
+        "to": [{"email": to_email}],
+        "subject": _subject(),
+        "text": _message_body(code, expires_minutes),
+        "html": _message_html(code, expires_minutes),
+        "category": "authentication",
+    }
     reply_name, reply_email = _reply_to_parts()
     if reply_email:
         payload["reply_to"] = {"email": reply_email, **({"name": reply_name} if reply_name else {})}
     return payload
 
 
+def _mailtrap_failure(provider: str, status: str, detail: str) -> Dict[str, Any]:
+    # Keep logs and returned diagnostics useful but free of OTPs, recipients,
+    # API tokens, response bodies, and configured endpoint values.
+    logger.warning("MoveReady OTP %s delivery failed: %s", provider, status)
+    return _public_failure(status, detail, provider=provider)
+
+
 def _post_mailtrap(endpoint: str, token: str, payload: Dict[str, Any], provider: str) -> Dict[str, Any]:
-    request = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "MoveReady-OTP/1.0"}, method="POST")
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "MoveReady-OTP/1.0",
+        },
+        method="POST",
+    )
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with urllib.request.urlopen(request, timeout=20) as response:
             body = response.read().decode("utf-8", errors="replace")
             parsed: Dict[str, Any] = {}
             try:
                 candidate = json.loads(body) if body else {}
                 parsed = candidate if isinstance(candidate, dict) else {}
             except Exception:
-                pass
-            return {"ok": True, "status": "sent", "provider": provider, "message_id": parsed.get("message_ids") or parsed.get("message_id") or parsed.get("id")}
+                parsed = {}
+            return {
+                "ok": True,
+                "status": "sent",
+                "provider": provider,
+                "message_id": parsed.get("message_ids") or parsed.get("message_id") or parsed.get("id"),
+            }
     except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
-        return _public_failure(f"{provider}_http_{exc.code}", body or str(exc), provider=provider)
-    except Exception as exc:
-        return _public_failure(f"{provider}_send_failed", str(exc), provider=provider)
+        try:
+            exc.read()
+        except Exception:
+            pass
+        return _mailtrap_failure(
+            provider,
+            f"{provider}_http_{exc.code}",
+            f"Mailtrap API returned HTTP {exc.code}.",
+        )
+    except (socket.timeout, TimeoutError):
+        return _mailtrap_failure(
+            provider,
+            f"{provider}_timeout",
+            "Mailtrap API request timed out.",
+        )
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, (socket.timeout, TimeoutError)):
+            return _mailtrap_failure(
+                provider,
+                f"{provider}_timeout",
+                "Mailtrap API request timed out.",
+            )
+        return _mailtrap_failure(
+            provider,
+            f"{provider}_connection_failed",
+            "Mailtrap API connection failed.",
+        )
+    except Exception:
+        return _mailtrap_failure(
+            provider,
+            f"{provider}_send_failed",
+            "Mailtrap API request failed.",
+        )
 
 
 def _send_mailtrap(to_email: str, code: str, expires_minutes: int) -> Dict[str, Any]:
     token = _mailtrap_token()
+    endpoint = _mailtrap_endpoint()
     _from_name, from_email = _sender_parts()
-    if not token or not from_email:
-        return _public_failure("mailtrap_not_configured", "MAILTRAP_API_TOKEN and EMAIL_OTP_FROM are required.", provider="mailtrap")
-    return _post_mailtrap(_env("MAILTRAP_API_URL", "https://send.api.mailtrap.io/api/send"), token, _http_email_payload(to_email, code, expires_minutes), "mailtrap")
+    if not token or not endpoint or not from_email:
+        return _public_failure(
+            "mailtrap_not_configured",
+            "MAILTRAP_API_TOKEN, the official Mailtrap HTTPS endpoint, and EMAIL_OTP_FROM are required.",
+            provider="mailtrap",
+        )
+    return _post_mailtrap(endpoint, token, _mailtrap_payload(to_email, code, expires_minutes), "mailtrap")
 
 
 def _send_mailtrap_sandbox(to_email: str, code: str, expires_minutes: int) -> Dict[str, Any]:
@@ -199,37 +320,56 @@ def _send_mailtrap_sandbox(to_email: str, code: str, expires_minutes: int) -> Di
     endpoint = _mailtrap_sandbox_endpoint()
     _from_name, from_email = _sender_parts()
     if not token or not endpoint or not from_email:
-        return _public_failure("mailtrap_sandbox_not_configured", "Sandbox API token, endpoint (or account/inbox IDs), and EMAIL_OTP_FROM are required.", provider="mailtrap_sandbox")
-    return _post_mailtrap(endpoint, token, _http_email_payload(to_email, code, expires_minutes), "mailtrap_sandbox")
-
+        return _public_failure(
+            "mailtrap_sandbox_not_configured",
+            "A sandbox token, sandbox ID (or valid official HTTPS endpoint), and EMAIL_OTP_FROM are required.",
+            provider="mailtrap_sandbox",
+        )
+    return _post_mailtrap(
+        endpoint,
+        token,
+        _mailtrap_payload(to_email, code, expires_minutes),
+        "mailtrap_sandbox",
+    )
 
 def _send_resend(to_email: str, code: str, expires_minutes: int) -> Dict[str, Any]:
     api_key = _env("RESEND_API_KEY")
     from_name, from_email = _sender_parts()
     if not api_key or not from_email:
         return _public_failure("resend_not_configured", "RESEND_API_KEY and EMAIL_OTP_FROM are required.", provider="resend")
-    payload: Dict[str, Any] = {"from": f"{from_name} <{from_email}>" if from_name else from_email, "to": [to_email], "subject": _subject(), "text": _message_body(code, expires_minutes), "html": _message_html(code, expires_minutes)}
+    from_value = f"{from_name} <{from_email}>" if from_name else from_email
+    payload: Dict[str, Any] = {"from": from_value, "to": [to_email], "subject": _subject(), "text": _message_body(code, expires_minutes), "html": _message_html(code, expires_minutes)}
+    _reply_name, reply_email = _reply_to_parts()
+    if reply_email:
+        payload["reply_to"] = reply_email
     request = urllib.request.Request("https://api.resend.com/emails", data=json.dumps(payload).encode("utf-8"), headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "User-Agent": "MoveReady-OTP/1.0"}, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
             body = response.read().decode("utf-8", errors="replace")
+            message_id = None
             try:
                 message_id = (json.loads(body) or {}).get("id")
             except Exception:
-                message_id = None
+                pass
             return {"ok": True, "status": "sent", "provider": "resend", "message_id": message_id}
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+        return _public_failure("resend_send_failed", body or str(exc), provider="resend")
     except Exception as exc:
         return _public_failure("resend_send_failed", str(exc), provider="resend")
 
 
 def _smtp_timeout_seconds() -> float:
     try:
-        return min(max(float(_env("SMTP_TIMEOUT_SECONDS", "8") or "8"), 2.0), 20.0)
+        value = float(_env("SMTP_TIMEOUT_SECONDS", "8") or "8")
+        return min(max(value, 2.0), 20.0)
     except Exception:
         return 8.0
 
 
 def _smtp_failure(phase: str, exc: Exception) -> Dict[str, Any]:
+    # Deliberately log only the transport phase and exception class/message.
+    # Never log credentials, recipient, sender, or OTP contents here.
     detail = f"SMTP {phase} failed: {exc.__class__.__name__}: {exc}"
     logger.warning("MoveReady OTP %s", detail)
     return _public_failure("smtp_send_failed", detail, provider="smtp")
@@ -241,37 +381,73 @@ def _send_smtp(to_email: str, code: str, expires_minutes: int) -> Dict[str, Any]
         port = int(_env("SMTP_PORT", "587") or "587")
     except Exception:
         return _public_failure("smtp_not_configured", "SMTP_PORT must be a valid integer.", provider="smtp")
-    username, password = _env("SMTP_USERNAME"), _env("SMTP_PASSWORD")
+    username = _env("SMTP_USERNAME")
+    password = _env("SMTP_PASSWORD")
     from_name, from_email = _sender_parts()
     if not from_email:
         from_email = username
     use_ssl = _env_bool("SMTP_USE_SSL", False)
     use_tls = _env_bool("SMTP_USE_TLS", not use_ssl)
     timeout = _smtp_timeout_seconds()
+
     if not host or not from_email:
         return _public_failure("smtp_not_configured", "SMTP_HOST and EMAIL_OTP_FROM are required.", provider="smtp")
     if bool(username) != bool(password):
         return _public_failure("smtp_not_configured", "SMTP_USERNAME and SMTP_PASSWORD must be set together.", provider="smtp")
-    message = EmailMessage(); message["Subject"] = _subject(); message["From"] = f"{from_name} <{from_email}>" if from_name else from_email; message["To"] = to_email; message.set_content(_message_body(code, expires_minutes)); message.add_alternative(_message_html(code, expires_minutes), subtype="html")
-    server: Optional[smtplib.SMTP] = None; phase = "connect"
+
+    message = EmailMessage()
+    message["Subject"] = _subject()
+    message["From"] = f"{from_name} <{from_email}>" if from_name else from_email
+    message["To"] = to_email
+    reply_name, reply_email = _reply_to_parts()
+    if reply_email:
+        message["Reply-To"] = f"{reply_name} <{reply_email}>" if reply_name else reply_email
+    message.set_content(_message_body(code, expires_minutes))
+    message.add_alternative(_message_html(code, expires_minutes), subtype="html")
+
+    server: Optional[smtplib.SMTP] = None
+    phase = "connect"
     try:
-        server = smtplib.SMTP_SSL(host=host, port=port, timeout=timeout, context=ssl.create_default_context()) if use_ssl else smtplib.SMTP(host=host, port=port, timeout=timeout)
-        if server.sock is not None: server.sock.settimeout(timeout)
+        if use_ssl:
+            server = smtplib.SMTP_SSL(host=host, port=port, timeout=timeout, context=ssl.create_default_context())
+        else:
+            server = smtplib.SMTP(host=host, port=port, timeout=timeout)
+
+        # Keep every subsequent socket operation bounded as well.
+        if server.sock is not None:
+            server.sock.settimeout(timeout)
+
         if use_tls and not use_ssl:
-            phase = "starttls"; server.ehlo(); server.starttls(context=ssl.create_default_context()); server.sock.settimeout(timeout) if server.sock else None; server.ehlo()
+            phase = "starttls"
+            server.ehlo()
+            server.starttls(context=ssl.create_default_context())
+            if server.sock is not None:
+                server.sock.settimeout(timeout)
+            server.ehlo()
+
         if username and password:
-            phase = "authenticate"; server.login(username, password)
-        phase = "send"; server.send_message(message); phase = "quit"
-        try: server.quit()
-        except Exception: server.close()
+            phase = "authenticate"
+            server.login(username, password)
+
+        phase = "send"
+        server.send_message(message)
+        phase = "quit"
+        try:
+            server.quit()
+        except Exception:
+            server.close()
         server = None
         return {"ok": True, "status": "sent", "provider": "smtp"}
+    except (socket.timeout, TimeoutError, smtplib.SMTPException, OSError) as exc:
+        return _smtp_failure(phase, exc)
     except Exception as exc:
         return _smtp_failure(phase, exc)
     finally:
         if server is not None:
-            try: server.close()
-            except Exception: pass
+            try:
+                server.close()
+            except Exception:
+                pass
 
 
 def deliver_login_code(to_email: str, code: str, expires_minutes: int) -> Dict[str, Any]:
@@ -281,8 +457,12 @@ def deliver_login_code(to_email: str, code: str, expires_minutes: int) -> Dict[s
     if not readiness["configured"]:
         return _public_failure("email_delivery_not_configured", ", ".join(readiness["missing_configuration"]), provider=readiness["provider"])
     provider = readiness["provider"]
-    if provider == "mailtrap": return _send_mailtrap(to_email, code, expires_minutes)
-    if provider == "mailtrap_sandbox": return _send_mailtrap_sandbox(to_email, code, expires_minutes)
-    if provider == "resend": return _send_resend(to_email, code, expires_minutes)
-    if provider == "smtp": return _send_smtp(to_email, code, expires_minutes)
+    if provider == "mailtrap":
+        return _send_mailtrap(to_email, code, expires_minutes)
+    if provider == "mailtrap_sandbox":
+        return _send_mailtrap_sandbox(to_email, code, expires_minutes)
+    if provider == "resend":
+        return _send_resend(to_email, code, expires_minutes)
+    if provider == "smtp":
+        return _send_smtp(to_email, code, expires_minutes)
     return _public_failure("email_provider_not_configured", "Set EMAIL_OTP_PROVIDER to mailtrap, mailtrap_sandbox, resend, or smtp.", provider=provider)

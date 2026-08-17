@@ -7,6 +7,7 @@ from app.services.passport_destination_detail import (
     get_destination_detail,
 )
 from app.services.passport_index_provider import clean_text
+from app.services.passport_official_sources import enrich_destination_result
 from app.utils.admin_auth import require_admin_access
 
 
@@ -39,7 +40,7 @@ def destination_detail_check():
 
     try:
         result = get_destination_detail(passport_country, destination)
-        return jsonify(result)
+        return jsonify(enrich_destination_result(result))
     except ValueError as exc:
         return jsonify({"ok": False, "status": "invalid_request", "error": _safe_error(exc)}), 400
     except LookupError as exc:
@@ -70,10 +71,12 @@ def destination_detail_admin_test():
     destination = clean_text(payload.get("destination") or "Canada", 180)
 
     try:
-        result = get_destination_detail(
-            passport_country,
-            destination,
-            force_refresh=bool(payload.get("force_refresh", True)),
+        result = enrich_destination_result(
+            get_destination_detail(
+                passport_country,
+                destination,
+                force_refresh=bool(payload.get("force_refresh", True)),
+            )
         )
         return jsonify({**result, "ok": True, "test_status": "destination_detail_test_success"})
     except Exception as exc:
