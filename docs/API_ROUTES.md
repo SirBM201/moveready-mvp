@@ -24,6 +24,7 @@ Base prefix: `/api`
 - `POST /api/readiness/document-readiness`
 - `POST /api/readiness/funds-plan`
 - `POST /api/readiness/refusal-risk`
+- `POST /api/financial-readiness/check`
 - `POST /api/relocation/checklist`
 - `POST /api/relocation/budget-estimate`
 - `GET /api/relocation/scholarships`
@@ -242,6 +243,16 @@ Returns required/recommended documents, missing items, present items, and readin
 {
   "available_funds_amount": 12000,
   "required_funds_amount": 15000,
+  "proof_of_funds_source_url": "https://authority.example/route-funds",
+  "expected_funding": 2500,
+  "costs": {
+    "fees": 500,
+    "tuition": 0,
+    "relocation": 1000,
+    "flight": 800,
+    "accommodation": 2000,
+    "settlement_reserve": 3000
+  },
   "target_timeline_months": 6,
   "family_members_count": 0,
   "currency": "EUR",
@@ -250,7 +261,50 @@ Returns required/recommended documents, missing items, present items, and readin
 }
 ```
 
-Returns adjusted funds target, shortfall, monthly savings target, and evidence warnings.
+Returns the B09 Financial Readiness contract plus the legacy funds-plan fields. Family members are recorded as context but never trigger an invented multiplier. Missing or unsourced proof-of-funds requirements fail closed, and mixed currencies are not combined.
+
+### Financial Readiness V1
+
+`POST /api/financial-readiness/check`
+
+```json
+{
+  "country_code": "FI",
+  "route_code": "study",
+  "currency": "EUR",
+  "savings": 12000,
+  "expected_funding": 3000,
+  "family_size": 3,
+  "proof_of_funds": {
+    "amount": 18000,
+    "currency": "EUR",
+    "source_url": "https://authority.example/current-funds-rule",
+    "source_title": "Current official funds instructions",
+    "source_checked_at": "2026-08-17"
+  },
+  "costs": {
+    "fees": 600,
+    "tuition": 9000,
+    "flight": 1200,
+    "accommodation": 2500,
+    "settlement_reserve": 4000
+  },
+  "target_date": "2027-08-01"
+}
+```
+
+The response preserves `route`, `estimated_costs`, and the existing cost-range `assessment` for current clients. The full `financial_plan` contains:
+
+- `contract_version=b09-v1`;
+- separate savings and expected-funding resources;
+- proof-of-funds provenance status;
+- normalized fees, tuition, relocation, flight, accommodation, and settlement-reserve categories;
+- family-size context with `context_only_no_invented_multiplier`;
+- target date/months remaining;
+- combined target, funding gap, surplus, and monthly savings target;
+- currency and source warnings.
+
+The source URL must use HTTPS. Providing a URL records a user-supplied reference; it does not claim MoveReady verification. If proof-of-funds is omitted, the full combined target remains unknown rather than treating the official requirement as zero.
 
 ### Refusal Risk
 
