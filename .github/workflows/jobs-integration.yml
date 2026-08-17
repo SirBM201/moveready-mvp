@@ -6,19 +6,24 @@ on:
     paths:
       - "app/routes/jobs.py"
       - "app/routes/job_automation.py"
+      - "app/routes/job_search_scope.py"
       - "app/routes/health.py"
       - "app/routes/account_action_center.py"
       - "app/routes/operations.py"
       - "app/routes/platform_modules.py"
       - "app/core/config.py"
       - "app/services/job_matching.py"
+      - "app/services/job_scope.py"
+      - "app/services/job_authorization.py"
       - "app/services/job_actions.py"
       - "app/services/job_discovery.py"
       - "app/services/job_documents.py"
       - "app/__init__.py"
       - "supabase/migrations/031_jobs_execution_platform.sql"
       - "supabase/migrations/032_job_discovery_and_application_assistance.sql"
+      - "supabase/migrations/034_career_search_scope_and_viability.sql"
       - "tests/test_job_matching.py"
+      - "tests/test_job_scope.py"
       - "tests/test_job_actions.py"
       - "tests/test_job_automation.py"
       - ".github/workflows/jobs-integration.yml"
@@ -27,19 +32,24 @@ on:
     paths:
       - "app/routes/jobs.py"
       - "app/routes/job_automation.py"
+      - "app/routes/job_search_scope.py"
       - "app/routes/health.py"
       - "app/routes/account_action_center.py"
       - "app/routes/operations.py"
       - "app/routes/platform_modules.py"
       - "app/core/config.py"
       - "app/services/job_matching.py"
+      - "app/services/job_scope.py"
+      - "app/services/job_authorization.py"
       - "app/services/job_actions.py"
       - "app/services/job_discovery.py"
       - "app/services/job_documents.py"
       - "app/__init__.py"
       - "supabase/migrations/031_jobs_execution_platform.sql"
       - "supabase/migrations/032_job_discovery_and_application_assistance.sql"
+      - "supabase/migrations/034_career_search_scope_and_viability.sql"
       - "tests/test_job_matching.py"
+      - "tests/test_job_scope.py"
       - "tests/test_job_actions.py"
       - "tests/test_job_automation.py"
       - ".github/workflows/jobs-integration.yml"
@@ -77,7 +87,7 @@ jobs:
         run: |
           python - <<'PY'
           from app import create_app
-          from app.routes import operations
+          from app.routes import jobs, operations
 
           app = create_app()
           client = app.test_client()
@@ -85,6 +95,7 @@ jobs:
           required = {
               "/api/jobs/options",
               "/api/jobs/profile",
+              "/api/jobs/profile/search-scope",
               "/api/jobs/profile/bootstrap",
               "/api/jobs/summary",
               "/api/jobs/companies",
@@ -100,6 +111,12 @@ jobs:
           assert required.issubset(routes), sorted(required - routes)
           assert client.get("/api/jobs/options").status_code == 401
 
+          jobs.get_verified_session_email = lambda: "general.user@example.com"
+          options = client.get("/api/jobs/options").get_json()
+          assert options["ok"] is True, options
+          assert options["options"]["search_scopes"] == ["local", "international", "both"], options
+          assert "employer_support_confirmed" in options["options"]["work_authorization_requirements"], options
+
           build = client.get("/api/build-info").get_json()
           assert build["features"]["jobs_workspace"] is True
           assert build["features"]["jobs_official_source_monitoring"] is True
@@ -109,7 +126,8 @@ jobs:
 
           modules = {item["slug"]: item for item in client.get("/api/platform/modules").get_json()["modules"]}
           assert modules["jobs"]["availability"] == "available"
-          assert "migrations 031 and 032" in modules["jobs"]["current_support"].lower()
+          support = modules["jobs"]["current_support"].lower()
+          assert "migrations 031, 032, and 034" in support, support
 
           schema_codes = {item["code"] for item in operations.SCHEMA_CHECKS}
           assert {
@@ -127,6 +145,12 @@ jobs:
               "job_application_assistance",
               "job_assistance_events",
           }.issubset(schema_codes)
+          profile_check = next(item for item in operations.SCHEMA_CHECKS if item["code"] == "job_search_profiles")
+          jobs_check = next(item for item in operations.SCHEMA_CHECKS if item["code"] == "jobs")
+          assert "search_scope" in profile_check["columns"], profile_check
+          assert "work_authorized_countries" in profile_check["columns"], profile_check
+          assert "work_authorization_requirement" in jobs_check["columns"], jobs_check
+          assert "034_career_search_scope_and_viability.sql" in profile_check["migration"], profile_check
           PY
 
       - name: Verify private schema and storage safeguards
@@ -169,4 +193,16 @@ jobs:
               assert f"grant all privileges on table public.{table} to service_role" in automation, table
           assert "no automatic submission" in automation
           assert "user_confirmations" in automation
+
+          scope = Path("supabase/migrations/034_career_search_scope_and_viability.sql").read_text(encoding="utf-8").lower()
+          for column in [
+              "search_scope",
+              "current_country",
+              "work_authorized_countries",
+              "work_authorization_requirement",
+              "sponsorship_evidence",
+              "relocation_support_status",
+          ]:
+              assert column in scope, column
+          assert "('local', 'international', 'both')" in scope
           PY

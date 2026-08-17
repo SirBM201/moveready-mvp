@@ -195,9 +195,9 @@ SCHEMA_CHECKS = [
     {
         "code": "job_search_profiles",
         "table": "relocation_job_search_profiles",
-        "columns": "id,email,headline,primary_country,career_facts,is_active",
-        "required_for": "private job-search targeting and matching",
-        "migration": "031_jobs_execution_platform.sql and 032_job_discovery_and_application_assistance.sql",
+        "columns": "id,email,headline,primary_country,career_facts,search_scope,current_country,work_authorized_countries,is_active",
+        "required_for": "private general-user job-search scope, targeting, and matching",
+        "migration": "031_jobs_execution_platform.sql, 032_job_discovery_and_application_assistance.sql, and 034_career_search_scope_and_viability.sql",
         "critical": False,
     },
     {
@@ -227,9 +227,9 @@ SCHEMA_CHECKS = [
     {
         "code": "jobs",
         "table": "relocation_jobs",
-        "columns": "id,job_title,country,status,source_status,source_fingerprint,last_checked_at",
-        "required_for": "vacancy recording and job matching",
-        "migration": "031_jobs_execution_platform.sql and 032_job_discovery_and_application_assistance.sql",
+        "columns": "id,job_title,country,status,source_status,source_fingerprint,last_checked_at,work_authorization_requirement,sponsorship_evidence,relocation_support_status",
+        "required_for": "vacancy recording, scope matching, and source-derived work-authorization truth",
+        "migration": "031_jobs_execution_platform.sql, 032_job_discovery_and_application_assistance.sql, and 034_career_search_scope_and_viability.sql",
         "critical": False,
     },
     {
@@ -423,7 +423,7 @@ def public_operations_status():
                 "application_timeline_tasks": "explicit_storage_confirmation_required",
                 "account_settings_and_privacy": "verified_account_only_after_migration_030",
                 "account_data_export": "verified_account_json_export_excluding_security_secrets",
-                "jobs_workspace": "verified_account_only_after_migration_031",
+                "jobs_workspace": "verified_account_only_after_migrations_031_032_034",
                 "resume_vault": "private_files_signed_downloads_after_migration_031",
                 "commercial_quote_requests": bool(configuration.get("commercial_quotes_enabled")),
                 "online_checkout": bool(configuration.get("payment_links_enabled")),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from app.services.job_scope import JOB_PROFILE_COLUMNS
 from app.services.job_visibility import job_is_visible_to_account
 from app.services.supabase_client import get_supabase
 
@@ -13,7 +14,12 @@ def _first_row(query: Any) -> Optional[Dict[str, Any]]:
 
 
 def _safe_profile(email: str) -> Optional[Dict[str, Any]]:
-    return _first_row(get_supabase().table("relocation_job_search_profiles").select("*").eq("email", email))
+    return _first_row(
+        get_supabase()
+        .table("relocation_job_search_profiles")
+        .select(JOB_PROFILE_COLUMNS)
+        .eq("email", email)
+    )
 
 
 def _safe_owned_row(table: str, record_id: str, email: str) -> Optional[Dict[str, Any]]:

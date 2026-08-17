@@ -117,7 +117,7 @@ PLATFORM_MODULES: List[Dict[str, Any]] = [
         "availability": "available",
         "flag": None,
         "summary": "Research target employers and recruiters, record vacancies, track applications, manage resume versions, and prepare for interviews.",
-        "current_support": "The verified-account Jobs workspace, private Resume Vault, official-source vacancy monitors, truthful drafts, alerts, and controlled employer-page handoff are implemented. Migrations 031 and 032 are required for storage.",
+        "current_support": "The verified-account Jobs workspace, private Resume Vault, official-source vacancy monitors, truthful drafts, alerts, and controlled employer-page handoff are implemented. Migrations 031, 032, and 034_career_search_scope_and_viability are required for storage and the general-user search contract.",
     },
     {
         "slug": "legalization",
