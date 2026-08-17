@@ -94,3 +94,57 @@ The harness printed neither the OTP nor the session token, and uploaded or store
 - do not run the B17 comprehensive regression;
 - do not upload real passports, bank statements, certificates, or refusal letters;
 - do not paste session tokens or OTPs into chat, screenshots, issues, logs, or repository files.
+
+## B04 — Authentication delivery hardening
+
+### Scope
+
+- reconcile stale PR #13 with current authentication and delivery code;
+- add Railway-compatible Mailtrap Sandbox HTTPS transport for bounded test/staging use;
+- preserve production Mailtrap, Resend, SMTP, reply-to, timeout, and fail-closed authentication behavior;
+- constrain Mailtrap API credentials and OTP payloads to official HTTPS hosts and exact send paths;
+- provide bounded, secret-free failure diagnostics;
+- document the production/sandbox environment boundary.
+
+### Implementation
+
+Status: **PASS**
+
+- pull request: #13, refreshed against current `main`;
+- merge commit: `3739f9338c26753b141627d62510e02f0d6d4668`;
+- production Mailtrap provider remains `EMAIL_OTP_PROVIDER=mailtrap`;
+- test/staging sandbox provider is `EMAIL_OTP_PROVIDER=mailtrap_sandbox`;
+- current sandbox send contract uses `/api/send/{sandbox_id}`;
+- arbitrary/custom hosts are rejected before any network request;
+- Mailtrap HTTP, connection, and timeout failures do not expose API tokens, recipients, OTPs, provider response bodies, or configured endpoints;
+- stale unrelated Resend/SMTP rewrites were removed from the final PR diff.
+
+### Targeted validation
+
+| Check | Result |
+| --- | --- |
+| Python compile | PASS |
+| Sandbox readiness and HTTPS payload contract | PASS |
+| Untrusted sandbox endpoint rejected before network | PASS |
+| HTTP failure diagnostic redaction | PASS |
+| Timeout diagnostic redaction | PASS |
+| Production Mailtrap path and reply-to regression | PASS |
+| Mailtrap HTTPS API OTP Integration workflow | PASS |
+| Backend Smoke Test workflow | PASS |
+| Auth and Provider Handoff Integration workflow | PASS |
+
+The bounded unit suite completed with 5 PASS / 0 FAIL. GitHub Actions run `32002802923` completed successfully, including the OTP route fail-closed assertion. No live OTP was sent by the automated B04 tests.
+
+### Manual actions
+
+- SQL: none for B04;
+- current Railway production variables: no change required while production remains on the already-working `mailtrap` provider;
+- do not set `EMAIL_OTP_PROVIDER=mailtrap_sandbox` in public production because sandbox messages are captured rather than delivered;
+- optional test/staging variables: `MAILTRAP_SANDBOX_API_TOKEN` and `MAILTRAP_SANDBOX_ID`;
+- blocker: none.
+
+### Next batch boundary
+
+- B04 is closed and B05 may begin;
+- do not run the B17 comprehensive regression;
+- do not expose OTPs, session tokens, API tokens, recipient addresses, or provider response bodies in chat, screenshots, issues, logs, or repository files.
