@@ -14,6 +14,16 @@ from werkzeug.utils import secure_filename
 from app.services.account_identity import get_verified_session_email
 from app.services.job_actions import build_job_actions, company_target_status, count_job_actions
 from app.services.job_matching import rank_jobs
+from app.services.job_scope import (
+    JOB_PROFILE_COLUMNS,
+    RELOCATION_SUPPORT_STATUSES,
+    SEARCH_SCOPES,
+    WORK_AUTHORIZATION_REQUIREMENTS,
+    country_is_in_scope,
+    default_job_country,
+    profile_scope_contract,
+    profile_scope_update,
+)
 from app.services.job_visibility import job_is_visible_to_account
 from app.services.supabase_client import get_supabase
 
@@ -145,7 +155,7 @@ def _database_error(action: str, error: Exception):
     return jsonify({
         "ok": False,
         "error": "jobs_schema_unavailable",
-        "hint": "Apply Supabase migration 031, refresh the schema, and retry.",
+        "hint": "Apply Supabase migrations 031, 032, and 034_career_search_scope_and_viability.sql, refresh the schema, and retry.",
     }), 503
 
 
@@ -153,7 +163,7 @@ def _profile(email: str) -> Optional[Dict[str, Any]]:
     response = (
         get_supabase()
         .table("relocation_job_search_profiles")
-        .select("*")
+        .select(JOB_PROFILE_COLUMNS)
         .eq("email", email)
         .maybe_single()
         .execute()
@@ -323,6 +333,9 @@ def jobs_options():
             "source_statuses": SOURCE_STATUSES,
             "sponsorship_statuses": SPONSORSHIP_STATUSES,
             "work_authorization_statuses": WORK_AUTHORIZATION_STATUSES,
+            "search_scopes": list(SEARCH_SCOPES),
+            "work_authorization_requirements": list(WORK_AUTHORIZATION_REQUIREMENTS),
+            "relocation_support_statuses": list(RELOCATION_SUPPORT_STATUSES),
         },
         "storage": {"max_file_bytes": MAX_RESUME_BYTES, "allowed_mime_types": sorted(ALLOWED_RESUME_MIME_TYPES)},
     })
@@ -334,7 +347,12 @@ def get_job_profile():
     if error:
         return error
     try:
-        return jsonify({"ok": True, "profile": _profile(email)})
+        profile = _profile(email)
+        return jsonify({
+            "ok": True,
+            "profile": profile,
+            "search_contract": profile_scope_contract(profile),
+        })
     except Exception as exc:
         return _database_error("load profile", exc)
 
@@ -371,6 +389,19 @@ def update_job_profile():
     for field in ("target_roles", "skills", "later_countries", "preferred_provinces", "career_facts"):
         if field in payload:
             row[field] = _string_list(payload.get(field), 30, 360 if field == "career_facts" else 120)
+
+    scope_row, scope_contract, scope_error = profile_scope_update(
+        payload,
+        {**(existing_profile or {}), **row},
+    )
+    if scope_error:
+        return jsonify({
+            "ok": False,
+            "error": scope_error,
+            "search_contract": scope_contract,
+        }), 400
+    row.update(scope_row)
+
     if "work_authorization_status" in payload:
         status = _text(payload.get("work_authorization_status"), 80)
         if status not in WORK_AUTHORIZATION_STATUSES:
@@ -386,7 +417,11 @@ def update_job_profile():
             .execute()
         )
         profile = (response.data or [None])[0] or _profile(email)
-        return jsonify({"ok": True, "profile": profile})
+        return jsonify({
+            "ok": True,
+            "profile": profile,
+            "search_contract": profile_scope_contract(profile),
+        })
     except Exception as exc:
         return _database_error("update profile", exc)
 
@@ -425,6 +460,9 @@ def bootstrap_founder_profile():
                         "startup and restart optimization",
                     ],
                     "career_facts": [],
+                    "search_scope": "both",
+                    "current_country": "Kuwait",
+                    "work_authorized_countries": [],
                     "primary_country": "Canada",
                     "later_countries": ["Portugal", "Finland", "Germany", "Australia", "New Zealand"],
                     "preferred_provinces": ["Ontario", "Manitoba"],
@@ -435,10 +473,18 @@ def bootstrap_founder_profile():
             profile = (response.data or [None])[0] or _profile(email)
             created = True
 
+        search_contract = profile_scope_contract(profile)
+        if not search_contract["ready"]:
+            return jsonify({
+                "ok": False,
+                "error": "job_search_scope_incomplete",
+                "search_contract": search_contract,
+            }), 409
+
         companies = (
             get_supabase()
             .table("relocation_job_companies")
-            .select("id")
+            .select("id,country")
             .eq("is_curated", True)
             .execute()
         ).data or []
@@ -454,6 +500,7 @@ def bootstrap_founder_profile():
             {"email": email, "company_id": row.get("id"), "priority": "high", "status": "researching"}
             for row in companies
             if str(row.get("id")) not in existing_ids
+            and country_is_in_scope(row.get("country"), profile)
         ]
         if new_targets:
             get_supabase().table("relocation_job_company_targets").insert(new_targets).execute()
@@ -566,13 +613,19 @@ def create_company():
     career_page = _url(payload.get("career_page"))
     if payload.get("website") and not website or payload.get("career_page") and not career_page:
         return jsonify({"ok": False, "error": "company_urls_must_use_http_or_https"}), 400
+    try:
+        country = _text(payload.get("country"), 100) or default_job_country(_profile(email))
+    except Exception as exc:
+        return _database_error("load profile for company", exc)
+    if not country:
+        return jsonify({"ok": False, "error": "company_country_required"}), 400
     row = {
         "owner_email": email,
         "is_curated": False,
         "company_name": name,
         "slug": f"{_slug(name)}-{secrets.token_hex(4)}",
         "industry": industry,
-        "country": _text(payload.get("country"), 100) or "Canada",
+        "country": country,
         "province": _text(payload.get("province"), 100),
         "website": website,
         "career_page": career_page,
@@ -779,6 +832,20 @@ def _job_row(payload: Dict[str, Any], email: str, partial: bool = False) -> Tupl
         if sponsorship not in SPONSORSHIP_STATUSES:
             return {}, "invalid_visa_sponsorship_status"
         row["visa_sponsorship_status"] = sponsorship
+    if "work_authorization_requirement" in payload:
+        requirement = _text(payload.get("work_authorization_requirement"), 50)
+        if requirement not in WORK_AUTHORIZATION_REQUIREMENTS:
+            return {}, "invalid_work_authorization_requirement"
+        row["work_authorization_requirement"] = requirement
+    if "relocation_support_status" in payload:
+        relocation = _text(payload.get("relocation_support_status"), 40)
+        if relocation not in RELOCATION_SUPPORT_STATUSES:
+            return {}, "invalid_relocation_support_status"
+        row["relocation_support_status"] = relocation
+    if "sponsorship_evidence" in payload:
+        row["sponsorship_evidence"] = _text(
+            payload.get("sponsorship_evidence"), 1000
+        )
     if "status" in payload:
         status = _text(payload.get("status"), 40)
         if status not in JOB_STATUSES:
@@ -805,7 +872,13 @@ def create_job():
     if validation_error:
         return jsonify({"ok": False, "error": validation_error}), 400
     if not row.get("country"):
-        row["country"] = "Canada"
+        try:
+            profile = _profile(email)
+        except Exception as exc:
+            return _database_error("load profile before creating job", exc)
+        row["country"] = default_job_country(profile)
+    if not row.get("country"):
+        return jsonify({"ok": False, "error": "job_country_required"}), 400
     try:
         if row.get("company_id") and not _visible_company(str(row["company_id"]), email):
             return jsonify({"ok": False, "error": "company_not_found"}), 404
@@ -947,7 +1020,10 @@ def create_job_application():
         row, link_error = _resolve_application_links(row, email)
         if link_error:
             return jsonify({"ok": False, "error": link_error}), 400
-        row.setdefault("country", "Canada")
+        if not row.get("country"):
+            row["country"] = default_job_country(_profile(email))
+        if not row.get("country"):
+            return jsonify({"ok": False, "error": "application_country_required"}), 400
         if row.get("job_id"):
             existing = (
                 get_supabase()

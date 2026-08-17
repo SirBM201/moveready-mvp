@@ -21,12 +21,20 @@ from app.services.job_discovery import (
     source_host_is_allowed,
     validate_public_https_url,
 )
+from app.services.job_authorization import extract_authorization_signals
 from app.services.job_documents import (
     approval_confirmations_are_complete,
     build_application_drafts,
     extract_resume_text,
 )
-from app.services.job_matching import rank_jobs, score_job
+from app.services.job_matching import rank_jobs
+from app.services.job_scope import (
+    country_is_in_scope,
+    default_job_country,
+    profile_scope_contract,
+    ranked_job_is_alertable,
+    ranked_job_is_handoff_ready,
+)
 from app.services.job_visibility import job_is_visible_to_account
 from app.services.supabase_client import get_supabase
 from app.utils.admin_auth import require_admin_access
@@ -70,7 +78,7 @@ def _database_error(action: str, error: Exception):
     return jsonify({
         "ok": False,
         "error": "jobs_automation_schema_unavailable",
-        "hint": "Apply Supabase migration 032, refresh the schema, and retry.",
+        "hint": "Apply Supabase migrations 031, 032, and 034_career_search_scope_and_viability.sql, refresh the schema, and retry.",
     }), 503
 
 
@@ -217,7 +225,17 @@ def _watch_row(payload: Dict[str, Any], email: str, *, partial: bool = False) ->
             return {}, "custom_company_monitor_requires_supported_public_ats"
         row["source_url"] = source_url
         row["watch_name"] = _text(payload.get("watch_name"), 180) or f"{company.get('company_name')} careers"
-        row["country"] = _text(payload.get("country"), 100) or str(company.get("country") or "Canada")
+        profile = _profile(email)
+        country = (
+            _text(payload.get("country"), 100)
+            or _text(company.get("country"), 100)
+            or default_job_country(profile)
+        )
+        if not country:
+            return {}, "watch_country_required"
+        if not country_is_in_scope(country, profile):
+            return {}, "watch_country_outside_search_scope"
+        row["country"] = country
         row["province"] = _text(payload.get("province"), 100) or company.get("province")
 
     if "source_type" in payload or not partial:
@@ -261,30 +279,82 @@ def _public_watch(row: Dict[str, Any], companies: Dict[str, Dict[str, Any]]) -> 
 
 def _application_readiness(email: str, assistance: Dict[str, Any]) -> Dict[str, Any]:
     job = _visible_job(str(assistance.get("job_id") or ""), email)
-    application = _owned("relocation_job_applications", str(assistance.get("application_id") or ""), email)
+    application = _owned(
+        "relocation_job_applications",
+        str(assistance.get("application_id") or ""),
+        email,
+    )
     approved = (
         get_supabase().table("relocation_job_document_drafts")
-        .select("draft_type,status").eq("email", email).eq("job_id", assistance.get("job_id"))
+        .select("draft_type,status").eq("email", email)
+        .eq("job_id", assistance.get("job_id"))
         .in_("status", ["approved", "exported"]).execute()
     ).data or []
     approved_types = {str(row.get("draft_type")) for row in approved}
-    url = str((job or {}).get("job_url") or (application or {}).get("job_url") or "")
+    url = str(
+        (job or {}).get("job_url")
+        or (application or {}).get("job_url")
+        or ""
+    )
     parsed = urlparse(url)
+    ranked_job = (
+        rank_jobs([job], _profile(email))[0]
+        if job
+        else {"application_priority": "profile_incomplete"}
+    )
+    priority = str(ranked_job.get("application_priority") or "")
     checks = [
-        {"code": "job_available", "label": "Vacancy is still recorded as open", "passed": bool(job and job.get("status") in {"open", "discovered"})},
-        {"code": "official_link", "label": "Official HTTPS vacancy link is available", "passed": parsed.scheme == "https" and bool(parsed.netloc)},
-        {"code": "application_saved", "label": "Opportunity is saved in Applications", "passed": bool(application)},
-        {"code": "tailored_resume_approved", "label": "Tailored resume was reviewed and approved", "passed": "tailored_resume" in approved_types},
-        {"code": "cover_letter_approved", "label": "Cover letter was reviewed and approved", "passed": "cover_letter" in approved_types},
+        {
+            "code": "job_available",
+            "label": "Vacancy is still recorded as open",
+            "passed": bool(
+                job and job.get("status") in {"open", "discovered"}
+            ),
+        },
+        {
+            "code": "search_scope",
+            "label": "Vacancy is inside the user's selected search countries",
+            "passed": priority != "out_of_scope",
+        },
+        {
+            "code": "work_authorization",
+            "label": "Work authorization or employer support is sufficiently recorded",
+            "passed": ranked_job_is_handoff_ready(ranked_job),
+        },
+        {
+            "code": "official_link",
+            "label": "Official HTTPS vacancy link is available",
+            "passed": parsed.scheme == "https" and bool(parsed.netloc),
+        },
+        {
+            "code": "application_saved",
+            "label": "Opportunity is saved in Applications",
+            "passed": bool(application),
+        },
+        {
+            "code": "tailored_resume_approved",
+            "label": "Tailored resume was reviewed and approved",
+            "passed": "tailored_resume" in approved_types,
+        },
+        {
+            "code": "cover_letter_approved",
+            "label": "Cover letter was reviewed and approved",
+            "passed": "cover_letter" in approved_types,
+        },
     ]
     return {
         "ready": all(item["passed"] for item in checks),
         "checks": checks,
-        "official_url": url if parsed.scheme == "https" and parsed.netloc else None,
-        "safety_note": "MoveReady opens the employer site only. It does not submit forms, answer declarations, or claim an application was sent.",
+        "official_url": (
+            url if parsed.scheme == "https" and parsed.netloc else None
+        ),
+        "application_priority": priority,
+        "viability_reasons": ranked_job.get("viability_reasons") or [],
+        "safety_note": (
+            "MoveReady opens the employer site only. It does not submit forms, "
+            "answer declarations, or claim an application was sent."
+        ),
     }
-
-
 def _refresh_assistance(email: str, assistance: Dict[str, Any]) -> Dict[str, Any]:
     readiness = _application_readiness(email, assistance)
     current_status = str(assistance.get("status") or "preparing")
@@ -324,7 +394,7 @@ def _prepare_assistance(email: str, job: Dict[str, Any]) -> Tuple[Dict[str, Any]
             "recruiter_id": job.get("recruiter_id"),
             "job_title": job.get("job_title"),
             "company_name": company_name,
-            "country": job.get("country") or "Canada",
+            "country": job.get("country") or default_job_country(_profile(email)),
             "province": job.get("province"),
             "job_url": job.get("job_url"),
             "status": "saved",
@@ -362,6 +432,41 @@ def _scan_watch(watch: Dict[str, Any], *, trigger_type: str) -> Dict[str, Any]:
         "last_scan_status": "running",
         "last_error": None,
     }).eq("id", watch_id).eq("email", email).execute()
+
+    profile = _profile(email)
+    contract = profile_scope_contract(profile)
+    skip_reason = None
+    if not contract["ready"]:
+        skip_reason = "job_profile_scope_incomplete"
+    elif not country_is_in_scope(watch.get("country"), profile):
+        skip_reason = "watch_country_outside_search_scope"
+    if skip_reason:
+        completed_at = _now_iso()
+        supabase.table("relocation_job_scan_runs").update({
+            "status": "completed",
+            "source_adapter": "scope_gate",
+            "completed_at": completed_at,
+        }).eq("id", run.get("id")).eq("email", email).execute()
+        supabase.table("relocation_job_watches").update({
+            "last_scan_at": completed_at,
+            "next_scan_at": _next_scan(str(watch.get("cadence") or "manual")),
+            "last_scan_status": "completed",
+            "last_error": None,
+            "last_result_count": 0,
+            "consecutive_failures": 0,
+        }).eq("id", watch_id).eq("email", email).execute()
+        return {
+            "watch_id": watch_id,
+            "status": "completed",
+            "adapter": "scope_gate",
+            "skipped": True,
+            "skip_reason": skip_reason,
+            "new": 0,
+            "changed": 0,
+            "closed": 0,
+            "alerts": 0,
+        }
+
     new_count = changed_count = closed_count = alert_count = 0
     adapter = detect_adapter(str(watch.get("source_url") or ""), str(watch.get("source_type") or "auto"))
     try:
@@ -370,7 +475,6 @@ def _scan_watch(watch: Dict[str, Any], *, trigger_type: str) -> Dict[str, Any]:
         company = _visible_company(str(watch.get("company_id") or ""), email) or {}
         company_name = str(company.get("company_name") or "Employer")
         allowed_job_hosts = [str(watch.get("source_url") or ""), str(company.get("website") or ""), str(company.get("career_page") or "")]
-        profile = _profile(email)
         seen_fingerprints = set()
         for candidate in fetched.get("jobs") or []:
             if not source_host_is_allowed(str(candidate.get("job_url") or ""), allowed_job_hosts):
@@ -416,44 +520,108 @@ def _scan_watch(watch: Dict[str, Any], *, trigger_type: str) -> Dict[str, Any]:
                 "last_checked_at": now_iso,
                 "metadata": metadata,
             }
+            authorization = extract_authorization_signals(base_row)
+            base_row.update({
+                "work_authorization_requirement": authorization[
+                    "work_authorization_requirement"
+                ],
+                "visa_sponsorship_status": authorization[
+                    "visa_sponsorship_status"
+                ],
+                "relocation_support_status": authorization[
+                    "relocation_support_status"
+                ],
+                "sponsorship_evidence": authorization.get(
+                    "sponsorship_evidence"
+                ),
+            })
+            base_row["metadata"] = {
+                **metadata,
+                "authorization_evidence": authorization.get(
+                    "authorization_evidence"
+                ),
+                "authorization_signal_source": "official_vacancy_text",
+            }
             if existing:
                 prior_hash = str(existing.get("source_content_hash") or "")
                 prior_status = str(existing.get("status") or "open")
-                merged_metadata = {**(existing.get("metadata") if isinstance(existing.get("metadata"), dict) else {}), **metadata}
+                merged_metadata = {
+                    **(
+                        existing.get("metadata")
+                        if isinstance(existing.get("metadata"), dict)
+                        else {}
+                    ),
+                    **base_row["metadata"],
+                }
                 base_row["metadata"] = merged_metadata
                 response = (
                     supabase.table("relocation_jobs").update(base_row)
                     .eq("id", existing.get("id")).eq("owner_email", email).execute()
                 )
                 job = (response.data or [None])[0] or {**existing, **base_row}
-                if prior_status in {"closed", "expired"}:
+                ranked_existing = rank_jobs([job], profile)[0]
+                alertable = ranked_job_is_alertable(
+                    ranked_existing,
+                    int(watch.get("min_match_score") or 0),
+                )
+                if prior_status in {"closed", "expired"} and alertable:
                     _alert, created = _create_alert(
-                        email=email, watch_id=watch_id, job_id=str(job.get("id")), alert_type="job_reopened",
-                        severity="action", title=f"Reopened: {job.get('job_title')}",
-                        summary=f"{company_name} lists this vacancy again. Recheck the official page before preparing an application.",
-                        source_url=job.get("job_url"), marker=content_hash,
+                        email=email,
+                        watch_id=watch_id,
+                        job_id=str(job.get("id")),
+                        alert_type="job_reopened",
+                        severity="action",
+                        title=f"Reopened: {job.get('job_title')}",
+                        summary=(
+                            f"{company_name} lists this in-scope vacancy again. "
+                            "Recheck the official page before preparing an application."
+                        ),
+                        source_url=job.get("job_url"),
+                        marker=content_hash,
                     )
                     alert_count += int(created)
                 elif prior_hash and prior_hash != content_hash:
                     changed_count += 1
-                    _alert, created = _create_alert(
-                        email=email, watch_id=watch_id, job_id=str(job.get("id")), alert_type="job_changed",
-                        severity="action", title=f"Vacancy changed: {job.get('job_title')}",
-                        summary=f"The official {company_name} vacancy content changed. Review the source before using an earlier application draft.",
-                        source_url=job.get("job_url"), marker=content_hash,
-                    )
-                    alert_count += int(created)
+                    if alertable:
+                        _alert, created = _create_alert(
+                            email=email,
+                            watch_id=watch_id,
+                            job_id=str(job.get("id")),
+                            alert_type="job_changed",
+                            severity="action",
+                            title=f"Vacancy changed: {job.get('job_title')}",
+                            summary=(
+                                f"The official {company_name} in-scope vacancy changed. "
+                                "Review the source before using an earlier application draft."
+                            ),
+                            source_url=job.get("job_url"),
+                            marker=content_hash,
+                        )
+                        alert_count += int(created)
             else:
                 base_row["first_seen_at"] = now_iso
                 job = (supabase.table("relocation_jobs").insert(base_row).execute().data or [None])[0]
                 new_count += 1
-                match_score, reasons = score_job(job, profile)
-                if match_score >= int(watch.get("min_match_score") or 0):
+                ranked_job = rank_jobs([job], profile)[0]
+                match_score = int(ranked_job.get("match_score") or 0)
+                if ranked_job_is_alertable(
+                    ranked_job,
+                    int(watch.get("min_match_score") or 0),
+                ):
+                    reasons = ranked_job.get("viability_reasons") or []
                     _alert, created = _create_alert(
-                        email=email, watch_id=watch_id, job_id=str(job.get("id")), alert_type="new_match",
-                        severity="action", title=f"New {match_score}% match: {job.get('job_title')}",
-                        summary=f"{company_name} published a potential match. {reasons[0] if reasons else 'Review the official vacancy.'}",
-                        source_url=job.get("job_url"), marker=fingerprint,
+                        email=email,
+                        watch_id=watch_id,
+                        job_id=str(job.get("id")),
+                        alert_type="new_match",
+                        severity="action",
+                        title=f"New {match_score}% match: {job.get('job_title')}",
+                        summary=(
+                            f"{company_name} published an in-scope match. "
+                            f"{reasons[0] if reasons else 'Review the official vacancy.'}"
+                        ),
+                        source_url=job.get("job_url"),
+                        marker=fingerprint,
                     )
                     alert_count += int(created)
 
@@ -637,6 +805,13 @@ def bootstrap_watches():
             .eq("email", email).execute()
         ).data or []
         profile = _profile(email)
+        contract = profile_scope_contract(profile)
+        if not contract["ready"]:
+            return jsonify({
+                "ok": False,
+                "error": "job_profile_scope_incomplete",
+                "search_contract": contract,
+            }), 409
         keywords = _watch_keywords(profile)
         created = updated = skipped = 0
         for target in targets[:30]:
@@ -657,6 +832,13 @@ def bootstrap_watches():
                 supabase.table("relocation_job_watches").select("*")
                 .eq("email", email).eq("source_url", source_url).maybe_single().execute()
             ).data
+            company_country = (
+                _text(company.get("country"), 100)
+                or default_job_country(profile)
+            )
+            if not country_is_in_scope(company_country, profile):
+                skipped += 1
+                continue
             row = {
                 "email": email,
                 "company_id": company.get("id"),
@@ -664,7 +846,7 @@ def bootstrap_watches():
                 "source_url": source_url,
                 "source_type": "auto",
                 "keywords": keywords,
-                "country": company.get("country") or (profile or {}).get("primary_country") or "Canada",
+                "country": company_country,
                 "province": company.get("province"),
                 "cadence": "daily",
                 "next_scan_at": _now_iso(),

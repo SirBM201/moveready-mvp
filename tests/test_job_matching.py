@@ -18,6 +18,7 @@ PROFILE = {
     "target_roles": ["Production Supervisor", "PET Injection Moulding Specialist", "Injection Moulding Process Technician"],
     "skills": ["PET preforms", "injection moulding", "Husky", "process troubleshooting"],
     "primary_country": "Canada",
+    "later_countries": ["Germany", "Portugal"],
     "preferred_provinces": ["Ontario", "Manitoba"],
     "years_experience": 19,
     "search_scope": "both",
@@ -37,6 +38,27 @@ class JobMatchingTests(unittest.TestCase):
         score, reasons = score_job({"job_title": "Injection Molding Process Technician", "skills": ["injection molding"], "country": "Canada", "status": "open"}, PROFILE)
         self.assertGreater(score, 40)
         self.assertTrue(reasons)
+
+    def test_general_user_roles_do_not_receive_manufacturing_bias(self):
+        care_profile = {
+            **PROFILE,
+            "target_roles": ["Care Assistant"],
+            "skills": ["patient care", "mobility support"],
+        }
+        care_score, _ = score_job({
+            "job_title": "Care Assistant",
+            "skills": ["patient care"],
+            "country": "Kuwait",
+            "status": "open",
+        }, care_profile)
+        unrelated_score, reasons = score_job({
+            "job_title": "PET Production Operator",
+            "skills": [],
+            "country": "Canada",
+            "status": "open",
+        }, care_profile)
+        self.assertGreater(care_score, unrelated_score)
+        self.assertFalse(any("manufacturing field" in reason for reason in reasons))
 
     def test_missing_profile_does_not_invent_a_match(self):
         score, reasons = score_job({"job_title": "Production Supervisor"}, None)
@@ -110,6 +132,30 @@ class JobMatchingTests(unittest.TestCase):
         self.assertEqual(viability, 80)
         self.assertEqual(priority, "recommended")
         self.assertIn("Local vacancy", reasons[0])
+
+    def test_local_job_without_recorded_authorization_requires_verification(self):
+        profile = {**PROFILE, "work_authorized_countries": []}
+        viability, priority, reasons = application_viability(
+            {"country": "Kuwait"}, profile, 80
+        )
+        self.assertEqual(viability, 50)
+        self.assertEqual(priority, "verify_authorization")
+        self.assertIn("not recorded", reasons[0])
+
+    def test_foreign_country_outside_targets_is_out_of_scope(self):
+        viability, priority, _ = application_viability(
+            {"country": "United States"}, PROFILE, 90
+        )
+        self.assertEqual(viability, 0)
+        self.assertEqual(priority, "out_of_scope")
+
+    def test_incomplete_scope_profile_fails_closed(self):
+        profile = {**PROFILE, "current_country": None}
+        viability, priority, _ = application_viability(
+            {"country": "Canada"}, profile, 90
+        )
+        self.assertEqual(viability, 0)
+        self.assertEqual(priority, "profile_incomplete")
 
     def test_local_only_scope_rejects_foreign_vacancy(self):
         profile = {**PROFILE, "search_scope": "local"}
