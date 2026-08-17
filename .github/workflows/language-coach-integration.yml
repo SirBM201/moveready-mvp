@@ -36,6 +36,149 @@ permissions:
   contents: read
 
 jobs:
+  migration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: moveready_fresh
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Supabase database roles
+        run: |
+          psql --dbname moveready_fresh --set ON_ERROR_STOP=1 <<'SQL'
+          create role anon nologin;
+          create role authenticated nologin;
+          create role service_role nologin bypassrls;
+          SQL
+
+      - name: Apply migration 039 twice on a fresh database
+        run: |
+          psql --dbname moveready_fresh --set ON_ERROR_STOP=1 \
+            --file supabase/migrations/039_language_coach_backend_completion.sql
+          psql --dbname moveready_fresh --set ON_ERROR_STOP=1 \
+            --file supabase/migrations/039_language_coach_backend_completion.sql
+
+      - name: Verify fresh-install schema, seed, RLS, and grants
+        run: |
+          psql --dbname moveready_fresh --set ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare
+            table_name text;
+            question_count integer;
+          begin
+            foreach table_name in array array[
+              'relocation_language_profiles',
+              'relocation_language_questions',
+              'relocation_language_attempts',
+              'relocation_language_mistakes',
+              'relocation_language_daily_progress'
+            ]
+            loop
+              if to_regclass('public.' || table_name) is null then
+                raise exception 'missing table: %', table_name;
+              end if;
+
+              if not (
+                select relrowsecurity
+                from pg_class
+                where oid = ('public.' || table_name)::regclass
+              ) then
+                raise exception 'RLS is not enabled on %', table_name;
+              end if;
+
+              if has_table_privilege('anon', 'public.' || table_name, 'select')
+                or has_table_privilege('authenticated', 'public.' || table_name, 'select') then
+                raise exception 'direct read privilege leaked on %', table_name;
+              end if;
+
+              if not has_table_privilege('service_role', 'public.' || table_name, 'select') then
+                raise exception 'service_role cannot read %', table_name;
+              end if;
+            end loop;
+
+            select count(*) into question_count
+            from public.relocation_language_questions;
+            if question_count <> 16 then
+              raise exception 'expected 16 idempotent starter questions, found %', question_count;
+            end if;
+
+            if (
+              select count(*)
+              from pg_constraint
+              where conname in (
+                'relocation_language_profiles_b07_allocation_chk',
+                'relocation_language_questions_b07_choices_chk',
+                'relocation_language_questions_b07_provenance_chk',
+                'relocation_language_attempts_b07_response_seconds_chk'
+              )
+            ) <> 4 then
+              raise exception 'one or more B07 constraints are missing';
+            end if;
+          end
+          $$;
+
+          do $$
+          begin
+            begin
+              insert into public.relocation_language_questions (
+                language, exam, skill, difficulty, prompt, choices,
+                correct_answer, explanation, content_origin
+              ) values (
+                'english', 'IELTS General', 'grammar', 1, 'invalid choices test',
+                '{}'::jsonb, 'x', 'x', 'moveready_original'
+              );
+              raise exception 'invalid JSON choices were accepted';
+            exception when check_violation then
+              null;
+            end;
+
+            begin
+              insert into public.relocation_language_questions (
+                language, exam, skill, difficulty, prompt, choices,
+                correct_answer, explanation, content_origin
+              ) values (
+                'english', 'IELTS General', 'grammar', 1, 'invalid provenance test',
+                '["a","b"]'::jsonb, 'a', 'x', 'official_released'
+              );
+              raise exception 'official content without HTTPS provenance was accepted';
+            exception when check_violation then
+              null;
+            end;
+          end
+          $$;
+          SQL
+
+      - name: Verify upgrade from migrations 034 and 035
+        run: |
+          createdb moveready_upgrade
+          psql --dbname moveready_upgrade --set ON_ERROR_STOP=1 \
+            --file supabase/migrations/034_language_coach_v1.sql
+          psql --dbname moveready_upgrade --set ON_ERROR_STOP=1 \
+            --file supabase/migrations/035_language_coach_starter_bank.sql
+          psql --dbname moveready_upgrade --set ON_ERROR_STOP=1 \
+            --file supabase/migrations/039_language_coach_backend_completion.sql
+          psql --dbname moveready_upgrade --set ON_ERROR_STOP=1 \
+            --file supabase/migrations/039_language_coach_backend_completion.sql
+          test "$(psql --dbname moveready_upgrade --tuples-only --no-align \
+            --command 'select count(*) from public.relocation_language_questions')" = "16"
+
   validate:
     runs-on: ubuntu-latest
     steps:
@@ -138,6 +281,7 @@ jobs:
           ]
           for table in tables:
               assert f"create table if not exists {table}" in schema, table
+              assert f"create table if not exists public.{table}" in completion, table
               assert f"alter table public.{table} enable row level security" in completion, table
               assert f"revoke all privileges on table public.{table} from public, anon, authenticated" in completion, table
               assert f"grant all privileges on table public.{table} to service_role" in completion, table
@@ -149,6 +293,8 @@ jobs:
           assert "official_released" in completion
           assert "source_url ~ '^https://'" in completion
           assert "response_seconds between 0 and 7200" in completion
+          assert "where not exists" in completion
+          assert "prerequisite missing" not in completion
           assert "language_learning_profiles" not in completion
           assert "language_practice_items" not in completion
           PY
