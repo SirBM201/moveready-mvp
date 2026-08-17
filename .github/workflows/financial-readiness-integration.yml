@@ -1,0 +1,114 @@
+name: Financial Readiness Integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/routes/financial_readiness.py"
+      - "app/routes/readiness_tools.py"
+      - "app/routes/health.py"
+      - "app/services/financial_readiness.py"
+      - "tests/test_financial_readiness*.py"
+      - "docs/B09_FINANCIAL_READINESS_BACKEND.md"
+      - "docs/API_ROUTES.md"
+      - ".github/workflows/financial-readiness-integration.yml"
+  pull_request:
+    paths:
+      - "app/routes/financial_readiness.py"
+      - "app/routes/readiness_tools.py"
+      - "app/routes/health.py"
+      - "app/services/financial_readiness.py"
+      - "tests/test_financial_readiness*.py"
+      - "docs/B09_FINANCIAL_READINESS_BACKEND.md"
+      - "docs/API_ROUTES.md"
+      - ".github/workflows/financial-readiness-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install runtime dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Run B09 Financial Readiness tests
+        run: python -m unittest discover -s tests -p "test_financial_readiness*.py" -v
+
+      - name: Verify B09 route and build contracts
+        env:
+          FLASK_ENV: development
+          SECRET_KEY: github-actions-financial-contract-only
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+        run: |
+          python - <<'PY'
+          from app import create_app
+          from app.routes import financial_readiness, readiness_tools
+
+          route = {
+              "country_code": "FI",
+              "country_name": "Finland",
+              "route_code": "study",
+              "route_name": "Study pathway",
+              "freshness_status": "active",
+              "source_confidence": "reviewed",
+              "verified_at": "2026-08-01T00:00:00Z",
+              "budget_items": [
+                  {
+                      "item_name": "Application fees",
+                      "item_category": "visa_fee",
+                      "amount_min": 500,
+                      "amount_max": 700,
+                      "currency_code": "EUR",
+                  },
+              ],
+          }
+          financial_readiness._route = lambda _country, _route: route
+          readiness_tools._with_storage = lambda _slug, _payload, result: result
+
+          app = create_app()
+          client = app.test_client()
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          assert "/api/financial-readiness/check" in routes
+          assert "/api/readiness/funds-plan" in routes
+
+          response = client.post("/api/financial-readiness/check", json={
+              "country_code": "FI",
+              "route_code": "study",
+              "currency": "EUR",
+              "savings": 1000,
+              "family_size": 4,
+              "proof_of_funds": {
+                  "amount": 2000,
+                  "source_url": "https://authority.example/funds",
+              },
+              "target_timeline_months": 10,
+          })
+          assert response.status_code == 200, response.get_data(as_text=True)
+          payload = response.get_json()
+          assert payload["contract_version"] == "b09-v1", payload
+          plan = payload["financial_plan"]
+          assert plan["proof_of_funds"]["amount"] == 2000.0, plan
+          assert plan["household"]["calculation_rule"] == "context_only_no_invented_multiplier", plan
+          assert plan["assessment"]["funding_gap"] == 1700.0, plan
+          assert plan["assessment"]["monthly_savings_target"] == 170.0, plan
+
+          build = client.get("/api/build-info").get_json()
+          assert build["contract_versions"]["financial_readiness"] == "b09-v1", build
+          safety = build["safety_contract"]["financial_readiness"].lower()
+          assert "no invented family multiplier" in safety, safety
+          assert "no guessed currency conversion" in safety, safety
+          PY

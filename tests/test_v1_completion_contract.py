@@ -27,9 +27,11 @@ def test_build_info_reports_v1_safety_contract(monkeypatch):
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["route_contract"]["ok"] is True
+    assert payload["contract_versions"]["financial_readiness"] == "b09-v1"
     safety = payload["safety_contract"]
     for key in ("opportunity_finder", "route_comparison", "financial_readiness", "account_outcomes"):
         assert key in safety
+    assert "no invented family multiplier" in safety["financial_readiness"].lower()
     features = payload["features"]
     for key in ("opportunity_finder", "route_comparison", "financial_readiness", "account_outcomes", "language_coach", "readiness_command_center"):
         assert features[key] is True

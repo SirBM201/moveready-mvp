@@ -4,6 +4,11 @@ from typing import Any, Dict, List
 
 from flask import Blueprint, jsonify, request
 
+from app.services.financial_readiness import (
+    CONTRACT_VERSION,
+    FinancialReadinessInputError,
+    assess_financial_readiness,
+)
 from app.services.supabase_client import get_supabase
 
 bp = Blueprint("readiness_tools", __name__)
@@ -130,41 +135,87 @@ def document_readiness():
 @bp.post("/funds-plan")
 def funds_plan():
     payload = request.get_json(silent=True) or {}
-    available = float(payload.get("available_funds_amount") or 0)
-    required = float(payload.get("required_funds_amount") or 0)
-    months = max(int(payload.get("target_timeline_months") or 1), 1)
-    family_members = int(payload.get("family_members_count") or 0)
-    currency = _text(payload.get("currency") or payload.get("available_funds_currency") or "USD")
+    family_members = payload.get("family_members_count")
+    try:
+        additional_family_members = int(family_members or 0)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "invalid_non_negative_integer", "field": "family_members_count", "contract_version": CONTRACT_VERSION}), 400
+    if additional_family_members < 0:
+        return jsonify({"ok": False, "error": "invalid_non_negative_integer", "field": "family_members_count", "contract_version": CONTRACT_VERSION}), 400
 
-    adjusted_required = required * max(1, 1 + (family_members * 0.45))
-    shortfall = max(adjusted_required - available, 0)
-    monthly_target = shortfall / months if shortfall else 0
+    family_size = payload.get("family_size")
+    if family_size in (None, ""):
+        family_size = additional_family_members + 1
+
+    proof = payload.get("proof_of_funds") if isinstance(payload.get("proof_of_funds"), dict) else {}
+    costs = payload.get("costs") if isinstance(payload.get("costs"), dict) else {}
+    for category, aliases in {
+        "fees": ("fees", "estimated_fees"),
+        "tuition": ("tuition", "estimated_tuition"),
+        "relocation": ("relocation", "estimated_relocation_cost"),
+        "flight": ("flight", "estimated_flight"),
+        "accommodation": ("accommodation", "estimated_accommodation"),
+        "settlement_reserve": ("settlement_reserve",),
+    }.items():
+        if category in costs:
+            continue
+        for alias in aliases:
+            if alias in payload:
+                costs[category] = payload.get(alias)
+                break
+
+    try:
+        plan = assess_financial_readiness({
+            "currency": payload.get("currency") or payload.get("available_funds_currency") or "USD",
+            "savings": payload.get("savings", payload.get("available_funds_amount", payload.get("available_funds"))),
+            "expected_funding": payload.get("expected_funding", 0),
+            "family_size": family_size,
+            "proof_of_funds": {
+                "amount": proof.get(
+                    "amount",
+                    payload.get("required_funds_amount", payload.get("proof_of_funds_required")),
+                ),
+                "currency": proof.get("currency") or payload.get("currency") or payload.get("available_funds_currency") or "USD",
+                "source_url": proof.get("source_url") or payload.get("proof_of_funds_source_url"),
+                "source_title": proof.get("source_title") or payload.get("proof_of_funds_source_title"),
+                "source_checked_at": proof.get("source_checked_at") or payload.get("proof_of_funds_source_checked_at"),
+            },
+            "costs": costs,
+            "target_date": payload.get("target_date"),
+            "target_timeline_months": payload.get("target_timeline_months"),
+        })
+    except FinancialReadinessInputError as exc:
+        return jsonify({"ok": False, "error": exc.code, "field": exc.field, "contract_version": CONTRACT_VERSION}), 400
+
+    shortfall = plan["assessment"]["funding_gap"]
+    monthly_target = plan["assessment"]["monthly_savings_target"]
     large_deposit_risk = bool(payload.get("recent_large_deposits"))
 
     score = 0
-    if shortfall > 0:
+    if shortfall is not None and shortfall > 0:
         score += 45
+    if plan["assessment"]["status"] in {"requirements_needed", "source_review_required"}:
+        score += 35
     if large_deposit_risk:
         score += 25
-    if months <= 2 and shortfall > 0:
+    months = plan["target"]["months_remaining"]
+    if months is not None and months <= 2 and shortfall is not None and shortfall > 0:
         score += 20
     risk_level = _risk_level(score)
 
     result = {
-        "ok": True,
-        "currency": currency,
-        "available_funds": round(available, 2),
-        "required_funds_adjusted": round(adjusted_required, 2),
-        "shortfall": round(shortfall, 2),
-        "monthly_savings_target": round(monthly_target, 2),
+        **plan,
+        "available_funds": plan["resources"]["savings"],
+        "required_funds_adjusted": plan["proof_of_funds"]["amount"],
+        "shortfall": shortfall,
+        "monthly_savings_target": monthly_target,
         "risk_level": risk_level,
-        "readiness_status": _readiness_status(risk_level),
-        "warnings": [item for item in [
-            "Funds are below the entered requirement." if shortfall else None,
-            "Recent large deposits may need clear source-of-funds explanation." if large_deposit_risk else None,
-            "Timeline is short for closing a funds gap." if months <= 2 and shortfall else None,
-        ] if item],
-        "note": "Use official proof-of-funds rules for the target route. This planner only models readiness pressure.",
+        "readiness_status": plan["assessment"]["status"] if plan["assessment"]["status"] in {"requirements_needed", "source_review_required", "currency_mismatch"} else _readiness_status(risk_level),
+        "warnings": [
+            *plan["warnings"],
+            *(["Recent large deposits may need clear source-of-funds explanation."] if large_deposit_risk else []),
+        ],
+        "note": "Use current official proof-of-funds rules for the selected pathway and family size. MoveReady does not invent thresholds, family multipliers, or exchange rates.",
     }
     return _with_storage("funds_plan", payload, result)
 
