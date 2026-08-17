@@ -162,7 +162,7 @@ The bounded unit suite completed with 5 PASS / 0 FAIL. GitHub Actions run `32002
 
 ### Implementation
 
-Status: **CODE PASS / PRODUCTION SCHEMA CONFIRMATION PENDING**
+Status: **PASS**
 
 - pull request: #23;
 - merge commit: `9941bf0099142715e6bf9cb4bd333e1ffdf1090f`;
@@ -185,21 +185,22 @@ Status: **CODE PASS / PRODUCTION SCHEMA CONFIRMATION PENDING**
 | Backend Smoke Test | PASS |
 | Build Fingerprint and Route Contract Integration | PASS |
 | Auth, privacy, evidence, billing, provider, and application regressions | PASS |
+| Production migration-034 schema columns (6/6) | PASS |
 
 All 11 workflows on tested head `2c0d9b054d6bd79080c577a8099a6692b0b68ab5` passed. Jobs Module Integration run `32004704787` verified the route, option enums, migration-034 columns, and protected schema diagnostics.
 
-### Manual actions
+### Production confirmation
 
-- run the read-only six-column query in `docs/JOBS_GENERAL_USER_SCOPE.md`;
-- expected result: six rows;
-- if any row is missing, apply the existing `supabase/migrations/034_career_search_scope_and_viability.sql` file once and refresh the Supabase schema cache;
-- do not create or run another B05 migration;
+- the read-only `information_schema.columns` query returned all six required rows;
+- `relocation_job_search_profiles`: `current_country`, `search_scope`, `work_authorized_countries`;
+- `relocation_jobs`: `relocation_support_status`, `sponsorship_evidence`, `work_authorization_requirement`;
+- migration action: none, because existing migration 034 is already present in production;
 - Railway variables: no B05 change required;
-- blocker: production schema confirmation only.
+- blocker: none.
 
 ### Next batch boundary
 
-- do not mark B05 fully closed or begin B06 acceptance until the six production columns are confirmed;
+- B05 is closed and B06 may begin;
 - do not run the B17 comprehensive regression;
 - do not infer nationality, citizenship, residence status, or work authorization from country fields.
 
