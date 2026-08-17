@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -12,6 +13,7 @@ from app.services.supabase_client import get_supabase
 
 bp = Blueprint("account_action_center", __name__)
 
+CONTRACT_VERSION = "b13-v1"
 PRIORITY_SCORE = {"low": 20, "medium": 45, "high": 75, "critical": 100}
 
 
@@ -88,8 +90,9 @@ def _safe_rows(
             .execute()
         )
         return {"ok": True, "rows": response.data or [], "error": None}
-    except Exception as exc:
-        return {"ok": False, "rows": [], "error": str(exc)[:800]}
+    except Exception:
+        logging.exception("Action Center source unavailable: %s", table)
+        return {"ok": False, "rows": [], "error": "source_unavailable"}
 
 
 def _priority_for_hours(hours: Optional[float], *, overdue_critical: bool = True) -> str:
@@ -448,6 +451,259 @@ def _job_items(applications: List[Dict[str, Any]], recruiters: List[Dict[str, An
     ]
 
 
+def _active_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [row for row in rows if str(row.get("status") or "active").lower() not in {"archived", "closed"}]
+
+
+def _attention_count(actions: List[Dict[str, Any]], kinds: set[str]) -> int:
+    return sum(
+        1
+        for action in actions
+        if action.get("kind") in kinds and action.get("priority") in {"critical", "high"}
+    )
+
+
+def _engine(
+    *,
+    key: str,
+    phase: str,
+    title: str,
+    state: str,
+    summary: str,
+    href: str,
+    action_label: str,
+    record_count: int,
+    attention_count: int = 0,
+) -> Dict[str, Any]:
+    return {
+        "key": key,
+        "phase": phase,
+        "title": title,
+        "state": state,
+        "summary": summary,
+        "href": href,
+        "action_label": action_label,
+        "record_count": record_count,
+        "attention_count": attention_count,
+    }
+
+
+def _engine_statuses(loaded: Dict[str, List[Dict[str, Any]]], actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    profiles = _active_rows(loaded.get("profiles", []))
+    profile = profiles[0] if profiles else {}
+    routes = _active_rows(loaded.get("saved_routes", []))
+    job_profiles = _active_rows(loaded.get("job_profiles", []))
+    job_records = [*loaded.get("job_applications", []), *loaded.get("job_recruiters", [])]
+    language_profiles = loaded.get("language_profiles", [])
+    language_attempts = loaded.get("language_attempts", [])
+    documents = _active_rows(loaded.get("documents", []))
+    packs = _active_rows(loaded.get("evidence_packs", []))
+    cases = _active_rows(loaded.get("application_cases", []))
+
+    job_attention = _attention_count(actions, {"job_application_follow_up", "job_recruiter_follow_up"})
+    document_attention = _attention_count(actions, {"document", "evidence_pack"})
+    application_attention = _attention_count(actions, {"application_alert", "application_case", "timeline"})
+
+    has_job_activity = bool(job_profiles or job_records)
+    has_route = bool(routes)
+    has_passport_context = bool(profile.get("nationality"))
+    has_financial_context = profile.get("available_funds_amount") not in (None, "")
+
+    return [
+        _engine(
+            key="jobs",
+            phase="FIND",
+            title="Jobs",
+            state="attention" if job_attention else "active" if has_job_activity else "needs_assessment",
+            summary=(
+                f"{job_attention} career follow-up action(s) need attention."
+                if job_attention
+                else "Your private job-search profile or tracked activity is connected."
+                if has_job_activity
+                else "Set your search scope before treating any vacancy as a realistic international opportunity."
+            ),
+            href="/jobs",
+            action_label="Review Jobs",
+            record_count=len(job_profiles) + len(job_records),
+            attention_count=job_attention,
+        ),
+        _engine(
+            key="route_finder",
+            phase="FIND",
+            title="Route Finder",
+            state="active" if has_route else "not_started" if profiles else "needs_assessment",
+            summary=(
+                f"{len(routes)} saved route or country option(s) are available to the other engines."
+                if has_route
+                else "Find and save a source-backed route before planning evidence or execution."
+            ),
+            href="/find",
+            action_label="Open Route Finder",
+            record_count=len(routes),
+        ),
+        _engine(
+            key="passport",
+            phase="QUALIFY",
+            title="Passport",
+            state="ready" if has_passport_context else "needs_assessment",
+            summary=(
+                "Nationality context is saved; verify current destination access and personal-history conditions."
+                if has_passport_context
+                else "Add nationality to your profile before using passport-access results for planning."
+            ),
+            href="/passport-index" if has_passport_context else "/dashboard#profile-dashboard",
+            action_label="Check passport access" if has_passport_context else "Complete profile context",
+            record_count=1 if has_passport_context else 0,
+        ),
+        _engine(
+            key="language",
+            phase="QUALIFY",
+            title="Language",
+            state="active" if language_profiles or language_attempts else "needs_assessment",
+            summary=(
+                f"Language preparation is connected with {len(language_attempts)} recent practice attempt(s)."
+                if language_profiles or language_attempts
+                else "Set a target exam and level before relying on language preparation progress."
+            ),
+            href="/language-coach",
+            action_label="Open Language Coach",
+            record_count=len(language_profiles) + len(language_attempts),
+        ),
+        _engine(
+            key="financial_readiness",
+            phase="QUALIFY",
+            title="Financial Readiness",
+            state="ready" if has_financial_context and has_route else "needs_assessment",
+            summary=(
+                "A saved route and profile funds are available for a planning-only readiness check."
+                if has_financial_context and has_route
+                else "Add profile funds and save a route; official proof-of-funds rules still require source verification."
+            ),
+            href="/budget-calculator",
+            action_label="Check financial readiness",
+            record_count=(1 if has_financial_context else 0) + len(routes),
+        ),
+        _engine(
+            key="documents",
+            phase="MOVE",
+            title="Documents",
+            state="attention" if document_attention else "active" if documents or packs else "not_started",
+            summary=(
+                f"{document_attention} document or evidence action(s) need attention."
+                if document_attention
+                else f"{len(documents)} document record(s) and {len(packs)} evidence pack(s) are connected."
+                if documents or packs
+                else "Start with metadata only after you have a serious route; do not upload raw identity documents."
+            ),
+            href="/evidence-pack",
+            action_label="Review documents",
+            record_count=len(documents) + len(packs),
+            attention_count=document_attention,
+        ),
+        _engine(
+            key="applications",
+            phase="MOVE",
+            title="Applications",
+            state="attention" if application_attention else "active" if cases else "not_started",
+            summary=(
+                f"{application_attention} application or timeline action(s) need attention."
+                if application_attention
+                else f"{len(cases)} live application case(s) are connected."
+                if cases
+                else "Create a private case only when a real application or execution process begins."
+            ),
+            href="/applications",
+            action_label="Review applications" if cases else "Open Application Center",
+            record_count=len(cases),
+            attention_count=application_attention,
+        ),
+    ]
+
+
+def _fallback_action(
+    *,
+    kind: str,
+    title: str,
+    summary: str,
+    href: str,
+    engine_key: str,
+) -> Dict[str, Any]:
+    return {
+        **_item(
+            kind=kind,
+            record_id=None,
+            title=title,
+            summary=summary,
+            priority="medium",
+            href=href,
+            status="recommended",
+        ),
+        "source": "orchestration_fallback",
+        "engine_key": engine_key,
+        "reason": "Foundational account step",
+    }
+
+
+def _primary_action(loaded: Dict[str, List[Dict[str, Any]]], actions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    profiles = _active_rows(loaded.get("profiles", []))
+    routes = _active_rows(loaded.get("saved_routes", []))
+
+    urgent = next((action for action in actions if action.get("priority") in {"critical", "high"}), None)
+    if urgent:
+        return {**urgent, "source": "ranked_record", "reason": "Highest-ranked blocker or time-sensitive record"}
+    if not profiles:
+        return _fallback_action(
+            kind="profile_foundation",
+            title="Create your MoveReady profile",
+            summary="Save one private profile so Route Finder and the qualification engines use the same facts.",
+            href="/onboarding",
+            engine_key="profile",
+        )
+    if not routes:
+        return _fallback_action(
+            kind="route_foundation",
+            title="Find and save a realistic route",
+            summary="Compare source-backed options before preparing route-specific evidence, funds, or execution steps.",
+            href="/find",
+            engine_key="route_finder",
+        )
+    if actions:
+        return {**actions[0], "source": "ranked_record", "reason": "Highest-ranked recorded follow-up"}
+
+    goal = str(profiles[0].get("main_goal") or "").lower()
+    if goal in {"work", "opportunity"} and not _active_rows(loaded.get("job_profiles", [])):
+        return _fallback_action(
+            kind="jobs_foundation",
+            title="Set your international job-search scope",
+            summary="Record where you can work and which countries you are targeting before reviewing vacancy matches.",
+            href="/jobs",
+            engine_key="jobs",
+        )
+    if not loaded.get("language_profiles"):
+        return _fallback_action(
+            kind="language_foundation",
+            title="Set your language target",
+            summary="Choose the relevant exam and target level so preparation gaps remain tied to your goal.",
+            href="/language-coach",
+            engine_key="language",
+        )
+    if not _active_rows(loaded.get("documents", [])) and not _active_rows(loaded.get("evidence_packs", [])):
+        return _fallback_action(
+            kind="documents_foundation",
+            title="Start your route-specific evidence checklist",
+            summary="Record metadata and missing requirements without uploading raw identity documents.",
+            href="/evidence-pack",
+            engine_key="documents",
+        )
+    return _fallback_action(
+        kind="journey_review",
+        title="Review your complete journey",
+        summary="Your foundations are connected. Review every recorded stage before starting a new application step.",
+        href="/my-journey",
+        engine_key="journey",
+    )
+
+
 @bp.get("/action-center")
 def action_center():
     email, error_response = _auth_email()
@@ -460,6 +716,11 @@ def action_center():
         limit = 150
 
     sources = {
+        "profiles": ("relocation_user_profiles", "updated_at"),
+        "saved_routes": ("relocation_saved_routes", "updated_at"),
+        "job_profiles": ("relocation_job_search_profiles", "updated_at"),
+        "language_profiles": ("relocation_language_profiles", "updated_at"),
+        "language_attempts": ("relocation_language_attempts", "attempted_at"),
         "application_alerts": ("relocation_application_case_alerts", "updated_at"),
         "application_cases": ("relocation_application_cases", "updated_at"),
         "timeline": ("relocation_timeline_events", "updated_at"),
@@ -511,10 +772,24 @@ def action_center():
         priority = str(item.get("priority") or "medium")
         counts_by_priority[priority] = counts_by_priority.get(priority, 0) + 1
 
+    engine_statuses = _engine_statuses(loaded, actions)
+    primary_action = _primary_action(loaded, actions)
+
     return jsonify({
         "ok": True,
+        "contract_version": CONTRACT_VERSION,
         "account_email": email,
         "generated_at": _now().isoformat(),
+        "journey_model": {
+            "name": "FIND_QUALIFY_MOVE",
+            "phases": [
+                {"key": "FIND", "label": "Find a realistic opportunity and route"},
+                {"key": "QUALIFY", "label": "Check passport, language, and financial readiness"},
+                {"key": "MOVE", "label": "Prepare documents and track real applications"},
+            ],
+        },
+        "primary_action": primary_action,
+        "engine_statuses": engine_statuses,
         "action_count": min(len(actions), limit),
         "counts_by_priority": counts_by_priority,
         "counts_by_section": {name: len(items) for name, items in sections.items()},
@@ -522,5 +797,5 @@ def action_center():
         "sections": sections,
         "partial_errors": errors,
         "empty_state": "No urgent account action was detected. Continue to verify official sources and review your account before spending or submitting." if not actions else None,
-        "safety_note": "The Action Center prioritizes existing private records, including job-search follow-ups. It does not send messages or replace an official authority deadline, time zone, appointment instruction, payment confirmation, legal advice, provider communication, hiring decision, or immigration decision.",
+        "safety_note": "The B13 dashboard orchestrates existing private records and profile context without creating a duplicate store. Ready means ready for the next planning check, not eligible, approved, funded, hired, admitted, or authorized. Confirm current official sources before spending, submitting, booking, or relying on a deadline.",
     })
