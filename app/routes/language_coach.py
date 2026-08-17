@@ -5,10 +5,35 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, jsonify, request
 
 from app.services.account_identity import get_verified_session_email
-from app.services.language_coach import build_learning_plan
+from app.services.language_coach import (
+    DIAGNOSTIC_MINIMUM_ATTEMPTS,
+    LANGUAGE_CHOICES,
+    QUESTION_FETCH_LIMIT,
+    SUPPORTED,
+    SUPPORTED_SKILLS,
+    LanguageCoachValidationError,
+    build_learning_plan,
+    eligible_public_questions,
+    normalize_answer,
+    normalize_difficulty,
+    normalize_language,
+    normalize_question_ids,
+    normalize_response_seconds,
+    normalize_skill,
+    practice_readiness,
+    profile_row_from_payload,
+)
 from app.services.supabase_client import get_supabase
 
 bp = Blueprint("language_coach", __name__)
+
+
+@bp.errorhandler(LanguageCoachValidationError)
+def _validation_error(error):
+    payload = {"ok": False, "error": error.code}
+    if error.field:
+        payload["field"] = error.field
+    return jsonify(payload), 400
 
 
 def _account():
@@ -23,18 +48,38 @@ def _one(query):
     return rows[0] if rows else None
 
 
-def _profile_payload(payload):
-    plan = build_learning_plan(payload); diagnostic = payload.get("diagnostic") or {}; targets = payload.get("targets") or {}
-    return plan, {"language_selection": plan["language_selection"], "english_allocation": plan["allocation"]["english"], "french_allocation": plan["allocation"]["french"], "daily_minutes": plan["daily_minutes"], "english_exam": "IELTS General", "french_exam": "TEF Canada", "english_current_level": int(diagnostic.get("english", 0) or 0), "french_current_level": int(diagnostic.get("french", 0) or 0), "english_target_level": int(targets.get("english", 7) or 7), "french_target_level": int(targets.get("french", 7) or 7), "updated_at": datetime.now(timezone.utc).isoformat()}
-
-
+@bp.get("/options")
 @bp.get("/catalog")
 def catalog():
-    return jsonify({"ok": True, "language_choices": ["english", "french", "both"], "allocation_presets": [{"english": 50, "french": 50}, {"english": 70, "french": 30}, {"english": 30, "french": 70}], "initial_exams": {"english": ["IELTS General"], "french": ["TEF Canada"]}, "architecture_ready_for": {"english": ["CELPIP", "PTE Core"], "french": ["TCF Canada"]}})
+    return jsonify({
+        "ok": True,
+        "contract_version": "b07-v1",
+        "language_choices": list(LANGUAGE_CHOICES),
+        "allocation_presets": [
+            {"english": value, "french": 100 - value}
+            for value in (50, 70, 30)
+        ],
+        "supported_skills": list(SUPPORTED_SKILLS),
+        "initial_exams": {
+            language: [meta["exam"]]
+            for language, meta in SUPPORTED.items()
+        },
+        "architecture_ready_for": {
+            "english": ["CELPIP", "PTE Core"],
+            "french": ["TCF Canada"],
+        },
+        "answer_key_policy": "withheld_until_answer_recorded",
+        "content_policy": "moveready_original_or_permitted_official_release_only",
+        "score_boundary": "internal_practice_indicators_not_official_exam_results",
+    })
 
 
 @bp.post("/plan")
-def plan(): return jsonify({"ok": True, "plan": build_learning_plan(request.get_json(silent=True) or {})})
+def plan():
+    payload = request.get_json(silent=True)
+    if payload is None:
+        payload = {}
+    return jsonify({"ok": True, "plan": build_learning_plan(payload)})
 
 
 @bp.get("/profile")
@@ -44,47 +89,94 @@ def get_profile():
     return jsonify({"ok": True, "profile": _one(get_supabase().table("relocation_language_profiles").select("*").eq("email", email))})
 
 
+@bp.patch("/profile")
 @bp.put("/profile")
 def save_profile():
     email, error = _account()
-    if error: return error
-    payload = request.get_json(silent=True) or {}; plan, row = _profile_payload(payload); row["email"] = email
-    existing = _one(get_supabase().table("relocation_language_profiles").select("id").eq("email", email))
-    saved = (get_supabase().table("relocation_language_profiles").update(row).eq("email", email).execute().data or [None])[0] if existing else (get_supabase().table("relocation_language_profiles").insert(row).execute().data or [None])[0]
+    if error:
+        return error
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        raise LanguageCoachValidationError("invalid_payload")
+    client = get_supabase()
+    existing = _one(
+        client.table("relocation_language_profiles")
+        .select("*")
+        .eq("email", email)
+    )
+    plan, row = profile_row_from_payload(payload, existing)
+    row.update({"email": email, "updated_at": datetime.now(timezone.utc).isoformat()})
+    if existing:
+        saved_rows = (
+            client.table("relocation_language_profiles")
+            .update(row)
+            .eq("email", email)
+            .execute()
+            .data
+            or []
+        )
+    else:
+        saved_rows = client.table("relocation_language_profiles").insert(row).execute().data or []
+    saved = saved_rows[0] if saved_rows else {**(existing or {}), **row}
     return jsonify({"ok": True, "profile": saved, "plan": plan})
 
 
 def _questions(language, difficulty=None, limit=10):
     query = get_supabase().table("relocation_language_questions").select("id,language,exam,skill,difficulty,prompt,choices,content_origin,source_url").eq("language", language).eq("is_active", True)
-    if difficulty is not None: query = query.eq("difficulty", difficulty)
-    return query.limit(limit).execute().data or []
+    if difficulty is not None:
+        query = query.eq("difficulty", difficulty)
+    return eligible_public_questions(query.limit(limit).execute().data or [])
 
 
 @bp.get("/practice")
 def practice():
-    email, error = _account()
-    if error: return error
-    language = str(request.args.get("language") or "english").lower(); skill = str(request.args.get("skill") or "").lower(); difficulty = max(1, min(5, int(request.args.get("difficulty") or 1)))
+    _email, error = _account()
+    if error:
+        return error
+    language = normalize_language(request.args.get("language"))
+    skill = normalize_skill(request.args.get("skill"))
+    difficulty = normalize_difficulty(request.args.get("difficulty"))
     query = get_supabase().table("relocation_language_questions").select("id,language,exam,skill,difficulty,prompt,choices,content_origin,source_url").eq("language", language).eq("difficulty", difficulty).eq("is_active", True)
-    if skill: query = query.eq("skill", skill)
-    return jsonify({"ok": True, "questions": query.limit(10).execute().data or [], "answer_key_withheld": True})
+    if skill:
+        query = query.eq("skill", skill)
+    questions = eligible_public_questions(query.limit(QUESTION_FETCH_LIMIT).execute().data or [])
+    return jsonify({
+        "ok": True,
+        "language": language,
+        "difficulty": difficulty,
+        "questions": questions,
+        "answer_key_withheld": True,
+    })
 
 
 @bp.get("/diagnostic")
 def diagnostic():
-    email, error = _account()
-    if error: return error
-    language = str(request.args.get("language") or "english").lower()
-    if language not in {"english", "french"}: return jsonify({"ok": False, "error": "unsupported_language"}), 400
-    rows = _questions(language, limit=30); selected = []
-    for level in range(1, 6): selected.extend([r for r in rows if int(r.get("difficulty") or 1) == level][:2])
-    return jsonify({"ok": True, "language": language, "questions": selected, "answer_key_withheld": True, "purpose": "placement_not_official_exam_score"})
+    _email, error = _account()
+    if error:
+        return error
+    language = normalize_language(request.args.get("language"))
+    rows = _questions(language, limit=100)
+    selected = []
+    for level in range(1, 6):
+        selected.extend([
+            row for row in rows
+            if int(row.get("difficulty") or 1) == level
+        ][:2])
+    return jsonify({
+        "ok": True,
+        "language": language,
+        "questions": selected,
+        "minimum_attempts": DIAGNOSTIC_MINIMUM_ATTEMPTS,
+        "answer_key_withheld": True,
+        "purpose": "placement_not_official_exam_score",
+    })
 
 
 def _record_daily_progress(email, language, correct, response_seconds=None):
     today = datetime.now(timezone.utc).date().isoformat()
     existing = _one(get_supabase().table("relocation_language_daily_progress").select("*").eq("email", email).eq("activity_date", today)) or {}
-    seconds = max(0, int(response_seconds or 0)); minutes = max(1, round(seconds / 60)) if seconds else 1
+    seconds = response_seconds or 0
+    minutes = max(1, round(seconds / 60)) if seconds else 1
     row = {"email": email, "activity_date": today, "english_minutes": int(existing.get("english_minutes") or 0) + (minutes if language == "english" else 0), "french_minutes": int(existing.get("french_minutes") or 0) + (minutes if language == "french" else 0), "questions_attempted": int(existing.get("questions_attempted") or 0) + 1, "questions_correct": int(existing.get("questions_correct") or 0) + (1 if correct else 0), "momentum_points": int(existing.get("momentum_points") or 0) + (2 if correct else 1)}
     if existing.get("id"): get_supabase().table("relocation_language_daily_progress").update(row).eq("id", existing["id"]).execute()
     else: get_supabase().table("relocation_language_daily_progress").insert(row).execute()
@@ -94,12 +186,24 @@ def _record_daily_progress(email, language, correct, response_seconds=None):
 @bp.post("/attempts")
 def record_attempt():
     email, error = _account()
-    if error: return error
-    payload = request.get_json(silent=True) or {}; question_id = str(payload.get("question_id") or "")
+    if error:
+        return error
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        raise LanguageCoachValidationError("invalid_payload")
+    question_id = str(payload.get("question_id") or "").strip()
+    if not question_id or len(question_id) > 128:
+        raise LanguageCoachValidationError("invalid_question_id", "question_id")
+    answer = normalize_answer(payload.get("answer"))
+    response_seconds = normalize_response_seconds(payload.get("response_seconds"))
     question = _one(get_supabase().table("relocation_language_questions").select("*").eq("id", question_id).eq("is_active", True))
-    if not question: return jsonify({"ok": False, "error": "question_not_found"}), 404
-    answer = str(payload.get("answer") or "").strip(); correct = answer.casefold() == str(question.get("correct_answer") or "").strip().casefold(); now = datetime.now(timezone.utc)
-    get_supabase().table("relocation_language_attempts").insert({"email": email, "question_id": question_id, "answer": answer, "is_correct": correct, "difficulty": question.get("difficulty") or 1, "response_seconds": payload.get("response_seconds")}).execute()
+    if not question:
+        return jsonify({"ok": False, "error": "question_not_found"}), 404
+    if not eligible_public_questions([question]):
+        return jsonify({"ok": False, "error": "question_content_unavailable"}), 409
+    correct = answer.casefold() == str(question.get("correct_answer") or "").strip().casefold()
+    now = datetime.now(timezone.utc)
+    get_supabase().table("relocation_language_attempts").insert({"email": email, "question_id": question_id, "answer": answer, "is_correct": correct, "difficulty": question.get("difficulty") or 1, "response_seconds": response_seconds}).execute()
     existing = _one(get_supabase().table("relocation_language_mistakes").select("*").eq("email", email).eq("question_id", question_id))
     if correct and existing:
         streak = int(existing.get("correct_streak") or 0) + 1; interval = 30 if streak >= 3 else 7 if streak == 2 else 2
@@ -107,7 +211,7 @@ def record_attempt():
     elif not correct:
         row = {"email": email, "question_id": question_id, "mistake_count": int((existing or {}).get("mistake_count") or 0) + 1, "correct_streak": 0, "next_review_at": (now + timedelta(days=1)).isoformat(), "last_answer": answer, "last_attempt_at": now.isoformat(), "mastered_at": None}
         (get_supabase().table("relocation_language_mistakes").update(row).eq("id", existing["id"]) if existing else get_supabase().table("relocation_language_mistakes").insert(row)).execute()
-    daily = _record_daily_progress(email, str(question.get("language") or "english"), correct, payload.get("response_seconds"))
+    daily = _record_daily_progress(email, str(question.get("language") or "english"), correct, response_seconds)
     return jsonify({"ok": True, "correct": correct, "correct_answer": question.get("correct_answer"), "explanation": question.get("explanation"), "next_action": "review_mistake" if not correct else "continue", "daily_progress": daily})
 
 
@@ -123,7 +227,16 @@ def review():
     email, error = _account()
     if error: return error
     now = datetime.now(timezone.utc).isoformat(); mistakes = get_supabase().table("relocation_language_mistakes").select("*").eq("email", email).lte("next_review_at", now).is_("mastered_at", "null").order("next_review_at").limit(10).execute().data or []
-    ids = [m.get("question_id") for m in mistakes if m.get("question_id")]; questions = get_supabase().table("relocation_language_questions").select("id,language,exam,skill,difficulty,prompt,choices,content_origin").in_("id", ids).execute().data or [] if ids else []; by_id = {q["id"]: q for q in questions}
+    ids = [m.get("question_id") for m in mistakes if m.get("question_id")]
+    questions = eligible_public_questions(
+        get_supabase().table("relocation_language_questions")
+        .select("id,language,exam,skill,difficulty,prompt,choices,content_origin,source_url")
+        .in_("id", ids)
+        .execute()
+        .data
+        or []
+    ) if ids else []
+    by_id = {q["id"]: q for q in questions}
     return jsonify({"ok": True, "due": [{**m, "question": by_id.get(m.get("question_id"))} for m in mistakes if by_id.get(m.get("question_id"))]})
 
 
@@ -133,8 +246,8 @@ def _progress_stats(email):
     for a in attempts:
         q = qmap.get(a.get("question_id")) or {}; lang = q.get("language")
         if lang in stats: stats[lang]["attempted"] += 1; stats[lang]["correct"] += 1 if a.get("is_correct") else 0
-    for item in stats.values():
-        item["accuracy_percent"] = round(item["correct"] * 100 / item["attempted"]) if item["attempted"] else 0; item["readiness"] = "building" if item["attempted"] < 10 else "developing" if item["accuracy_percent"] < 70 else "progressing" if item["accuracy_percent"] < 85 else "strong_practice_readiness"
+    for language, item in list(stats.items()):
+        stats[language] = practice_readiness(item["attempted"], item["correct"])
     return stats
 
 

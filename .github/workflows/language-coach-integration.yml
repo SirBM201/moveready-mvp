@@ -1,0 +1,154 @@
+name: Language Coach Integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/routes/health.py"
+      - "app/routes/language_coach.py"
+      - "app/routes/language_coach_extension.py"
+      - "app/routes/operations.py"
+      - "app/services/language_coach.py"
+      - "app/__init__.py"
+      - "supabase/migrations/034_language_coach_v1.sql"
+      - "supabase/migrations/035_language_coach_starter_bank.sql"
+      - "supabase/migrations/039_language_coach_backend_completion.sql"
+      - "tests/test_language_coach*.py"
+      - "docs/B07_LANGUAGE_COACH_BACKEND.md"
+      - ".github/workflows/language-coach-integration.yml"
+  pull_request:
+    paths:
+      - "app/routes/health.py"
+      - "app/routes/language_coach.py"
+      - "app/routes/language_coach_extension.py"
+      - "app/routes/operations.py"
+      - "app/services/language_coach.py"
+      - "app/__init__.py"
+      - "supabase/migrations/034_language_coach_v1.sql"
+      - "supabase/migrations/035_language_coach_starter_bank.sql"
+      - "supabase/migrations/039_language_coach_backend_completion.sql"
+      - "tests/test_language_coach*.py"
+      - "docs/B07_LANGUAGE_COACH_BACKEND.md"
+      - ".github/workflows/language-coach-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install runtime dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Run B07 Language Coach tests
+        run: python -m unittest discover -s tests -p "test_language_coach*.py" -v
+
+      - name: Verify B07 route and build contracts
+        env:
+          FLASK_ENV: development
+          SECRET_KEY: github-actions-language-contract-only
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          app = create_app()
+          client = app.test_client()
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          required = {
+              "/api/language-coach/options",
+              "/api/language-coach/catalog",
+              "/api/language-coach/plan",
+              "/api/language-coach/profile",
+              "/api/language-coach/diagnostic",
+              "/api/language-coach/diagnostic/complete",
+              "/api/language-coach/practice",
+              "/api/language-coach/adaptive-practice",
+              "/api/language-coach/daily-challenge",
+              "/api/language-coach/attempts",
+              "/api/language-coach/mistakes",
+              "/api/language-coach/review",
+              "/api/language-coach/progress",
+              "/api/language-coach/qualification-actions",
+          }
+          assert required.issubset(routes), sorted(required - routes)
+
+          options = client.get("/api/language-coach/options")
+          assert options.status_code == 200, options.get_data(as_text=True)
+          payload = options.get_json()
+          assert payload["contract_version"] == "b07-v1", payload
+          assert payload["language_choices"] == ["english", "french", "both"], payload
+          assert payload["answer_key_policy"] == "withheld_until_answer_recorded", payload
+
+          for path in (
+              "/api/language-coach/profile",
+              "/api/language-coach/practice",
+              "/api/language-coach/diagnostic",
+              "/api/language-coach/adaptive-practice",
+              "/api/language-coach/daily-challenge",
+              "/api/language-coach/mistakes",
+              "/api/language-coach/review",
+              "/api/language-coach/progress",
+          ):
+              response = client.get(path)
+              assert response.status_code == 401, (path, response.get_data(as_text=True))
+
+          invalid = client.post(
+              "/api/language-coach/plan",
+              json={
+                  "language_selection": "both",
+                  "allocation": {"english": 60, "french": 40},
+              },
+          )
+          assert invalid.status_code == 400, invalid.get_data(as_text=True)
+
+          build = client.get("/api/build-info").get_json()
+          assert build["features"]["language_coach"] is True, build
+          assert required - {"/api/language-coach/catalog", "/api/language-coach/plan"} <= set(build["expected_endpoints"])
+          assert build["route_contract"]["ok"] is True, build["route_contract"]
+          PY
+
+      - name: Verify B07 schema, privacy, and content safeguards
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          schema = Path("supabase/migrations/034_language_coach_v1.sql").read_text(encoding="utf-8").lower()
+          seed = Path("supabase/migrations/035_language_coach_starter_bank.sql").read_text(encoding="utf-8").lower()
+          completion = Path("supabase/migrations/039_language_coach_backend_completion.sql").read_text(encoding="utf-8").lower()
+
+          tables = [
+              "relocation_language_profiles",
+              "relocation_language_questions",
+              "relocation_language_attempts",
+              "relocation_language_mistakes",
+              "relocation_language_daily_progress",
+          ]
+          for table in tables:
+              assert f"create table if not exists {table}" in schema, table
+              assert f"alter table public.{table} enable row level security" in completion, table
+              assert f"revoke all privileges on table public.{table} from public, anon, authenticated" in completion, table
+              assert f"grant all privileges on table public.{table} to service_role" in completion, table
+
+          assert "moveready_original" in seed
+          assert "ielts general" in seed
+          assert "tef canada" in seed
+          assert "recalled/live exam" in seed
+          assert "official_released" in completion
+          assert "source_url ~ '^https://'" in completion
+          assert "response_seconds between 0 and 7200" in completion
+          assert "language_learning_profiles" not in completion
+          assert "language_practice_items" not in completion
+          PY

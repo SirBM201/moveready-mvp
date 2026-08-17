@@ -3,10 +3,26 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request
 
 from app.services.account_identity import get_verified_session_email
-from app.services.language_coach import adaptive_difficulty, placement_level
+from app.services.language_coach import (
+    LanguageCoachValidationError,
+    adaptive_difficulty,
+    diagnostic_placement,
+    eligible_public_questions,
+    normalize_language,
+    normalize_question_ids,
+    normalize_skill,
+)
 from app.services.supabase_client import get_supabase
 
 bp = Blueprint("language_coach_extension", __name__)
+
+
+@bp.errorhandler(LanguageCoachValidationError)
+def _validation_error(error):
+    payload = {"ok": False, "error": error.code}
+    if error.field:
+        payload["field"] = error.field
+    return jsonify(payload), 400
 
 
 def _account():
@@ -16,21 +32,23 @@ def _account():
     return None, (jsonify({"ok": False, "error": "verified_session_required"}), 401)
 
 
-def _language(value):
-    language = str(value or "english").lower()
-    return language if language in {"english", "french"} else None
-
-
 @bp.get("/adaptive-practice")
 def adaptive_practice():
     email, error = _account()
     if error:
         return error
-    language = _language(request.args.get("language"))
-    if not language:
-        return jsonify({"ok": False, "error": "unsupported_language"}), 400
-    skill = str(request.args.get("skill") or "").lower()
-    question_rows = get_supabase().table("relocation_language_questions").select("id,language").eq("language", language).eq("is_active", True).limit(1000).execute().data or []
+    language = normalize_language(request.args.get("language"))
+    skill = normalize_skill(request.args.get("skill"))
+    question_rows = eligible_public_questions(
+        get_supabase().table("relocation_language_questions")
+        .select("id,language,content_origin,source_url")
+        .eq("language", language)
+        .eq("is_active", True)
+        .limit(1000)
+        .execute()
+        .data
+        or []
+    )
     ids = [row["id"] for row in question_rows]
     attempts = []
     if ids:
@@ -39,7 +57,7 @@ def adaptive_practice():
     query = get_supabase().table("relocation_language_questions").select("id,language,exam,skill,difficulty,prompt,choices,content_origin,source_url").eq("language", language).eq("difficulty", difficulty).eq("is_active", True)
     if skill:
         query = query.eq("skill", skill)
-    questions = query.limit(10).execute().data or []
+    questions = eligible_public_questions(query.limit(10).execute().data or [])
     return jsonify({"ok": True, "language": language, "difficulty": difficulty, "questions": questions, "answer_key_withheld": True, "adaptive": True})
 
 
@@ -48,14 +66,31 @@ def daily_challenge():
     email, error = _account()
     if error:
         return error
-    language = _language(request.args.get("language"))
-    if not language:
-        return jsonify({"ok": False, "error": "unsupported_language"}), 400
-    question_rows = get_supabase().table("relocation_language_questions").select("id,language").eq("language", language).eq("is_active", True).limit(1000).execute().data or []
+    language = normalize_language(request.args.get("language"))
+    question_rows = eligible_public_questions(
+        get_supabase().table("relocation_language_questions")
+        .select("id,language,content_origin,source_url")
+        .eq("language", language)
+        .eq("is_active", True)
+        .limit(1000)
+        .execute()
+        .data
+        or []
+    )
     ids = [row["id"] for row in question_rows]
     attempts = get_supabase().table("relocation_language_attempts").select("is_correct,difficulty,question_id,attempted_at").eq("email", email).in_("question_id", ids).order("attempted_at", desc=True).limit(20).execute().data or [] if ids else []
     difficulty = adaptive_difficulty(attempts)
-    questions = get_supabase().table("relocation_language_questions").select("id,language,exam,skill,difficulty,prompt,choices,content_origin,source_url").eq("language", language).eq("difficulty", difficulty).eq("is_active", True).limit(5).execute().data or []
+    questions = eligible_public_questions(
+        get_supabase().table("relocation_language_questions")
+        .select("id,language,exam,skill,difficulty,prompt,choices,content_origin,source_url")
+        .eq("language", language)
+        .eq("difficulty", difficulty)
+        .eq("is_active", True)
+        .limit(3)
+        .execute()
+        .data
+        or []
+    )
     return jsonify({"ok": True, "language": language, "difficulty": difficulty, "questions": questions, "estimated_minutes": "1-5", "answer_key_withheld": True})
 
 
@@ -64,14 +99,21 @@ def complete_diagnostic():
     email, error = _account()
     if error:
         return error
-    payload = request.get_json(silent=True) or {}
-    language = _language(payload.get("language"))
-    question_ids = [str(value) for value in (payload.get("question_ids") or []) if value]
-    if not language:
-        return jsonify({"ok": False, "error": "unsupported_language"}), 400
-    if not question_ids:
-        return jsonify({"ok": False, "error": "question_ids_required"}), 400
-    questions = get_supabase().table("relocation_language_questions").select("id,language").in_("id", question_ids).eq("language", language).execute().data or []
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        raise LanguageCoachValidationError("invalid_payload")
+    language = normalize_language(payload.get("language"))
+    question_ids = normalize_question_ids(payload.get("question_ids"))
+    questions = eligible_public_questions(
+        get_supabase().table("relocation_language_questions")
+        .select("id,language,content_origin,source_url")
+        .in_("id", question_ids)
+        .eq("language", language)
+        .eq("is_active", True)
+        .execute()
+        .data
+        or []
+    )
     valid_ids = [row["id"] for row in questions]
     if not valid_ids:
         return jsonify({"ok": False, "error": "diagnostic_questions_not_found"}), 404
@@ -80,8 +122,14 @@ def complete_diagnostic():
     for row in attempts:
         latest.setdefault(str(row.get("question_id")), row)
     scored = [row for key, row in latest.items() if key in {str(value) for value in valid_ids}]
-    correct = sum(1 for row in scored if row.get("is_correct"))
-    level = placement_level(correct, len(scored))
+    placement = diagnostic_placement(scored)
+    if not placement["complete"]:
+        return jsonify({
+            "ok": False,
+            "error": "diagnostic_incomplete",
+            **placement,
+        }), 400
+    level = placement["placement_level"]
     column = f"{language}_current_level"
     existing = get_supabase().table("relocation_language_profiles").select("id").eq("email", email).limit(1).execute().data or []
     if existing:
@@ -89,4 +137,9 @@ def complete_diagnostic():
     else:
         defaults = {"email": email, "language_selection": language, "english_allocation": 100 if language == "english" else 0, "french_allocation": 100 if language == "french" else 0, column: level}
         get_supabase().table("relocation_language_profiles").insert(defaults).execute()
-    return jsonify({"ok": True, "language": language, "attempted": len(scored), "correct": correct, "placement_level": level, "purpose": "internal_placement_not_official_exam_score", "next_action": "adaptive_practice"})
+    return jsonify({
+        "ok": True,
+        "language": language,
+        **placement,
+        "next_action": "adaptive_practice",
+    })
