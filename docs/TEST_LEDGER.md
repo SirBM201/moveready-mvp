@@ -148,3 +148,58 @@ The bounded unit suite completed with 5 PASS / 0 FAIL. GitHub Actions run `32002
 - B04 is closed and B05 may begin;
 - do not run the B17 comprehensive regression;
 - do not expose OTPs, session tokens, API tokens, recipient addresses, or provider response bodies in chat, screenshots, issues, logs, or repository files.
+
+## B05 — General-user Jobs scope contract
+
+### Scope
+
+- reconcile stale frontend PR #7 concepts with the current Jobs backend and schema;
+- support LOCAL, INTERNATIONAL, and BOTH search scopes;
+- use explicit current-country, target-country, and country-specific work-authorization facts;
+- remove founder, PET/manufacturing, and Canada assumptions from general matching and defaults;
+- keep official-source monitoring and user-confirmed application submission controls;
+- create a new migration only if the current schema genuinely requires it.
+
+### Implementation
+
+Status: **CODE PASS / PRODUCTION SCHEMA CONFIRMATION PENDING**
+
+- pull request: #23;
+- merge commit: `9941bf0099142715e6bf9cb4bd333e1ffdf1090f`;
+- no new migration was required because existing `034_career_search_scope_and_viability.sql` already defines the six B05 columns;
+- the main Jobs profile API and the dedicated scope route return `search_contract.version=b05-v1`;
+- incomplete scope profiles, out-of-scope countries, and insufficient authorization evidence fail closed;
+- vacancy sponsorship and relocation claims remain source-derived;
+- general matching no longer receives manufacturing/PET bonuses or Canada defaults;
+- monitoring, alerts, and employer-site handoff now enforce the same scope and authorization contract;
+- B06 frontend/mobile work remains outside this batch.
+
+### Targeted validation
+
+| Check | Result |
+| --- | --- |
+| Python compile | PASS |
+| Focused scope and matching suite (22 tests) | PASS |
+| Workflow YAML parse | PASS |
+| Jobs Module Integration | PASS |
+| Backend Smoke Test | PASS |
+| Build Fingerprint and Route Contract Integration | PASS |
+| Auth, privacy, evidence, billing, provider, and application regressions | PASS |
+
+All 11 workflows on tested head `2c0d9b054d6bd79080c577a8099a6692b0b68ab5` passed. Jobs Module Integration run `32004704787` verified the route, option enums, migration-034 columns, and protected schema diagnostics.
+
+### Manual actions
+
+- run the read-only six-column query in `docs/JOBS_GENERAL_USER_SCOPE.md`;
+- expected result: six rows;
+- if any row is missing, apply the existing `supabase/migrations/034_career_search_scope_and_viability.sql` file once and refresh the Supabase schema cache;
+- do not create or run another B05 migration;
+- Railway variables: no B05 change required;
+- blocker: production schema confirmation only.
+
+### Next batch boundary
+
+- do not mark B05 fully closed or begin B06 acceptance until the six production columns are confirmed;
+- do not run the B17 comprehensive regression;
+- do not infer nationality, citizenship, residence status, or work authorization from country fields.
+
