@@ -47,16 +47,17 @@ Verified-account routes:
 
 ## Database decision
 
-Migration `039_language_coach_backend_completion.sql` hardens the existing schema rather than creating a duplicate data model. It:
+Migration `039_language_coach_backend_completion.sql` is now a self-contained, idempotent install-and-hardening migration. It:
 
-- verifies that the five canonical Language Coach tables exist;
+- creates the five canonical Language Coach tables when they are absent;
+- inserts the 16 original English/French starter questions without duplicating them on rerun;
 - keeps row-level security enabled;
 - revokes direct `public`, `anon`, and `authenticated` table privileges;
 - grants the backend `service_role` access;
 - constrains saved allocations, question choice shape, official-release HTTPS provenance, and response-duration bounds;
 - adds no anonymous or user-table policies.
 
-Apply prerequisites `034_language_coach_v1.sql` and `035_language_coach_starter_bank.sql` only if the five canonical tables or starter questions are absent. Then apply migration 039 once. Do not apply stale PR #10's `035_language_coach_v1.sql` because it creates a conflicting schema.
+Run the complete migration 039 directly in the Supabase SQL Editor. It works both on a fresh database and on a database where the older `034_language_coach_v1.sql` and `035_language_coach_starter_bank.sql` were already applied. It is safe to rerun. Do not separately apply stale PR #10's `035_language_coach_v1.sql` because it creates a conflicting schema.
 
 No Railway environment variable or new secret is required for B07.
 
@@ -71,6 +72,8 @@ python -m unittest discover -s tests -p "test_language_coach*.py" -v
 
 GitHub Actions workflow `Language Coach Integration` also verifies:
 
+- migration 039 executes twice on PostgreSQL 16 without duplicating starter data;
+- migration 039 upgrades the older canonical 034/035 schema successfully;
 - registered B07 routes and build-info contract;
 - anonymous privacy barriers;
 - allocation and payload validation;
@@ -81,8 +84,8 @@ GitHub Actions workflow `Language Coach Integration` also verifies:
 
 ## Production acceptance to perform later
 
-1. Confirm the five canonical tables and at least one active English and French original practice question.
-2. Apply migration 039 after its prerequisites are present.
+1. Run the complete migration 039 in the Supabase SQL Editor.
+2. Confirm the five canonical tables and at least one active English and French original practice question.
 3. Sign in with a controlled verified account.
 4. Save English, French, and Both plans, including each supported allocation.
 5. Confirm an incomplete diagnostic cannot store placement.
