@@ -11,6 +11,7 @@ from app.services.supabase_client import get_supabase
 
 
 bp = Blueprint("evidence_workflow", __name__)
+CONTRACT_VERSION = "b12-v1"
 
 DOCUMENT_TYPES = [
     "passport",
@@ -443,6 +444,7 @@ def options():
     return jsonify(
         {
             "ok": True,
+            "contract_version": CONTRACT_VERSION,
             "document_types": DOCUMENT_TYPES,
             "owner_scopes": OWNER_SCOPES,
             "document_statuses": DOCUMENT_STATUSES,
@@ -470,6 +472,7 @@ def my_documents():
         return jsonify(
             {
                 "ok": True,
+                "contract_version": CONTRACT_VERSION,
                 "account_email": email,
                 "document_count": len(public_rows),
                 "documents": public_rows,
@@ -645,7 +648,7 @@ def my_packs():
             .execute()
         )
         rows = [_public_pack(row) for row in (response.data or [])]
-        return jsonify({"ok": True, "account_email": email, "pack_count": len(rows), "evidence_packs": rows})
+        return jsonify({"ok": True, "contract_version": CONTRACT_VERSION, "account_email": email, "pack_count": len(rows), "evidence_packs": rows})
     except Exception as exc:
         return jsonify({"ok": False, "error": "evidence_packs_unavailable", "details": str(exc)}), 503
 
@@ -759,7 +762,7 @@ def generate_pack():
         stored = (response.data or [None])[0]
         if not stored:
             return jsonify({"ok": False, "error": "evidence_pack_not_stored"}), 503
-        return jsonify({"ok": True, "evidence_pack": _public_pack(stored)})
+        return jsonify({"ok": True, "contract_version": CONTRACT_VERSION, "evidence_pack": _public_pack(stored)})
     except Exception as exc:
         return jsonify(
             {

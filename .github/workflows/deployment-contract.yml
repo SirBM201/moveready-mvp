@@ -94,6 +94,8 @@ jobs:
           assert payload["features"]["refusal_repair"] is True, payload
           assert payload["features"]["source_health"] is True, payload
           assert payload["features"]["payment_links"] is False, payload
+          assert payload["contract_versions"]["documents_applications"] == "b12-v1", payload
+          assert "account-owned evidence-pack metadata" in payload["safety_contract"]["documents_applications"], payload
           assert "twice weekly" not in str(payload).lower(), payload
 
           expected = set(payload["expected_endpoints"])
@@ -107,6 +109,7 @@ jobs:
               "/api/evidence/packs",
               "/api/evidence/packs/generate",
               "/api/evidence/refusal-repair",
+              "/api/applications/links",
               "/api/billing/status",
               "/api/handoffs",
               "/api/handoffs/support-cases",

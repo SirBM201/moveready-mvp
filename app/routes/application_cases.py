@@ -13,6 +13,7 @@ from app.services.supabase_client import get_supabase
 
 user_bp = Blueprint("application_cases", __name__)
 admin_bp = Blueprint("application_cases_admin", __name__)
+CONTRACT_VERSION = "b12-v1"
 
 ROUTE_CATEGORIES = [
     "visit", "study", "work", "startup", "business", "digital_nomad",
@@ -486,6 +487,7 @@ def options():
     return jsonify(
         {
             "ok": True,
+            "contract_version": CONTRACT_VERSION,
             "route_categories": ROUTE_CATEGORIES,
             "application_stages": APPLICATION_STAGES,
             "case_statuses": CASE_STATUSES,
@@ -517,7 +519,7 @@ def my_cases():
             .execute()
         )
         rows = [_public_case(row) for row in (response.data or [])]
-        return jsonify({"ok": True, "account_email": email, "case_count": len(rows), "application_cases": rows})
+        return jsonify({"ok": True, "contract_version": CONTRACT_VERSION, "account_email": email, "case_count": len(rows), "application_cases": rows})
     except Exception as exc:
         return jsonify({"ok": False, "error": "application_cases_unavailable", "details": str(exc), "hint": "Apply supabase/migrations/028_application_case_manager.sql."}), 503
 
@@ -543,7 +545,7 @@ def create_case():
         _record_event(stored, "case_created", "Application case created", summary="Private application tracking started.", actor_reference=email)
         if stored.get("next_deadline_at"):
             _record_event(stored, "deadline_added", "Next application deadline recorded", due_at=stored.get("next_deadline_at"), status="pending", actor_reference=email)
-        return jsonify({"ok": True, "application_case": _public_case(stored)})
+        return jsonify({"ok": True, "contract_version": CONTRACT_VERSION, "application_case": _public_case(stored)})
     except Exception as exc:
         return jsonify({"ok": False, "error": "application_case_create_failed", "details": str(exc), "hint": "Apply supabase/migrations/028_application_case_manager.sql."}), 503
 
@@ -566,7 +568,7 @@ def case_detail(case_ref: str):
             .limit(150)
             .execute()
         )
-        return jsonify({"ok": True, "application_case": _public_case(case), "events": [_public_event(row) for row in (events_response.data or [])]})
+        return jsonify({"ok": True, "contract_version": CONTRACT_VERSION, "application_case": _public_case(case), "events": [_public_event(row) for row in (events_response.data or [])]})
     except Exception as exc:
         return jsonify({"ok": False, "error": "application_case_detail_unavailable", "details": str(exc)}), 503
 
@@ -603,7 +605,7 @@ def update_case(case_ref: str):
             _record_event(updated, _event_type_for_stage(new_stage), f"Application stage changed to {new_stage.replace('_', ' ')}", summary=_text(payload.get("event_summary"), 1200), actor_reference=email, payload={"from": old_stage, "to": new_stage})
         if updated.get("next_deadline_at") and updated.get("next_deadline_at") != existing.get("next_deadline_at"):
             _record_event(updated, "deadline_added", "Next application deadline updated", due_at=updated.get("next_deadline_at"), status="pending", actor_reference=email)
-        return jsonify({"ok": True, "application_case": _public_case(updated)})
+        return jsonify({"ok": True, "contract_version": CONTRACT_VERSION, "application_case": _public_case(updated)})
     except Exception as exc:
         return jsonify({"ok": False, "error": "application_case_update_failed", "details": str(exc)}), 503
 
@@ -635,7 +637,7 @@ def create_event(case_ref: str):
         event = _record_event(case, event_type, title, summary=summary, due_at=due_at.isoformat() if due_at else None, actor_reference=email, status=event_status)
         if not event:
             return jsonify({"ok": False, "error": "application_case_event_not_stored"}), 503
-        return jsonify({"ok": True, "event": _public_event(event)})
+        return jsonify({"ok": True, "contract_version": CONTRACT_VERSION, "event": _public_event(event)})
     except Exception as exc:
         return jsonify({"ok": False, "error": "application_case_event_create_failed", "details": str(exc)}), 503
 
@@ -723,6 +725,6 @@ def create_timeline_tasks(case_ref: str):
             get_supabase().table("relocation_timeline_events").insert(new_rows).execute()
         duplicate_count = len(candidates) - len(new_rows)
         _record_event(case, "timeline_tasks_created", "Application timeline tasks processed", summary=f"{len(new_rows)} new tasks saved; {duplicate_count} existing tasks not duplicated.", actor_reference=email, payload={"created": len(new_rows), "duplicates": duplicate_count})
-        return jsonify({"ok": True, "created_count": len(new_rows), "existing_count": duplicate_count, "timeline_tasks": new_rows, "safety_note": "Generated dates are reminders. Confirm exact authority deadlines, time zones, appointment instructions, and submission channels."})
+        return jsonify({"ok": True, "contract_version": CONTRACT_VERSION, "created_count": len(new_rows), "existing_count": duplicate_count, "timeline_tasks": new_rows, "safety_note": "Generated dates are reminders. Confirm exact authority deadlines, time zones, appointment instructions, and submission channels."})
     except Exception as exc:
         return jsonify({"ok": False, "error": "application_timeline_tasks_failed", "details": str(exc)}), 503
