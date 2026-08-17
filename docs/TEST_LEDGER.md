@@ -24,7 +24,8 @@ This ledger records bounded batch validation. It does not replace the comprehens
 - production commit: `cb65e66a251d336074192bd089b497be89358667`;
 - migration 027 evidence inventory/packs: existing production prerequisite;
 - migration 028 application case manager: existing production prerequisite;
-- migration 038 Passport review lifecycle: executed successfully before B03; unrelated to B03 data mutations but part of the current database frontier.
+- migration 038 Passport review lifecycle: executed successfully before B03; unrelated to B03 data mutations but part of the current database frontier;
+- acceptance harness source includes B03 refresh merge `8c2fa1608bc5edc5a75ad8d27e58b6128132a1df` and placeholder-email guard merge `95b3e2563a48340ece9c0c772d04346eefa31695`.
 
 ### Pre-authenticated production contract checks
 
@@ -46,32 +47,50 @@ This ledger records bounded batch validation. It does not replace the comprehens
 - returns a failing process exit when any assertion or cleanup step fails;
 - securely prompts for an existing session token when one is not supplied;
 - optionally requests and verifies one OTP when `-TestEmail` is explicitly supplied;
+- rejects placeholder login emails locally before requesting an OTP;
 - revokes only sessions created by the harness;
 - archives the temporary case and document metadata;
 - retains the generated evidence pack as an immutable metadata-only audit snapshot because no destructive pack-delete contract is exposed.
 
 ### Authenticated production acceptance
 
-Status: **PENDING USER-RUN LAPTOP ACCEPTANCE**
+Status: **PASS**
 
-Acceptance requires the refreshed `scripts/test-evidence-application-lifecycle.ps1` harness to finish with:
+User-run PowerShell acceptance completed on 17 August 2026 against production commit `cb65e66a251d336074192bd089b497be89358667`.
 
-- `FAIL : 0`;
-- `[B03 PASS] Evidence -> Evidence Pack -> Application Case lifecycle is operational.`
+| Result | Count |
+| --- | ---: |
+| PASS | 21 |
+| FAIL | 0 |
 
-After the production output is reviewed, replace this pending status with the run timestamp, production commit, PASS/FAIL counts, and any bounded defect reference.
+The accepted run verified:
+
+- production deployment health and account authentication;
+- evidence and application contracts;
+- temporary evidence create/read;
+- evidence pack create/read with `completeness=17`;
+- temporary application case create/read;
+- explicit case event creation;
+- persisted `research` → `preparing` transition;
+- three lifecycle events retrieved;
+- all five anonymous privacy barriers rejected with HTTP 401;
+- case and evidence metadata cleanup;
+- immutable metadata-only pack retention;
+- OTP-created test-session revocation.
+
+The harness printed neither the OTP nor the session token, and uploaded or stored no raw document.
 
 ### Manual actions
 
 - SQL: none for B03;
 - environment variables: none for B03;
 - phone actions: none required;
-- laptop actions: run the refreshed PowerShell harness with an active MoveReady session or one controlled test OTP;
-- blocker: authenticated production acceptance output has not yet been supplied.
+- laptop actions: completed;
+- blocker: none.
 
-### Do not do yet
+### Next batch boundary
 
+- B03 is closed and B04 may begin;
 - do not run the B17 comprehensive regression;
 - do not upload real passports, bank statements, certificates, or refusal letters;
-- do not paste session tokens or OTPs into chat, screenshots, issues, logs, or repository files;
-- do not begin B04 until the B03 acceptance result is recorded or a bounded B03 defect is opened.
+- do not paste session tokens or OTPs into chat, screenshots, issues, logs, or repository files.
