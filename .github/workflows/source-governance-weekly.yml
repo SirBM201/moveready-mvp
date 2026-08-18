@@ -34,15 +34,24 @@ jobs:
             exit 1
           fi
 
-      - name: Wake Railway backend
+      - name: Wake and verify B16 Railway contract
         shell: bash
         run: |
           set -euo pipefail
           base="${API_BASE%/}"
           for attempt in 1 2 3 4 5; do
-            code="$(curl --silent --show-error --location --output /tmp/source-health.json --write-out '%{http_code}' --max-time 45 "${base}/api/source-health/summary" || true)"
+            code="$(curl --silent --show-error --location --output /tmp/build-info.json --write-out '%{http_code}' --max-time 45 "${base}/api/build-info" || true)"
             if [ "${code}" = "200" ]; then
-              cat /tmp/source-health.json
+              python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/build-info.json').read_text(encoding='utf-8'))
+          assert payload.get('contract_versions', {}).get('operations') == 'b16-v1', payload
+          assert payload.get('route_contract', {}).get('ok') is True, payload
+          assert payload.get('operations_contract', {}).get('admin_boundary', {}).get('ok') is True, payload
+          print('B16 Railway deployment contract verified.')
+          PY
               exit 0
             fi
             echo "Wake attempt ${attempt} returned HTTP ${code:-network_error}."
