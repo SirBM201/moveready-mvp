@@ -1,0 +1,63 @@
+name: B14 Smart Alerts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/routes/account_controls.py"
+      - "app/routes/smart_alerts.py"
+      - "app/services/smart_alerts.py"
+      - "app/routes/health.py"
+      - "tests/test_b14_smart_alerts.py"
+      - "tests/test_v1_completion_contract.py"
+      - ".github/workflows/b14-smart-alerts.yml"
+  pull_request:
+    paths:
+      - "app/routes/account_controls.py"
+      - "app/routes/smart_alerts.py"
+      - "app/services/smart_alerts.py"
+      - "app/routes/health.py"
+      - "tests/test_b14_smart_alerts.py"
+      - "tests/test_v1_completion_contract.py"
+      - ".github/workflows/b14-smart-alerts.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      FLASK_ENV: development
+      ENV_MODE: development
+      SECRET_KEY: github-actions-b14-only
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      AUTH_OTP_DEV_MODE: "false"
+      EMAIL_OTP_DELIVERY_ENABLED: "false"
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+      PAYMENT_LINKS_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip && pip install -r requirements.txt
+      - run: python -m compileall -q app
+      - run: python -m unittest tests.test_b14_smart_alerts tests.test_v1_completion_contract -v
+      - name: Verify private route and deployment fingerprint
+        run: |
+          python - <<'PY'
+          from app import create_app
+
+          client = create_app().test_client()
+          private = client.get('/api/account/smart-alerts')
+          assert private.status_code == 401, private.get_data(as_text=True)
+          build = client.get('/api/build-info').get_json()
+          assert build['route_contract']['ok'], build
+          assert build['contract_versions']['smart_alerts'] == 'b14-v1', build
+          assert 'external delivery' in build['safety_contract']['smart_alerts'].lower(), build
+          PY

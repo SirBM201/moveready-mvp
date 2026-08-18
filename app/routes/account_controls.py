@@ -7,6 +7,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from flask import Blueprint, jsonify, request
 
 from app.routes import account_auth
+from app.services.smart_alerts import (
+    SmartAlertPreferenceError,
+    normalize_preferences,
+    preferences_from_payload,
+)
 from app.services.supabase_client import get_supabase
 
 
@@ -150,9 +155,11 @@ def _email(session: Dict[str, Any]) -> str:
 
 def _public_preferences(row: Optional[Dict[str, Any]], email: str) -> Dict[str, Any]:
     merged = {**DEFAULT_PREFERENCES, **(row or {})}
+    metadata = merged.get("metadata") if isinstance(merged.get("metadata"), dict) else {}
     return {
         "email": email,
         **{field: merged.get(field) for field in PREFERENCE_FIELDS},
+        "smart_alert_preferences": normalize_preferences(metadata.get("smart_alerts")),
         "created_at": merged.get("created_at"),
         "updated_at": merged.get("updated_at"),
         "delivery_status": {
@@ -287,11 +294,22 @@ def update_preferences():
     row, error = _preference_payload(payload)
     if error:
         return jsonify({"ok": False, "error": error}), 400
+    if "smart_alert_preferences" in payload:
+        try:
+            smart_preferences = preferences_from_payload(payload.get("smart_alert_preferences"))
+        except SmartAlertPreferenceError as exc:
+            return jsonify({"ok": False, "error": exc.code}), 400
+        try:
+            existing = _load_preferences(email) or {}
+        except Exception:
+            return jsonify({"ok": False, "error": "account_preferences_unavailable"}), 503
+        metadata = existing.get("metadata") if isinstance(existing.get("metadata"), dict) else {}
+        row["metadata"] = {**metadata, "smart_alerts": smart_preferences}
     if not row:
         return jsonify({"ok": False, "error": "at_least_one_preference_required"}), 400
 
     row["email"] = email
-    row["consent_version"] = "moveready-account-preferences-v1"
+    row["consent_version"] = "moveready-account-preferences-v2"
     row["consent_recorded_at"] = _now_iso()
     try:
         response = (
@@ -306,8 +324,8 @@ def update_preferences():
             "preferences": _public_preferences(stored, email),
             "safety_note": "External email, WhatsApp, marketing, or push delivery remains disabled until its provider, opt-in, templates, audit, unsubscribe, and production tests are approved.",
         })
-    except Exception as exc:
-        return jsonify({"ok": False, "error": "account_preferences_save_failed", "details": str(exc)[:800]}), 503
+    except Exception:
+        return jsonify({"ok": False, "error": "account_preferences_save_failed"}), 503
 
 
 @bp.get("/sessions")
