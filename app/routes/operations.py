@@ -3,9 +3,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, current_app, jsonify
 
 from app.core import config
+from app.core.operations_readiness import (
+    admin_route_contract,
+    environment_checks,
+    environment_summary,
+    operations_contract_payload,
+)
 from app.services.email_delivery import email_delivery_status
 from app.services.supabase_client import get_supabase
 from app.utils.admin_auth import require_admin_access
@@ -367,7 +373,11 @@ def _check_schema(item: Dict[str, Any]) -> Dict[str, Any]:
 
 def _configuration() -> Dict[str, Any]:
     email_status = email_delivery_status()
+    checks = environment_checks(email_status)
     return {
+        "environment_validation": environment_summary(checks),
+        "environment_checks": checks,
+        "secret_key_configured": bool(config.SECRET_KEY),
         "supabase_configured": bool(config.SUPABASE_URL and config.SUPABASE_SERVICE_ROLE_KEY),
         "admin_key_configured": bool(config.ADMIN_API_KEY),
         "email_otp_delivery_enabled": bool(email_status["enabled"]),
@@ -382,6 +392,7 @@ def _configuration() -> Dict[str, Any]:
         "passport_provider_credentials_present": bool(config.PASSPORT_INDEX_PROVIDER_URL and config.PASSPORT_INDEX_PROVIDER_KEY),
         "commercial_quotes_enabled": bool(config.COMMERCIAL_QUOTES_ENABLED),
         "payment_links_enabled": bool(config.PAYMENT_LINKS_ENABLED),
+        "cors_policy": "explicit_allow_list" if config.CORS_ORIGINS and config.CORS_ORIGINS != "*" else "wildcard_or_missing",
     }
 
 
@@ -393,6 +404,8 @@ def _operational_assessment(checks: List[Dict[str, Any]], configuration: Dict[st
 
     if not configuration.get("supabase_configured"):
         blockers.append("Supabase credentials are not configured.")
+    if not configuration.get("secret_key_configured"):
+        blockers.append("Production SECRET_KEY is not configured.")
     if not configuration.get("admin_key_configured"):
         blockers.append("MoveReady admin API key is not configured.")
     for item in critical_missing:
@@ -444,12 +457,17 @@ def _operational_assessment(checks: List[Dict[str, Any]], configuration: Dict[st
 @public_bp.get("/status")
 def public_operations_status():
     configuration = _configuration()
+    operations_contract = operations_contract_payload()
+    operations_contract["admin_boundary"].update(admin_route_contract(current_app))
     return jsonify(
         {
             "ok": True,
             "service": "MoveReady operations",
             "status": "code_operational_external_integrations_controlled",
+            "contract_version": operations_contract["version"],
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "environment_validation": configuration["environment_validation"],
+            "operations_contract": operations_contract,
             "public_capabilities": {
                 "verified_email_login": bool(
                     configuration.get("email_otp_delivery_enabled")
@@ -488,16 +506,19 @@ def admin_operations_status():
     configuration = _configuration()
     checks = [_check_schema(item) for item in SCHEMA_CHECKS]
     assessment = _operational_assessment(checks, configuration)
+    operations_contract = operations_contract_payload()
+    operations_contract["admin_boundary"].update(admin_route_contract(current_app))
     return jsonify(
         {
             "ok": True,
             "service": "MoveReady protected operations diagnostics",
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "configuration": configuration,
+            "operations_contract": operations_contract,
             "schema_checks": checks,
             **assessment,
             "recommended_sequence": [
-                "Apply Supabase migrations through 032, including provider publication, quotes, payment audit, private-table RLS, consent-based handoffs, support cases, evidence packs, application cases, application alerts, account preferences, privacy requests, the private Jobs workspace, and controlled job automation.",
+                "Follow docs/MIGRATION_LEDGER.json through migration 039, including provider publication, quotes, payment audit, private-table RLS, consent-based handoffs, support cases, evidence packs, application cases, alerts, account controls, Jobs, Passport official-source governance, and Language Coach completion.",
                 "Run the source-governance queue and resolve overdue official sources and route versions before promoting guidance as current.",
                 "Use the Application Case Manager and daily private alert scan without storing raw authority correspondence or complete reference numbers.",
                 "Review privacy requests manually; never treat a deletion request as authorization for immediate unaudited destruction.",

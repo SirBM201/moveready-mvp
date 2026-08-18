@@ -9,6 +9,7 @@ on:
       - "app/routes/source_governance.py"
       - "app/routes/passport_provider_schedule.py"
       - "app/routes/operations.py"
+      - "app/core/operations_readiness.py"
       - "app/__init__.py"
       - ".github/workflows/deployment-contract.yml"
   pull_request:
@@ -18,6 +19,7 @@ on:
       - "app/routes/source_governance.py"
       - "app/routes/passport_provider_schedule.py"
       - "app/routes/operations.py"
+      - "app/core/operations_readiness.py"
       - "app/__init__.py"
       - ".github/workflows/deployment-contract.yml"
   workflow_dispatch:
@@ -95,6 +97,10 @@ jobs:
           assert payload["features"]["source_health"] is True, payload
           assert payload["features"]["payment_links"] is False, payload
           assert payload["contract_versions"]["documents_applications"] == "b12-v1", payload
+          assert payload["contract_versions"]["operations"] == "b16-v1", payload
+          assert payload["operations_contract"]["version"] == "b16-v1", payload
+          assert payload["operations_contract"]["schedule_count"] == 4, payload
+          assert payload["operations_contract"]["admin_boundary"]["ok"] is True, payload
           assert "account-owned evidence-pack metadata" in payload["safety_contract"]["documents_applications"], payload
           assert "twice weekly" not in str(payload).lower(), payload
 

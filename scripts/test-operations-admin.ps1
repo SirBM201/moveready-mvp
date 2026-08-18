@@ -35,6 +35,8 @@ $Status = Invoke-RestMethod `
 
 $Status | ConvertTo-Json -Depth 50
 Assert-True -Condition ($Status.ok -eq $true) -Message "Protected operations endpoint returned ok=false."
+Assert-True -Condition ($Status.operations_contract.version -eq "b16-v1") -Message "Protected operations endpoint does not report the B16 contract."
+Assert-True -Condition ($Status.operations_contract.admin_boundary.ok -eq $true) -Message "One or more admin routes are missing the B16 protection marker."
 
 $RequiredSchemaCodes = @(
     "profiles",
@@ -57,7 +59,25 @@ $RequiredSchemaCodes = @(
     "application_case_events",
     "application_case_alerts",
     "account_preferences",
-    "privacy_requests"
+    "privacy_requests",
+    "language_profiles",
+    "language_questions",
+    "language_attempts",
+    "language_mistakes",
+    "language_daily_progress",
+    "job_search_profiles",
+    "job_companies",
+    "job_recruiters",
+    "job_company_targets",
+    "jobs",
+    "job_resume_assets",
+    "job_applications",
+    "job_watches",
+    "job_scan_runs",
+    "job_alerts",
+    "job_document_drafts",
+    "job_application_assistance",
+    "job_assistance_events"
 )
 
 $Checks = @($Status.schema_checks)
@@ -70,6 +90,7 @@ foreach ($Code in $RequiredSchemaCodes) {
 
 Assert-True -Condition ($Status.configuration.supabase_configured -eq $true) -Message "Supabase configuration is not ready."
 Assert-True -Condition ($Status.configuration.admin_key_configured -eq $true) -Message "Admin key configuration is not ready."
+Assert-True -Condition ($Status.configuration.environment_validation.status -ne "blocked") -Message "B16 environment validation is blocked: $($Status.configuration.environment_validation.blocked_checks -join ', ')"
 Assert-True -Condition ($Status.configuration.commercial_quotes_enabled -eq $true) -Message "COMMERCIAL_QUOTES_ENABLED is not true."
 Assert-True -Condition ($Status.configuration.otp_dev_mode_requested -ne $true) -Message "AUTH_OTP_DEV_MODE must not be enabled in production."
 

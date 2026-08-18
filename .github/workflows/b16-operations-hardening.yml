@@ -1,0 +1,83 @@
+name: B16 Deployment and Operations Hardening
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/core/operations_readiness.py"
+      - "app/routes/health.py"
+      - "app/routes/operations.py"
+      - "app/utils/admin_auth.py"
+      - ".env.example"
+      - "railway.json"
+      - "supabase/migrations/**"
+      - "sql/**"
+      - "scripts/validate_b16_operations.py"
+      - "scripts/test-b16-operations-release.ps1"
+      - "tests/test_b16_operations_contract.py"
+      - "docs/MIGRATION_LEDGER.json"
+      - "docs/B16_DEPLOYMENT_OPERATIONS.md"
+      - ".github/workflows/*schedule*.yml"
+      - ".github/workflows/*weekly*.yml"
+      - ".github/workflows/b16-operations-hardening.yml"
+  pull_request:
+    paths:
+      - "app/core/operations_readiness.py"
+      - "app/routes/health.py"
+      - "app/routes/operations.py"
+      - "app/utils/admin_auth.py"
+      - ".env.example"
+      - "railway.json"
+      - "supabase/migrations/**"
+      - "sql/**"
+      - "scripts/validate_b16_operations.py"
+      - "scripts/test-b16-operations-release.ps1"
+      - "tests/test_b16_operations_contract.py"
+      - "docs/MIGRATION_LEDGER.json"
+      - "docs/B16_DEPLOYMENT_OPERATIONS.md"
+      - ".github/workflows/*schedule*.yml"
+      - ".github/workflows/*weekly*.yml"
+      - ".github/workflows/b16-operations-hardening.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  operations-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      ENV_MODE: production
+      FLASK_ENV: production
+      SECRET_KEY: github-actions-b16-only
+      CORS_ORIGINS: https://example.vercel.app
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: smoke-test-placeholder
+      MOVEREADY_ADMIN_API_KEY: smoke-admin-key
+      AUTH_OTP_DEV_MODE: "false"
+      EMAIL_OTP_DELIVERY_ENABLED: "false"
+      PASSPORT_INDEX_PROVIDER_ENABLED: "false"
+      PAYMENT_LINKS_ENABLED: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt && pip install pytest
+
+      - name: Validate repository operations contract
+        run: python scripts/validate_b16_operations.py
+
+      - name: Compile backend
+        run: python -m compileall -q app tests scripts/validate_b16_operations.py
+
+      - name: Test B16 runtime contract
+        run: python -m pytest -q tests/test_b16_operations_contract.py

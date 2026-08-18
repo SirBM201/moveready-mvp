@@ -46,7 +46,7 @@ jobs:
             exit 1
           fi
 
-      - name: Wake and verify MoveReady API
+      - name: Wake and verify B16 Railway contract
         shell: bash
         run: |
           set -euo pipefail
@@ -69,6 +69,12 @@ jobs:
           payload = json.loads(Path("build-info.json").read_text())
           if payload.get("ok") is False:
               raise SystemExit(f"MoveReady build-info returned ok=false: {payload}")
+          if payload.get("contract_versions", {}).get("operations") != "b16-v1":
+              raise SystemExit(f"Railway is not serving the B16 operations contract: {payload}")
+          if payload.get("route_contract", {}).get("ok") is not True:
+              raise SystemExit(f"Railway route contract failed: {payload}")
+          if payload.get("operations_contract", {}).get("admin_boundary", {}).get("ok") is not True:
+              raise SystemExit(f"Railway admin boundary failed: {payload}")
           print(json.dumps(payload, indent=2, sort_keys=True))
           PY
 
