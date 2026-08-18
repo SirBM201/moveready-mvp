@@ -191,6 +191,7 @@ jobs:
           ]
           configuration = {
               "supabase_configured": True,
+              "secret_key_configured": True,
               "admin_key_configured": True,
               "email_otp_delivery_enabled": False,
               "opportunity_alerts_enabled": False,
