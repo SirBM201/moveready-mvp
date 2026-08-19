@@ -83,7 +83,9 @@ def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
     jobs_module._visible_company = _safe_visible_company
     jobs_module._visible_job = _safe_visible_job
 
-    user_bp = job_automation_module.user_bp
+    user_bp = getattr(job_automation_module, "user_bp", None)
+    if user_bp is None:
+        return
 
     # The overview route is declared before this patch is applied. Replace the
     # blueprint's stored view function before registration so /jobs and
