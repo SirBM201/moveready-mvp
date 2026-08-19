@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from app.services.job_scope import JOB_PROFILE_COLUMNS
+from flask import jsonify
+
+from app.services.job_scope import JOB_PROFILE_COLUMNS, profile_scope_contract
 from app.services.job_visibility import job_is_visible_to_account
 from app.services.supabase_client import get_supabase
 
@@ -41,13 +43,36 @@ def _safe_visible_job(job_id: str, email: str) -> Optional[Dict[str, Any]]:
     return row if job_is_visible_to_account(row, email) else None
 
 
-def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
-    """Harden zero-row Jobs lookups and attach additive career-scope endpoints.
+def _automation_overview_with_search_contract(original_view: Any):
+    """Add the canonical Jobs search contract to automation overview responses.
 
-    The route mutation is deliberately idempotent because create_app() is used
-    more than once in tests and can also be called repeatedly by application
-    factories. Flask blueprints cannot be mutated after first registration.
+    JobAutomationWorkspace consumes ``search_contract`` to decide whether scans
+    and monitor creation are safe to enable. The original overview returned the
+    profile but omitted this derived contract, causing a completed profile to be
+    rendered as "Not recorded" and blocking automation.
     """
+    def wrapped(*args: Any, **kwargs: Any):
+        response = original_view(*args, **kwargs)
+        # Preserve error/tuple responses exactly as produced by the route.
+        if isinstance(response, tuple):
+            return response
+        try:
+            payload = response.get_json(silent=True)
+        except Exception:
+            return response
+        if not isinstance(payload, dict) or not payload.get("ok"):
+            return response
+        profile = payload.get("profile")
+        payload["search_contract"] = profile_scope_contract(profile)
+        return jsonify(payload)
+
+    wrapped.__name__ = getattr(original_view, "__name__", "automation_overview")
+    wrapped.__doc__ = getattr(original_view, "__doc__", None)
+    return wrapped
+
+
+def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
+    """Harden Jobs lookups and keep automation on the canonical search scope."""
     job_automation_module._profile = _safe_profile
 
     from app.routes import jobs as jobs_module
@@ -59,6 +84,18 @@ def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
     jobs_module._visible_job = _safe_visible_job
 
     user_bp = job_automation_module.user_bp
+
+    # The overview route is declared before this patch is applied. Replace the
+    # blueprint's stored view function before registration so /jobs and
+    # /jobs/automation derive readiness from the same saved profile.
+    overview_endpoint = "automation_overview"
+    if not getattr(user_bp, "_got_registered_once", False):
+        original_overview = getattr(user_bp, "view_functions", {}).get(overview_endpoint)
+        if original_overview and not getattr(original_overview, "_moveready_scope_contract_patch", False):
+            wrapped_overview = _automation_overview_with_search_contract(original_overview)
+            setattr(wrapped_overview, "_moveready_scope_contract_patch", True)
+            user_bp.view_functions[overview_endpoint] = wrapped_overview
+
     endpoint = "update_search_scope"
 
     # Blueprint setup is process-global. Add the route only before the first
