@@ -14,6 +14,7 @@ from app.services.job_scope import (
 IGNORED_TOKENS = {
     "a", "an", "and", "for", "in", "lead", "of", "or", "the", "to",
 }
+ACTIVE_VACANCY_STATUSES = {"open", "discovered"}
 
 
 def _tokens(values: Iterable[Any]) -> Set[str]:
@@ -227,9 +228,19 @@ def rank_jobs(
     jobs: Sequence[Dict[str, Any]],
     profile: Dict[str, Any] | None,
 ) -> List[Dict[str, Any]]:
+    """Rank candidate opportunities while keeping archived history out of batch discovery views.
+
+    A single vacancy is still evaluated regardless of status because application-readiness
+    checks must be able to inspect an already prepared vacancy after it closes. Batch ranking,
+    which powers discovery/automation opportunity lists, contains active vacancies only.
+    """
     ranked: List[Dict[str, Any]] = []
     contract = profile_scope_contract(profile)
+    batch_ranking = len(jobs) > 1
     for row in jobs:
+        status = str(row.get("status") or "open").strip().casefold()
+        if batch_ranking and status not in ACTIVE_VACANCY_STATUSES:
+            continue
         enriched_row = _with_authorization_signals(row)
         score, reasons = score_job(enriched_row, profile)
         viability_score, priority, viability_reasons = application_viability(
