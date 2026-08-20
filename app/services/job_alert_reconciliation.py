@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Mapping, MutableMapping, Tuple
 ACTIONABLE_JOB_ALERT_TYPES = {"new_match", "job_changed", "job_reopened", "closing_soon"}
 ACTIVE_JOB_STATUSES = {"open", "discovered"}
 VISIBLE_ALERT_STATUSES = {"unread", "read"}
+OPERATIONAL_ALERT_TYPES = {"scan_failed", "source_failed", "source_error"}
 
 
 def _created_key(row: Mapping[str, Any]) -> Tuple[str, str]:
@@ -13,9 +14,9 @@ def _created_key(row: Mapping[str, Any]) -> Tuple[str, str]:
 
 
 def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
-    """Return only the live/actionable job-alert inbox and make its count agree.
+    """Return the live alert inbox and expose user-facing alert categories separately.
 
-    Migration 042 preserves historical rows by marking them dismissed.  This runtime
+    Migration 042 preserves historical rows by marking them dismissed. This runtime
     guard keeps the API contract equally strict even when old rows remain in the
     table or a client refresh lands between reconciliation/deployment steps.
 
@@ -43,7 +44,6 @@ def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMap
 
         job_id = str(raw.get("job_id") or "")
         if not job_id:
-            # Operational/source-health alerts are not tied to vacancy lifecycle.
             candidates.append(raw)
             continue
 
@@ -56,8 +56,6 @@ def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMap
             continue
         candidates.append(raw)
 
-    # Newest first, matching the overview query.  Collapse historical duplicate
-    # alerts that refer to the same canonical vacancy and semantic alert type.
     candidates.sort(key=_created_key, reverse=True)
     live: List[Dict[str, Any]] = []
     seen = set()
@@ -82,7 +80,20 @@ def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMap
     if not isinstance(counts, dict):
         counts = {}
         payload["counts"] = counts
-    counts["unread_alerts"] = sum(1 for row in live if row.get("status") == "unread")
+
+    unread = [row for row in live if row.get("status") == "unread"]
+    unread_match_alerts = [
+        row for row in unread
+        if row.get("job_id") and str(row.get("alert_type") or "") in ACTIONABLE_JOB_ALERT_TYPES
+    ]
+    unread_scan_issues = [
+        row for row in unread
+        if not row.get("job_id") or str(row.get("alert_type") or "") in OPERATIONAL_ALERT_TYPES
+    ]
+
+    counts["unread_alerts"] = len(unread)
+    counts["unread_match_alerts"] = len(unread_match_alerts)
+    counts["unread_scan_issues"] = len(unread_scan_issues)
     return payload
 
 
@@ -95,9 +106,6 @@ def apply_job_alert_reconciliation(app: Any) -> None:
 
     def reconciled_overview(*args: Any, **kwargs: Any):
         result = original(*args, **kwargs)
-
-        # Flask views may return Response or (Response, status[/headers]).  Only
-        # successful JSON overview responses are rewritten; errors pass through.
         response = result[0] if isinstance(result, tuple) else result
         status = result[1] if isinstance(result, tuple) and len(result) > 1 else getattr(response, "status_code", 200)
         if int(status or 200) >= 400 or not hasattr(response, "get_json"):
