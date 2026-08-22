@@ -66,7 +66,10 @@ def update_materials(job_id):
     for field,allowed in typed.items():
         if field in body:
             asset_id=str(body.get(field) or "").strip() or None
-            if asset_id and not _asset(asset_id,email,allowed):return jsonify({"ok":False,"error":"application_material_invalid","field":field}),400
+            if asset_id and not _asset(asset_id,email,allowed):
+                # Keep the public B19.2 ownership contract explicit for resume/CV assets.
+                error_code="resume_asset_not_owned" if field=="cv_id" else "application_material_invalid"
+                return jsonify({"ok":False,"error":error_code,"field":field}),400
             extra[field]=asset_id
     for field in ("application_answers_ready","requirements_verified"):
         if field in body:extra[field]=bool(body.get(field))
