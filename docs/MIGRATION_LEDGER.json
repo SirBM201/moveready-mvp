@@ -1,7 +1,7 @@
 {
   "ledger_version": "b16-v1",
   "updated_at": "2026-08-22",
-  "latest_schema_file": "043_job_runtime_vacancy_identity_repair.sql",
+  "latest_schema_file": "045_job_readiness_reconciliation.sql",
   "policy": {
     "applied_files_are_immutable": true,
     "new_schema_changes_are_additive": true,
@@ -10,7 +10,7 @@
     "repository_ledger_role": "file inventory and deployment ordering; not a substitute for database history"
   },
   "production_confirmation": {
-    "manually_confirmed_frontier": "039_language_coach_backend_completion.sql",
+    "manually_confirmed_frontier": "044_job_application_readiness.sql",
     "verification_required": "Run the protected operations schema checks after every database or deployment change."
   },
   "canonical_schema_files": [
@@ -53,7 +53,9 @@
     "040_job_vacancy_canonical_identity.sql",
     "041_job_vacancy_reconciliation.sql",
     "042_job_alert_reconciliation.sql",
-    "043_job_runtime_vacancy_identity_repair.sql"
+    "043_job_runtime_vacancy_identity_repair.sql",
+    "044_job_application_readiness.sql",
+    "045_job_readiness_reconciliation.sql"
   ],
   "legacy_sql_only_files": [
     "017_seed_working_holiday_opportunities.sql",
