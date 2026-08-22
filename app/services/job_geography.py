@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any, Mapping, Optional, Sequence, Tuple
 
 # Canonical country names plus common ATS/user aliases. This registry is intentionally
 # geography-wide rather than tied to one destination market. Unknown country names are
@@ -79,6 +79,15 @@ def normalize_country(value: Any) -> str:
     return COUNTRY_ALIASES.get(key, original)
 
 
+def country_matches(candidate: Mapping[str, Any], target_country: Any) -> bool:
+    """Apply an optional country target after discovery without changing source geography."""
+    target = normalize_country(target_country)
+    if not target:
+        return True
+    candidate_country = normalize_country(candidate.get("country"))
+    return bool(candidate_country) and candidate_country.casefold() == target.casefold()
+
+
 def infer_location(values: Sequence[Any]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     cells = [_clean(v) for v in values if _clean(v)]
     country: Optional[str] = None
@@ -93,7 +102,11 @@ def infer_location(values: Sequence[Any]) -> Tuple[Optional[str], Optional[str],
                 country = normalized
                 if idx and not city:
                     previous = parts[idx - 1]
-                    if normalize_country(previous) not in CANONICAL_COUNTRIES and previous.casefold() not in CANADA_SUBDIVISIONS:
+                    # City-states often appear as "Singapore, SG". Preserve the human-readable
+                    # city even when it normalizes to the same canonical country as the code.
+                    if previous.casefold() == normalized.casefold():
+                        city = previous
+                    elif normalize_country(previous) not in CANONICAL_COUNTRIES and previous.casefold() not in CANADA_SUBDIVISIONS:
                         city = previous
             subdivision = CANADA_SUBDIVISIONS.get(part.casefold())
             if subdivision and (not country or country == "Canada"):
