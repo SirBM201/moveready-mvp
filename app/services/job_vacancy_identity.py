@@ -12,14 +12,14 @@ def _norm(value: Any) -> str:
 
 
 def canonical_candidate_fingerprint(candidate: Dict[str, Any], watch_id: str) -> str:
-    """Return a stable vacancy identity across URL/ATS representation changes.
+    """Return the canonical monitored-vacancy identity used by the database.
 
-    Official career systems frequently expose the same vacancy through multiple URLs
-    (listing URL, detail URL, tracking URL, ATS URL).  URL-first fingerprints caused
-    those representations to become separate MoveReady vacancies.  The database
-    canonical-identity contract introduced in migration 040 already defines one
-    genuine vacancy by employer/watch + normalized title + location; runtime scans
-    now use the same semantic identity.
+    One watch belongs to one employer/source, so watch id + normalized title + location
+    is stable across listing/detail/tracking URL changes while still keeping genuinely
+    different postings (including Contract wording) separate.  Migration 043 aligns
+    existing monitored rows to this exact MD5 contract and copies the value into both
+    canonical_identity and source_fingerprint, allowing the existing scan lookup to
+    update the survivor instead of inserting another row on every scan.
     """
     material = "|".join(
         [
@@ -30,7 +30,7 @@ def canonical_candidate_fingerprint(candidate: Dict[str, Any], watch_id: str) ->
             _norm(candidate.get("country")),
         ]
     )
-    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+    return hashlib.md5(material.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def install() -> None:
