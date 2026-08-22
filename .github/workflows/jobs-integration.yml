@@ -22,6 +22,9 @@ on:
       - "supabase/migrations/031_jobs_execution_platform.sql"
       - "supabase/migrations/032_job_discovery_and_application_assistance.sql"
       - "supabase/migrations/034_career_search_scope_and_viability.sql"
+      - "supabase/migrations/040_job_official_source_monitoring.sql"
+      - "supabase/migrations/041_job_vacancy_reconciliation.sql"
+      - "supabase/migrations/042_job_alert_reconciliation.sql"
       - "tests/test_job_matching.py"
       - "tests/test_job_scope.py"
       - "tests/test_job_actions.py"
@@ -48,6 +51,9 @@ on:
       - "supabase/migrations/031_jobs_execution_platform.sql"
       - "supabase/migrations/032_job_discovery_and_application_assistance.sql"
       - "supabase/migrations/034_career_search_scope_and_viability.sql"
+      - "supabase/migrations/040_job_official_source_monitoring.sql"
+      - "supabase/migrations/041_job_vacancy_reconciliation.sql"
+      - "supabase/migrations/042_job_alert_reconciliation.sql"
       - "tests/test_job_matching.py"
       - "tests/test_job_scope.py"
       - "tests/test_job_actions.py"
@@ -205,4 +211,19 @@ jobs:
           ]:
               assert column in scope, column
           assert "('local', 'international', 'both')" in scope
+
+          for filename in [
+              "040_job_official_source_monitoring.sql",
+              "041_job_vacancy_reconciliation.sql",
+              "042_job_alert_reconciliation.sql",
+          ]:
+              text = Path("supabase/migrations", filename).read_text(encoding="utf-8").lower()
+              assert "relocation_job" in text, filename
+
+          vacancy_reconciliation = Path("supabase/migrations/041_job_vacancy_reconciliation.sql").read_text(encoding="utf-8").lower()
+          alert_reconciliation = Path("supabase/migrations/042_job_alert_reconciliation.sql").read_text(encoding="utf-8").lower()
+          assert "canonical" in vacancy_reconciliation
+          assert "archive" in vacancy_reconciliation
+          assert "dismiss" in alert_reconciliation
+          assert "vacancy" in alert_reconciliation
           PY
