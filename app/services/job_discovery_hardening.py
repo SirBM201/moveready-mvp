@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Sequence
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 import httpx
 from app.services import job_discovery as _base
+from app.services import job_geography as _geo
 
 _ORIGINAL_FETCH_SOURCE = _base.fetch_source
 _MAX_GENERIC_PAGES = 6
@@ -93,4 +94,9 @@ def fetch_source_hardened(source_url:str,requested_adapter:str,keywords:Sequence
     return {**first,"jobs":_merge_jobs(groups,keywords),"pagination_pages_checked":pages_checked,"complete_listing":bool(first.get("complete_listing")) and pages_checked==1}
 
 def install()->None:
+    # Geography normalization is deliberately global. Canada-specific subdivision recognition
+    # remains available inside job_geography, but discovery itself is not destination-specific.
+    _base.COUNTRY_ALIASES = dict(_geo.COUNTRY_ALIASES)
+    _base._normalized_country = _geo.normalize_country
+    _base._infer_location = _geo.infer_location
     if getattr(_base.fetch_source,"__name__","")!="fetch_source_hardened": _base.fetch_source=fetch_source_hardened
