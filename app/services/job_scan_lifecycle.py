@@ -49,6 +49,15 @@ def _latest_running_scan(watch_id: str, email: str) -> Optional[Dict[str, Any]]:
     return rows[0] if rows else None
 
 
+def _latest_watch(watch_id: str, email: str) -> Optional[Dict[str, Any]]:
+    from app.services.supabase_client import get_supabase
+
+    return (
+        get_supabase().table("relocation_job_watches").select("*")
+        .eq("id", watch_id).eq("email", email).maybe_single().execute()
+    ).data
+
+
 def _recover_stale_scan(watch: Mapping[str, Any], run: Mapping[str, Any]) -> None:
     """Close an abandoned run and make its watch immediately eligible for a safe retry."""
     from app.services.supabase_client import get_supabase
@@ -95,9 +104,9 @@ def install(job_automation_module: Any) -> None:
                     "run_id": running.get("id"),
                 }
             _recover_stale_scan(watch, running)
-            # The stale run is now terminal. Continue directly into the normal scanner;
-            # a successful retry resets failure state, while a real source failure is
-            # recorded by the existing scan failure lifecycle.
+            # Refresh after recovery so a retry failure increments from the recovered
+            # failure count instead of from stale caller data.
+            watch = _latest_watch(watch_id, email) or watch
         return original(watch, trigger_type=trigger_type)
 
     guarded_scan_watch._moveready_scan_lifecycle_guard = True
