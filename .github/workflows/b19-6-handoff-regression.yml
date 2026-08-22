@@ -17,6 +17,7 @@ on:
       - "supabase/migrations/046_job_application_drafts.sql"
       - "supabase/migrations/047_job_application_handoffs.sql"
       - "tests/test_job_application_*.py"
+      - "tests/test_b19_6_handoff_integration_contract.py"
       - ".github/workflows/b19-6-handoff-regression.yml"
   pull_request:
     paths:
@@ -31,11 +32,15 @@ on:
       - "supabase/migrations/046_job_application_drafts.sql"
       - "supabase/migrations/047_job_application_handoffs.sql"
       - "tests/test_job_application_*.py"
+      - "tests/test_b19_6_handoff_integration_contract.py"
       - ".github/workflows/b19-6-handoff-regression.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
 
 jobs:
   b19-6-handoff-regression:
@@ -54,7 +59,7 @@ jobs:
           pip install pytest
       - name: Run B19 application pipeline regression suite
         run: |
-          pytest -q \
+          python -m pytest -q \
             tests/test_job_application_readiness.py \
             tests/test_job_application_readiness_api_contract.py \
             tests/test_job_readiness_reconciliation.py \
