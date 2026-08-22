@@ -136,7 +136,12 @@ def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMap
 
 
 def apply_job_alert_reconciliation(app: Any) -> None:
-    """Wrap the registered automation overview without changing its public route."""
+    """Install scan lifecycle protection and wrap the live automation overview."""
+    from app.routes import job_automation
+    from app.services.job_scan_lifecycle import install as install_scan_lifecycle
+
+    install_scan_lifecycle(job_automation)
+
     endpoint = "job_automation.automation_overview"
     original = app.view_functions.get(endpoint)
     if original is None or getattr(original, "_moveready_alert_reconciled", False):
