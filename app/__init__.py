@@ -23,6 +23,11 @@ def create_app() -> Flask:
     app.before_request(attach_verified_session_email_to_json)
     from app.services.passport_index_provider_travelbuddy_patch import apply_patch
     apply_patch()
+    # Install vacancy discovery extensions before routes import discovery functions by value.
+    # Discovery stays global; profile scope determines which discovered vacancies become matches.
+    from app.services.job_discovery_hardening import install as install_job_discovery_hardening
+    from app.services.job_ats_extensions import install as install_job_ats_extensions
+    install_job_discovery_hardening();install_job_ats_extensions()
     from app.routes import account,account_action_center,account_auth,account_controls,account_controls_admin,account_outcomes,admin,admin_review_evidence_extension,admin_review_queue,application_case_alerts,application_case_links,application_cases,application_cases_admin,billing,billing_admin,education_planner,evidence_admin,evidence_workflow,financial_readiness,health,journey_planner,job_automation,jobs,language_coach,language_coach_extension,opportunities,opportunity_finder,operations,partners,passport_destination_detail,passport_official_source_admin,passport_provider,passport_provider_schedule,platform_modules,profiles,readiness_tools,relocation_public,reports,route_comparison,saved_route_reports,saved_routes,service_handoff_safety,service_handoffs,settlement_execution,smart_alerts,source_governance,timeline,travel_planner,visa_power,watchlist
     from app.routes.visa_power_safety import visa_power_check_safe
     from app.services.application_case_module_patch import apply_application_case_module_patch
