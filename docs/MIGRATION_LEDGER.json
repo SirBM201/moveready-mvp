@@ -1,7 +1,7 @@
 {
   "ledger_version": "b16-v1",
   "updated_at": "2026-08-22",
-  "latest_schema_file": "043_job_vacancy_runtime_dedupe.sql",
+  "latest_schema_file": "043_job_runtime_vacancy_identity_repair.sql",
   "policy": {
     "applied_files_are_immutable": true,
     "new_schema_changes_are_additive": true,
@@ -53,7 +53,7 @@
     "040_job_vacancy_canonical_identity.sql",
     "041_job_vacancy_reconciliation.sql",
     "042_job_alert_reconciliation.sql",
-    "043_job_vacancy_runtime_dedupe.sql"
+    "043_job_runtime_vacancy_identity_repair.sql"
   ],
   "legacy_sql_only_files": [
     "017_seed_working_holiday_opportunities.sql",
