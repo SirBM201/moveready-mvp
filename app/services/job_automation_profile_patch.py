@@ -17,10 +17,7 @@ def _first_row(query: Any) -> Optional[Dict[str, Any]]:
 
 def _safe_profile(email: str) -> Optional[Dict[str, Any]]:
     return _first_row(
-        get_supabase()
-        .table("relocation_job_search_profiles")
-        .select(JOB_PROFILE_COLUMNS)
-        .eq("email", email)
+        get_supabase().table("relocation_job_search_profiles").select(JOB_PROFILE_COLUMNS).eq("email", email)
     )
 
 
@@ -44,7 +41,6 @@ def _safe_visible_job(job_id: str, email: str) -> Optional[Dict[str, Any]]:
 
 
 def _automation_overview_with_search_contract(original_view: Any):
-    """Add the canonical Jobs search contract to automation overview responses."""
     def wrapped(*args: Any, **kwargs: Any):
         response = original_view(*args, **kwargs)
         if isinstance(response, tuple):
@@ -57,6 +53,18 @@ def _automation_overview_with_search_contract(original_view: Any):
             return response
         profile = payload.get("profile")
         payload["search_contract"] = profile_scope_contract(profile)
+        watches = payload.get("watches") if isinstance(payload.get("watches"), list) else []
+        health_counts = {"healthy": 0, "degraded": 0, "persistent_failure": 0, "checking": 0, "paused": 0, "unknown": 0}
+        for watch in watches:
+            state = str(watch.get("source_health") or "unknown")
+            health_counts[state] = health_counts.get(state, 0) + 1
+        payload.setdefault("counts", {}).update({
+            "healthy_sources": health_counts.get("healthy", 0),
+            "degraded_sources": health_counts.get("degraded", 0),
+            "persistent_failure_sources": health_counts.get("persistent_failure", 0),
+            "checking_sources": health_counts.get("checking", 0),
+        })
+        payload["source_health_summary"] = health_counts
         return jsonify(payload)
 
     wrapped.__name__ = getattr(original_view, "__name__", "automation_overview")
@@ -65,21 +73,18 @@ def _automation_overview_with_search_contract(original_view: Any):
 
 
 def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
-    """Harden Jobs lookups, search scope, and scan reliability guards."""
+    """Harden Jobs lookups, search scope, and source reliability state."""
     job_automation_module._profile = _safe_profile
 
-    # B18.3/B18.4 are installed here because this patch is already part of the
-    # application bootstrap before the job automation blueprint is registered.
-    # Lifecycle is inner; backoff is outer, so a recovered stale run is safely
-    # retried and any resulting real failure receives the normal cooldown.
     from app.services.job_scan_lifecycle import install as install_scan_lifecycle
     from app.services.job_scan_backoff import install as install_scan_backoff
+    from app.services.job_source_health import install as install_source_health
     install_scan_lifecycle(job_automation_module)
     install_scan_backoff(job_automation_module)
+    install_source_health(job_automation_module)
 
     from app.routes import jobs as jobs_module
     from app.routes.job_search_scope import update_search_scope
-
     jobs_module._profile = _safe_profile
     jobs_module._owned_row = _safe_owned_row
     jobs_module._visible_company = _safe_visible_company
@@ -88,7 +93,6 @@ def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
     user_bp = getattr(job_automation_module, "user_bp", None)
     if user_bp is None:
         return
-
     overview_endpoint = "automation_overview"
     if not getattr(user_bp, "_got_registered_once", False):
         original_overview = getattr(user_bp, "view_functions", {}).get(overview_endpoint)
@@ -98,14 +102,6 @@ def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
             user_bp.view_functions[overview_endpoint] = wrapped_overview
 
     endpoint = "update_search_scope"
-    if getattr(user_bp, "_got_registered_once", False):
+    if getattr(user_bp, "_got_registered_once", False) or endpoint in getattr(user_bp, "view_functions", {}):
         return
-    if endpoint in getattr(user_bp, "view_functions", {}):
-        return
-
-    user_bp.add_url_rule(
-        "/profile/search-scope",
-        endpoint=endpoint,
-        view_func=update_search_scope,
-        methods=["PATCH"],
-    )
+    user_bp.add_url_rule("/profile/search-scope", endpoint=endpoint, view_func=update_search_scope, methods=["PATCH"])
