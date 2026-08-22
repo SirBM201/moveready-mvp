@@ -48,21 +48,27 @@ def validate_migration_ledger() -> None:
 
 
 def validate_operations_contract() -> None:
-    source = read("app/services/operations.py")
+    # The B16 operations service was consolidated into the core readiness
+    # contract. Validate the live architecture instead of requiring the
+    # retired app/services/operations.py path.
+    source = read("app/core/operations_readiness.py")
     required = [
         "deployment",
         "migration",
         "rollback",
-        "health",
+        "environment",
     ]
     for marker in required:
         assert marker in source.lower(), f"Missing operations marker: {marker}"
+    assert "operations_contract_payload" in source
+    assert "environment_checks" in source
 
 
 def validate_operations_routes() -> None:
     source = read("app/routes/operations.py")
     assert "Blueprint" in source
     assert "operations" in source.lower()
+    assert "operations_contract_payload" in source
 
 
 def validate_app_registration() -> None:
@@ -80,7 +86,7 @@ def validate_safety_boundary() -> None:
     combined = "\n".join(
         read(path)
         for path in [
-            "app/services/operations.py",
+            "app/core/operations_readiness.py",
             "app/routes/operations.py",
         ]
     ).lower()
