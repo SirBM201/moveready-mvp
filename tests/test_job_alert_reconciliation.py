@@ -23,6 +23,43 @@ def test_reconciliation_hides_dismissed_archived_and_duplicate_alerts():
 
     assert [row["id"] for row in result["alerts"]] == ["scan", "new", "quality"]
     assert result["counts"]["unread_alerts"] == 2
+    assert result["counts"]["unread_match_alerts"] == 1
+    assert result["counts"]["unread_scan_issues"] == 1
+
+
+def test_newer_changed_alert_supersedes_older_new_match_for_same_canonical_vacancy():
+    payload = {
+        "jobs": [
+            {"id": "job-1", "status": "open", "canonical_identity": "husky|manufacturing-technician"},
+        ],
+        "alerts": [
+            {"id": "new-match", "job_id": "job-1", "alert_type": "new_match", "status": "unread", "created_at": "2026-08-22T07:43:00Z"},
+            {"id": "changed", "job_id": "job-1", "alert_type": "job_changed", "status": "unread", "created_at": "2026-08-22T08:11:00Z"},
+        ],
+        "counts": {},
+    }
+
+    result = reconcile_job_alert_payload(payload)
+
+    assert [row["id"] for row in result["alerts"]] == ["changed"]
+    assert result["counts"]["unread_alerts"] == 1
+    assert result["counts"]["unread_match_alerts"] == 1
+    assert result["counts"]["unread_scan_issues"] == 0
+
+
+def test_actionable_alerts_without_canonical_identity_dedupe_by_job_id():
+    payload = {
+        "jobs": [{"id": "legacy-job", "status": "open", "canonical_identity": None}],
+        "alerts": [
+            {"id": "older", "job_id": "legacy-job", "alert_type": "new_match", "status": "unread", "created_at": "2026-08-22T08:00:00Z"},
+            {"id": "newer", "job_id": "legacy-job", "alert_type": "closing_soon", "status": "unread", "created_at": "2026-08-22T09:00:00Z"},
+        ],
+        "counts": {},
+    }
+
+    result = reconcile_job_alert_payload(payload)
+    assert [row["id"] for row in result["alerts"]] == ["newer"]
+    assert result["counts"]["unread_match_alerts"] == 1
 
 
 def test_job_closed_alert_is_not_live_for_active_vacancy():
