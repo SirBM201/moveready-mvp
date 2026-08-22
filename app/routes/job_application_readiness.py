@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 from flask import Blueprint, jsonify, request
 from app.services.account_identity import get_verified_session_email
-from app.services.job_application_readiness import CONTRACT_VERSION, READINESS_STATES, evaluate_application_readiness, reconcile_readiness, transition_readiness, vacancy_fingerprint
+from app.services.job_application_readiness import CONTRACT_VERSION, READINESS_STATES, evaluate_application_readiness, reconcile_readiness, transition_readiness, vacancy_fingerprint, validate_promotion
 from app.services.job_visibility import job_is_visible_to_account
 from app.services.supabase_client import get_supabase
 
@@ -18,8 +18,15 @@ def _job(job_id,email):
     row=get_supabase().table("relocation_jobs").select("*").eq("id",job_id).maybe_single().execute().data
     return row if job_is_visible_to_account(row,email) else None
 def _record(job_id,email): return get_supabase().table(TABLE).select("*").eq("job_id",job_id).eq("email",email).maybe_single().execute().data
-def _materials(row):
-    row=row or {}; return {"cv_id":row.get("cv_id"),"cover_letter_id":row.get("cover_letter_id"),"application_answers_ready":bool(row.get("application_answers_ready"))}
+def _asset(asset_id,email,allowed_types):
+    if not asset_id:return None
+    row=get_supabase().table("relocation_job_resume_assets").select("id,email,document_type,title,version,is_active,updated_at").eq("id",asset_id).eq("email",email).maybe_single().execute().data
+    return row if row and bool(row.get("is_active")) and row.get("document_type") in allowed_types else None
+def _materials(row,email):
+    row=row or {}; cv_id=row.get("cv_id"); cover_id=row.get("cover_letter_id")
+    cv=_asset(cv_id,email,{"executive_resume","ats_resume"}) if cv_id else None
+    cover=_asset(cover_id,email,{"cover_letter"}) if cover_id else None
+    return {"cv_id":cv_id,"cv_valid":bool(cv) if cv_id else None,"cv":cv,"cover_letter_id":cover_id,"cover_letter_valid":bool(cover) if cover_id else None,"cover_letter":cover,"application_answers_ready":bool(row.get("application_answers_ready"))}
 def _profile(email):
     row=get_supabase().table("relocation_job_search_profiles").select("*").eq("email",email).maybe_single().execute().data or {}
     row["work_authorization"]=row.get("work_authorization_status") or row.get("work_authorization"); return row
@@ -28,13 +35,12 @@ def _evaluation(job,email,record):
     if existing.get("application_started_at") and not existing.get("status"): existing["status"]="application_started"
     if existing.get("submission_confirmed_at"): existing["status"]="applied"
     vacancy=dict(job); vacancy["requirements_verified"]=existing["requirements_verified"]
-    return evaluate_application_readiness(vacancy,profile=_profile(email),materials=_materials(record),existing_application=existing)
+    return evaluate_application_readiness(vacancy,profile=_profile(email),materials=_materials(record,email),existing_application=existing)
 def _persist(job_id,email,evaluation,extra=None):
     row={"email":email,"job_id":job_id,"state":evaluation["state"],"issues":evaluation["issues"],"blocking_issue_count":evaluation["blocking_issue_count"],"contract_version":CONTRACT_VERSION,"updated_at":_now()}; row.update(extra or {})
     response=get_supabase().table(TABLE).upsert(row,on_conflict="email,job_id").execute(); return (response.data or [None])[0] or _record(job_id,email) or row
 def _reconcile(job,email,record=None):
-    record=record if record is not None else _record(str(job["id"]),email); evaluation=_evaluation(job,email,record); fp=vacancy_fingerprint(job); rec=reconcile_readiness(record,evaluation,fp); now=_now()
-    evaluation={**evaluation,"state":rec["state"]}
+    record=record if record is not None else _record(str(job["id"]),email); evaluation=_evaluation(job,email,record); fp=vacancy_fingerprint(job); rec=reconcile_readiness(record,evaluation,fp); now=_now(); evaluation={**evaluation,"state":rec["state"]}
     extra={"vacancy_fingerprint":fp,"last_reconciled_at":now,"reconciliation_count":int((record or {}).get("reconciliation_count") or 0)+1}
     if rec["vacancy_changed"]: extra["vacancy_changed_at"]=now
     if rec["invalidated"]: extra.update({"previous_state":rec["previous_state"],"invalidated_at":now,"invalidation_reason":rec["invalidation_reason"],"user_confirmed_ready_at":None})
@@ -47,7 +53,7 @@ def get_readiness(job_id):
     job=_job(job_id,email)
     if not job:return jsonify({"ok":False,"error":"job_not_found"}),404
     evaluation,persisted,rec=_reconcile(job,email)
-    return jsonify({"ok":True,"job_id":job_id,"readiness":evaluation,"record":persisted,"reconciliation":rec})
+    return jsonify({"ok":True,"job_id":job_id,"readiness":evaluation,"record":persisted,"materials":_materials(persisted,email),"reconciliation":rec})
 
 @bp.patch("/jobs/<job_id>/readiness/materials")
 def update_materials(job_id):
@@ -56,17 +62,19 @@ def update_materials(job_id):
     job=_job(job_id,email)
     if not job:return jsonify({"ok":False,"error":"job_not_found"}),404
     body=_payload(); extra={}
-    for field in ("cv_id","cover_letter_id"):
+    typed={"cv_id":{"executive_resume","ats_resume"},"cover_letter_id":{"cover_letter"}}
+    for field,allowed in typed.items():
         if field in body:
             asset_id=str(body.get(field) or "").strip() or None
-            if asset_id:
-                owned=get_supabase().table("relocation_job_resume_assets").select("id").eq("id",asset_id).eq("email",email).maybe_single().execute().data
-                if not owned:return jsonify({"ok":False,"error":"resume_asset_not_owned","field":field}),400
+            if asset_id and not _asset(asset_id,email,allowed):return jsonify({"ok":False,"error":"application_material_invalid","field":field}),400
             extra[field]=asset_id
     for field in ("application_answers_ready","requirements_verified"):
         if field in body:extra[field]=bool(body.get(field))
-    current=_record(job_id,email) or {}; merged={**current,**extra}; evaluation=_evaluation(job,email,merged); fp=vacancy_fingerprint(job); rec=reconcile_readiness(merged,evaluation,fp); evaluation={**evaluation,"state":rec["state"]}; extra.update({"vacancy_fingerprint":fp,"last_reconciled_at":_now(),"reconciliation_count":int(current.get("reconciliation_count") or 0)+1}); persisted=_persist(job_id,email,evaluation,extra)
-    return jsonify({"ok":True,"job_id":job_id,"readiness":evaluation,"record":persisted,"reconciliation":rec})
+    current=_record(job_id,email) or {}; merged={**current,**extra}; evaluation=_evaluation(job,email,merged); fp=vacancy_fingerprint(job); rec=reconcile_readiness(merged,evaluation,fp); evaluation={**evaluation,"state":rec["state"]}
+    now=_now(); extra.update({"vacancy_fingerprint":fp,"last_reconciled_at":now,"reconciliation_count":int(current.get("reconciliation_count") or 0)+1,"user_confirmed_ready_at":None})
+    if current.get("state") in {"ready_to_apply","application_started"} and evaluation["state"] not in {"ready_to_apply","application_started","applied"}: extra.update({"previous_state":current.get("state"),"invalidated_at":now,"invalidation_reason":"application_materials_changed_after_confirmation"})
+    persisted=_persist(job_id,email,evaluation,extra)
+    return jsonify({"ok":True,"job_id":job_id,"readiness":evaluation,"record":persisted,"materials":_materials(persisted,email),"reconciliation":rec})
 
 @bp.post("/jobs/<job_id>/readiness/transition")
 def transition(job_id):
@@ -77,6 +85,9 @@ def transition(job_id):
     body=_payload(); target=str(body.get("target_state") or "").strip().lower()
     if target not in READINESS_STATES:return jsonify({"ok":False,"error":"invalid_readiness_state"}),400
     evaluation,record,rec=_reconcile(job,email); current=str(record.get("state") or evaluation["state"])
+    if target in {"ready_to_apply","application_started","applied"}:
+        promotion=validate_promotion(evaluation,target)
+        if not promotion["ok"]:return jsonify({"ok":False,**promotion,"readiness":evaluation,"materials":_materials(record,email),"reconciliation":rec}),409
     result=transition_readiness(current,target,user_confirmed=bool(body.get("user_confirmed")))
     if not result["ok"]:return jsonify({"ok":False,**result,"readiness":evaluation,"reconciliation":rec}),409
     extra={"state":target}; now=_now()
@@ -84,7 +95,7 @@ def transition(job_id):
     elif target=="application_started":extra["application_started_at"]=now
     elif target=="applied":extra["submission_confirmed_at"]=now
     elif target=="closed":extra["closed_at"]=now
-    persisted=_persist(job_id,email,{**evaluation,"state":target},extra); return jsonify({"ok":True,"job_id":job_id,"transition":result,"record":persisted})
+    persisted=_persist(job_id,email,{**evaluation,"state":target},extra); return jsonify({"ok":True,"job_id":job_id,"transition":result,"record":persisted,"materials":_materials(persisted,email)})
 
 @bp.post("/jobs/<job_id>/readiness/reconcile")
 def reconcile_one(job_id):
@@ -92,7 +103,7 @@ def reconcile_one(job_id):
     if error:return error
     job=_job(job_id,email)
     if not job:return jsonify({"ok":False,"error":"job_not_found"}),404
-    evaluation,persisted,rec=_reconcile(job,email); return jsonify({"ok":True,"job_id":job_id,"readiness":evaluation,"record":persisted,"reconciliation":rec})
+    evaluation,persisted,rec=_reconcile(job,email); return jsonify({"ok":True,"job_id":job_id,"readiness":evaluation,"record":persisted,"materials":_materials(persisted,email),"reconciliation":rec})
 
 @bp.get("/readiness")
 def list_readiness():
@@ -106,5 +117,5 @@ def list_readiness():
     for row in rows:
         job=_job(str(row.get("job_id") or ""),email)
         if job:
-            evaluation,persisted,rec=_reconcile(job,email,row); visible.append({"record":persisted,"job":job,"readiness":evaluation,"reconciliation":rec})
+            evaluation,persisted,rec=_reconcile(job,email,row); visible.append({"record":persisted,"job":job,"readiness":evaluation,"materials":_materials(persisted,email),"reconciliation":rec})
     return jsonify({"ok":True,"count":len(visible),"items":visible,"contract_version":CONTRACT_VERSION})

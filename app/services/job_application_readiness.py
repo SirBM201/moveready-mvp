@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Any, Dict, List, Mapping, Optional, Set
 
-CONTRACT_VERSION = "b19.3-v1"
+CONTRACT_VERSION = "b19.4-v1"
 
 READINESS_STATES = (
     "discovered", "review_required", "blocked", "materials_required",
@@ -25,10 +25,9 @@ STATE_TRANSITIONS: Dict[str, Set[str]] = {
     "closed": set(),
 }
 BLOCKING_CODES = {"vacancy_closed", "source_unavailable", "work_authorization_required", "sponsorship_not_confirmed", "mandatory_requirement_missing"}
-MATERIAL_CODES = {"cv_required", "cover_letter_required", "application_answers_required"}
+MATERIAL_CODES = {"cv_required", "cover_letter_required", "application_answers_required", "cv_invalid", "cover_letter_invalid"}
 REVIEW_CODES = {"source_verification_required", "work_rights_verification_required", "sponsorship_verification_required", "requirements_review_required"}
 
-# Only facts capable of changing the application decision belong in the fingerprint.
 FINGERPRINT_FIELDS = (
     "status", "source_status", "scan_status", "relocation_support_status", "sponsorship_status",
     "cover_letter_required", "application_questions_required", "job_title", "country", "province", "city",
@@ -64,32 +63,14 @@ def reconcile_readiness(previous: Optional[Mapping[str, Any]], evaluation: Mappi
     final_state = evaluated_state
     invalidated = False
     reason = None
-
-    # Applied is historical truth and is never silently undone. Closed stays terminal.
     if old_state == "applied":
         final_state = "closed" if evaluated_state == "blocked" and any(i.get("code") == "vacancy_closed" for i in evaluation.get("issues", [])) else "applied"
-    elif old_state == "closed":
-        final_state = "closed"
+    elif old_state == "closed": final_state = "closed"
     elif changed and old_state in USER_PROMOTED_STATES:
-        # Any application-relevant vacancy change revokes prior readiness confirmation.
-        # A submission already confirmed is protected above.
-        invalidated = True
-        reason = "vacancy_changed_after_user_confirmation"
-        final_state = evaluated_state
-    elif old_state == "ready_to_apply" and not changed and evaluated_state == "ready_for_review":
-        # Preserve explicit user confirmation while the underlying facts are unchanged.
-        final_state = "ready_to_apply"
-    elif old_state == "application_started" and not changed and evaluated_state not in {"blocked", "closed"}:
-        final_state = "application_started"
-
-    return {
-        "state": final_state,
-        "previous_state": old_state,
-        "vacancy_changed": changed,
-        "invalidated": invalidated,
-        "invalidation_reason": reason,
-        "vacancy_fingerprint": fingerprint,
-    }
+        invalidated = True; reason = "vacancy_changed_after_user_confirmation"; final_state = evaluated_state
+    elif old_state == "ready_to_apply" and not changed and evaluated_state == "ready_for_review": final_state = "ready_to_apply"
+    elif old_state == "application_started" and not changed and evaluated_state not in {"blocked", "closed"}: final_state = "application_started"
+    return {"state": final_state, "previous_state": old_state, "vacancy_changed": changed, "invalidated": invalidated, "invalidation_reason": reason, "vacancy_fingerprint": fingerprint}
 
 
 def evaluate_application_readiness(vacancy: Mapping[str, Any], *, profile: Optional[Mapping[str, Any]] = None, materials: Optional[Mapping[str, Any]] = None, existing_application: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
@@ -102,15 +83,19 @@ def evaluate_application_readiness(vacancy: Mapping[str, Any], *, profile: Optio
     if vacancy_status in {"closed", "archived", "expired", "withdrawn"}: issues.append(_issue("vacancy_closed", "The vacancy is no longer recorded as open.", blocking=True))
     if source_status in {"failed", "unavailable", "persistent_failure", "disabled"}: issues.append(_issue("source_unavailable", "The official vacancy source is not currently reliable.", blocking=True))
     elif source_status not in {"healthy", "completed", "verified", "ok"}: issues.append(_issue("source_verification_required", "Verify the vacancy on the official source before applying."))
-    if authorization in {"authorized", "citizen", "permanent_resident", "open_work_permit", "unrestricted"}: pass
+    if authorization in {"authorized", "citizen", "permanent_resident", "open_work_permit", "open_permit", "unrestricted"}: pass
     elif sponsorship in {"confirmed", "available", "sponsored", "yes"}: pass
     elif sponsorship in {"not_available", "not_sponsored", "no", "none"}: issues.append(_issue("work_authorization_required", "This vacancy does not record sponsorship; valid work authorization is required.", blocking=True))
     elif authorization in {"not_authorized", "none", "requires_sponsorship"}: issues.append(_issue("sponsorship_not_confirmed", "Work authorization is not recorded and employer sponsorship is not confirmed.", blocking=True))
     else: issues.append(_issue("work_rights_verification_required", "Confirm work authorization or employer sponsorship before applying."))
-    requirements_checked = _truthy(vacancy.get("requirements_verified")) or _truthy(existing_application.get("requirements_verified"))
-    if not requirements_checked: issues.append(_issue("requirements_review_required", "Review the official vacancy requirements before application."))
-    if not (_truthy(materials.get("cv_ready")) or _text(materials.get("cv_id"))): issues.append(_issue("cv_required", "Prepare or select a vacancy-appropriate CV."))
-    if _truthy(vacancy.get("cover_letter_required")) and not (_truthy(materials.get("cover_letter_ready")) or _text(materials.get("cover_letter_id"))): issues.append(_issue("cover_letter_required", "Prepare the required cover letter."))
+    if not (_truthy(vacancy.get("requirements_verified")) or _truthy(existing_application.get("requirements_verified"))): issues.append(_issue("requirements_review_required", "Review the official vacancy requirements before application."))
+    cv_id = _text(materials.get("cv_id"))
+    if not cv_id: issues.append(_issue("cv_required", "Prepare or select a vacancy-appropriate CV."))
+    elif materials.get("cv_valid") is False: issues.append(_issue("cv_invalid", "The selected CV is unavailable, inactive, or is not a CV document."))
+    if _truthy(vacancy.get("cover_letter_required")):
+        cover_id = _text(materials.get("cover_letter_id"))
+        if not cover_id: issues.append(_issue("cover_letter_required", "Prepare the required cover letter."))
+        elif materials.get("cover_letter_valid") is False: issues.append(_issue("cover_letter_invalid", "The selected cover letter is unavailable, inactive, or has the wrong document type."))
     if _truthy(vacancy.get("application_questions_required")) and not _truthy(materials.get("application_answers_ready")): issues.append(_issue("application_answers_required", "Complete the employer application questions."))
     application_status = _text(existing_application.get("status")).lower()
     submission_confirmed = _truthy(existing_application.get("submission_confirmed"))
@@ -122,7 +107,17 @@ def evaluate_application_readiness(vacancy: Mapping[str, Any], *, profile: Optio
         elif codes & MATERIAL_CODES: state = "materials_required"
         elif codes & REVIEW_CODES: state = "review_required"
         else: state = "ready_for_review"
-    return {"contract_version": CONTRACT_VERSION, "state": state, "terminal": state in TERMINAL_STATES, "issues": issues, "blocking_issue_count": sum(1 for i in issues if i["blocking"]), "can_mark_ready": state == "ready_for_review", "can_start_application": state == "ready_to_apply", "can_record_submission": state == "application_started", "requires_user_confirmation": state in {"ready_for_review", "ready_to_apply", "application_started"}, "safety": {"auto_submit_allowed": False, "submission_claim_requires_confirmation": True, "eligibility_is_not_guaranteed": True}}
+    return {"contract_version": CONTRACT_VERSION, "state": state, "terminal": state in TERMINAL_STATES, "issues": issues, "blocking_issue_count": sum(1 for i in issues if i["blocking"]), "can_mark_ready": state == "ready_for_review", "can_start_application": state == "ready_to_apply", "can_record_submission": state == "application_started", "requires_user_confirmation": state in {"ready_for_review", "ready_to_apply", "application_started"}, "pre_application_valid": state in {"ready_for_review", "ready_to_apply", "application_started"}, "safety": {"auto_submit_allowed": False, "submission_claim_requires_confirmation": True, "eligibility_is_not_guaranteed": True}}
+
+
+def validate_promotion(evaluation: Mapping[str, Any], target_state: str) -> Dict[str, Any]:
+    target = _text(target_state).lower()
+    state = _text(evaluation.get("state")).lower()
+    issues = list(evaluation.get("issues") or [])
+    if target == "ready_to_apply" and state != "ready_for_review": return {"ok": False, "error": "pre_application_validation_failed", "state": state, "issues": issues}
+    if target == "application_started" and state not in {"ready_to_apply", "application_started"}: return {"ok": False, "error": "application_not_ready", "state": state, "issues": issues}
+    if target == "applied" and state != "application_started": return {"ok": False, "error": "application_not_started", "state": state, "issues": issues}
+    return {"ok": True, "state": state}
 
 
 def transition_readiness(current_state: str, target_state: str, *, user_confirmed: bool = False) -> Dict[str, Any]:
