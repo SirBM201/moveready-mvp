@@ -1,7 +1,7 @@
 {
   "ledger_version": "b16-v1",
   "updated_at": "2026-08-22",
-  "latest_schema_file": "045_job_readiness_reconciliation.sql",
+  "latest_schema_file": "046_job_application_drafts.sql",
   "policy": {
     "applied_files_are_immutable": true,
     "new_schema_changes_are_additive": true,
@@ -55,7 +55,8 @@
     "042_job_alert_reconciliation.sql",
     "043_job_runtime_vacancy_identity_repair.sql",
     "044_job_application_readiness.sql",
-    "045_job_readiness_reconciliation.sql"
+    "045_job_readiness_reconciliation.sql",
+    "046_job_application_drafts.sql"
   ],
   "legacy_sql_only_files": [
     "017_seed_working_holiday_opportunities.sql",
