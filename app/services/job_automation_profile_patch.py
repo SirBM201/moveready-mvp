@@ -44,16 +44,9 @@ def _safe_visible_job(job_id: str, email: str) -> Optional[Dict[str, Any]]:
 
 
 def _automation_overview_with_search_contract(original_view: Any):
-    """Add the canonical Jobs search contract to automation overview responses.
-
-    JobAutomationWorkspace consumes ``search_contract`` to decide whether scans
-    and monitor creation are safe to enable. The original overview returned the
-    profile but omitted this derived contract, causing a completed profile to be
-    rendered as "Not recorded" and blocking automation.
-    """
+    """Add the canonical Jobs search contract to automation overview responses."""
     def wrapped(*args: Any, **kwargs: Any):
         response = original_view(*args, **kwargs)
-        # Preserve error/tuple responses exactly as produced by the route.
         if isinstance(response, tuple):
             return response
         try:
@@ -72,8 +65,17 @@ def _automation_overview_with_search_contract(original_view: Any):
 
 
 def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
-    """Harden Jobs lookups and keep automation on the canonical search scope."""
+    """Harden Jobs lookups, search scope, and scan reliability guards."""
     job_automation_module._profile = _safe_profile
+
+    # B18.3/B18.4 are installed here because this patch is already part of the
+    # application bootstrap before the job automation blueprint is registered.
+    # Lifecycle is inner; backoff is outer, so a recovered stale run is safely
+    # retried and any resulting real failure receives the normal cooldown.
+    from app.services.job_scan_lifecycle import install as install_scan_lifecycle
+    from app.services.job_scan_backoff import install as install_scan_backoff
+    install_scan_lifecycle(job_automation_module)
+    install_scan_backoff(job_automation_module)
 
     from app.routes import jobs as jobs_module
     from app.routes.job_search_scope import update_search_scope
@@ -87,9 +89,6 @@ def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
     if user_bp is None:
         return
 
-    # The overview route is declared before this patch is applied. Replace the
-    # blueprint's stored view function before registration so /jobs and
-    # /jobs/automation derive readiness from the same saved profile.
     overview_endpoint = "automation_overview"
     if not getattr(user_bp, "_got_registered_once", False):
         original_overview = getattr(user_bp, "view_functions", {}).get(overview_endpoint)
@@ -99,9 +98,6 @@ def apply_job_automation_profile_patch(job_automation_module: Any) -> None:
             user_bp.view_functions[overview_endpoint] = wrapped_overview
 
     endpoint = "update_search_scope"
-
-    # Blueprint setup is process-global. Add the route only before the first
-    # registration and only when it has not already been attached.
     if getattr(user_bp, "_got_registered_once", False):
         return
     if endpoint in getattr(user_bp, "view_functions", {}):
