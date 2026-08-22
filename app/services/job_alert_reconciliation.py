@@ -7,26 +7,42 @@ ACTIONABLE_JOB_ALERT_TYPES = {"new_match", "job_changed", "job_reopened", "closi
 ACTIVE_JOB_STATUSES = {"open", "discovered"}
 VISIBLE_ALERT_STATUSES = {"unread", "read"}
 OPERATIONAL_ALERT_TYPES = {"scan_failed", "source_failed", "source_error"}
+RECOVERED_WATCH_STATUSES = {"completed"}
 
 
 def _created_key(row: Mapping[str, Any]) -> Tuple[str, str]:
     return (str(row.get("created_at") or ""), str(row.get("id") or ""))
 
 
+def _operational_alert_is_live(alert: Mapping[str, Any], watches_by_id: Mapping[str, Mapping[str, Any]]) -> bool:
+    """Return whether a source/scan failure still represents the watch's current state.
+
+    A later successful scan supersedes the operational incident. Historical alert rows
+    remain stored for audit/history, but they no longer occupy the live inbox.
+    """
+    watch_id = str(alert.get("watch_id") or "")
+    if not watch_id:
+        return True
+    watch = watches_by_id.get(watch_id)
+    if not watch:
+        return True
+    if str(watch.get("last_scan_status") or "") not in RECOVERED_WATCH_STATUSES:
+        return True
+    recovered_at = str(watch.get("last_scan_at") or "")
+    failed_at = str(alert.get("created_at") or "")
+    return not recovered_at or not failed_at or recovered_at <= failed_at
+
+
 def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
-    """Return the live alert inbox and expose user-facing alert categories separately.
+    """Return the current alert inbox rather than an ever-growing event log.
 
-    Historical rows remain stored, but the live inbox represents current actionable
-    state rather than an event log. Operational scan/source failures remain visible.
-
-    For vacancy-bound actionable alerts, one canonical vacancy may expose at most
-    one live alert. Because candidates are sorted newest-first, a newer job_changed,
-    job_reopened, or closing_soon event supersedes an older new_match event for the
-    same canonical vacancy. Read/dismissed historical rows remain preserved in the
-    database; they simply do not compete with the current actionable state.
+    Historical rows remain stored. Vacancy alerts collapse to the newest actionable
+    state per canonical vacancy. Operational failures collapse to the newest live
+    incident per watch and disappear from the live inbox after a later successful scan.
     """
     alerts = payload.get("alerts") or []
     jobs = payload.get("jobs") or []
+    watches = payload.get("watches") or []
     if not isinstance(alerts, list) or not isinstance(jobs, list):
         return payload
 
@@ -35,12 +51,21 @@ def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMap
         for row in jobs
         if isinstance(row, Mapping) and row.get("id")
     }
+    watches_by_id: Dict[str, Mapping[str, Any]] = {
+        str(row.get("id")): row
+        for row in watches
+        if isinstance(row, Mapping) and row.get("id")
+    } if isinstance(watches, list) else {}
 
     candidates: List[Dict[str, Any]] = []
     for raw in alerts:
         if not isinstance(raw, dict):
             continue
         if str(raw.get("status") or "") not in VISIBLE_ALERT_STATUSES:
+            continue
+
+        alert_type = str(raw.get("alert_type") or "")
+        if alert_type in OPERATIONAL_ALERT_TYPES and not _operational_alert_is_live(raw, watches_by_id):
             continue
 
         job_id = str(raw.get("job_id") or "")
@@ -51,8 +76,6 @@ def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMap
         job = jobs_by_id.get(job_id)
         if not job or str(job.get("status") or "") not in ACTIVE_JOB_STATUSES:
             continue
-
-        alert_type = str(raw.get("alert_type") or "")
         if alert_type == "job_closed":
             continue
         candidates.append(raw)
@@ -60,8 +83,19 @@ def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMap
     candidates.sort(key=_created_key, reverse=True)
     live: List[Dict[str, Any]] = []
     seen_actionable_vacancies = set()
+    seen_operational_watches = set()
 
     for alert in candidates:
+        alert_type = str(alert.get("alert_type") or "")
+        if alert_type in OPERATIONAL_ALERT_TYPES:
+            watch_id = str(alert.get("watch_id") or "")
+            if watch_id:
+                if watch_id in seen_operational_watches:
+                    continue
+                seen_operational_watches.add(watch_id)
+            live.append(alert)
+            continue
+
         job_id = str(alert.get("job_id") or "")
         if not job_id:
             live.append(alert)
@@ -69,17 +103,11 @@ def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMap
 
         job = jobs_by_id.get(job_id) or {}
         canonical = str(job.get("canonical_identity") or "").strip()
-        alert_type = str(alert.get("alert_type") or "")
-
         if alert_type in ACTIONABLE_JOB_ALERT_TYPES:
-            # Canonical identity is preferred. Fall back to the concrete job id so
-            # legacy/current rows without canonical_identity still cannot multiply
-            # actionable inbox cards for the same vacancy row.
             vacancy_key = canonical or f"job:{job_id}"
             if vacancy_key in seen_actionable_vacancies:
                 continue
             seen_actionable_vacancies.add(vacancy_key)
-
         live.append(alert)
 
     payload["alerts"] = live
@@ -95,12 +123,15 @@ def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMap
     ]
     unread_scan_issues = [
         row for row in unread
-        if not row.get("job_id") or str(row.get("alert_type") or "") in OPERATIONAL_ALERT_TYPES
+        if str(row.get("alert_type") or "") in OPERATIONAL_ALERT_TYPES
     ]
 
     counts["unread_alerts"] = len(unread)
     counts["unread_match_alerts"] = len(unread_match_alerts)
     counts["unread_scan_issues"] = len(unread_scan_issues)
+    counts["active_source_failures"] = len([
+        row for row in live if str(row.get("alert_type") or "") in OPERATIONAL_ALERT_TYPES
+    ])
     return payload
 
 
