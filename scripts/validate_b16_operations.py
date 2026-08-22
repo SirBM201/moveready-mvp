@@ -18,10 +18,11 @@ def read(path: str) -> str:
 def validate_migration_ledger() -> None:
     ledger = json.loads(read("docs/MIGRATION_LEDGER.json"))
     assert ledger["ledger_version"] == "b16-v1"
-    assert ledger["latest_schema_file"] == "039_language_coach_backend_completion.sql"
 
     actual_schema = sorted(path.name for path in (ROOT / "supabase/migrations").glob("*.sql"))
     actual_legacy = sorted(path.name for path in (ROOT / "sql").glob("*.sql"))
+    assert actual_schema, "No canonical migrations found"
+    assert ledger["latest_schema_file"] == actual_schema[-1], "Migration ledger latest_schema_file is stale"
     assert sorted(ledger["canonical_schema_files"]) == actual_schema, "Migration ledger and supabase/migrations differ"
     assert sorted(ledger["legacy_sql_only_files"]) == actual_legacy, "Migration ledger and legacy sql directory differ"
 
