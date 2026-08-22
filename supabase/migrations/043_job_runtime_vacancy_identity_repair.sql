@@ -1,6 +1,13 @@
 -- MoveReady migration 043
 -- Align production scan identity with the canonical vacancy reconciliation contract.
 -- Safe after 040-042. Historical rows are preserved; duplicate rows are archived.
+-- Safe to rerun after a failed attempt: the active canonical uniqueness guard is
+-- temporarily removed before identities are recomputed, then restored at the end.
+
+-- The pre-043 unique index can reject the canonical-identity rewrite before duplicate
+-- rows have had a chance to be archived. Remove the guard first, reconcile the rows,
+-- then reassert the invariant after cleanup.
+drop index if exists public.relocation_jobs_owner_canonical_active_uidx;
 
 -- Runtime identity is watch + normalized title + normalized location. A watch belongs
 -- to one employer/source, and this avoids URL/tracking changes creating new vacancies.
@@ -83,7 +90,6 @@ where source_fingerprint is not null
   and status in ('open', 'discovered');
 
 -- Reassert the database invariant after reconciliation.
-drop index if exists public.relocation_jobs_owner_canonical_active_uidx;
 create unique index relocation_jobs_owner_canonical_active_uidx
   on public.relocation_jobs (owner_email, canonical_identity)
   where canonical_identity is not null
