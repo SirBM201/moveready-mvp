@@ -16,13 +16,14 @@ def _created_key(row: Mapping[str, Any]) -> Tuple[str, str]:
 def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
     """Return the live alert inbox and expose user-facing alert categories separately.
 
-    Migration 042 preserves historical rows by marking them dismissed. This runtime
-    guard keeps the API contract equally strict even when old rows remain in the
-    table or a client refresh lands between reconciliation/deployment steps.
+    Historical rows remain stored, but the live inbox represents current actionable
+    state rather than an event log. Operational scan/source failures remain visible.
 
-    Operational alerts such as scan_failed have no job_id and remain visible.
-    Vacancy-bound alerts are visible only for an active canonical/current vacancy.
-    For canonical vacancies, only the newest alert of each semantic type survives.
+    For vacancy-bound actionable alerts, one canonical vacancy may expose at most
+    one live alert. Because candidates are sorted newest-first, a newer job_changed,
+    job_reopened, or closing_soon event supersedes an older new_match event for the
+    same canonical vacancy. Read/dismissed historical rows remain preserved in the
+    database; they simply do not compete with the current actionable state.
     """
     alerts = payload.get("alerts") or []
     jobs = payload.get("jobs") or []
@@ -58,7 +59,8 @@ def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMap
 
     candidates.sort(key=_created_key, reverse=True)
     live: List[Dict[str, Any]] = []
-    seen = set()
+    seen_actionable_vacancies = set()
+
     for alert in candidates:
         job_id = str(alert.get("job_id") or "")
         if not job_id:
@@ -68,11 +70,16 @@ def reconcile_job_alert_payload(payload: MutableMapping[str, Any]) -> MutableMap
         job = jobs_by_id.get(job_id) or {}
         canonical = str(job.get("canonical_identity") or "").strip()
         alert_type = str(alert.get("alert_type") or "")
-        if canonical and alert_type in ACTIONABLE_JOB_ALERT_TYPES:
-            key = (canonical, alert_type)
-            if key in seen:
+
+        if alert_type in ACTIONABLE_JOB_ALERT_TYPES:
+            # Canonical identity is preferred. Fall back to the concrete job id so
+            # legacy/current rows without canonical_identity still cannot multiply
+            # actionable inbox cards for the same vacancy row.
+            vacancy_key = canonical or f"job:{job_id}"
+            if vacancy_key in seen_actionable_vacancies:
                 continue
-            seen.add(key)
+            seen_actionable_vacancies.add(vacancy_key)
+
         live.append(alert)
 
     payload["alerts"] = live
