@@ -1,0 +1,86 @@
+name: B19.6 Handoff Regression Gate
+
+on:
+  push:
+    branches:
+      - main
+      - b19-6-application-package-handoff
+    paths:
+      - "app/routes/job_application_handoffs.py"
+      - "app/services/job_application_handoff.py"
+      - "app/routes/job_application_drafts.py"
+      - "app/services/job_application_drafts.py"
+      - "app/routes/job_application_readiness.py"
+      - "app/services/job_application_readiness.py"
+      - "supabase/migrations/044_job_application_readiness.sql"
+      - "supabase/migrations/045_job_readiness_reconciliation.sql"
+      - "supabase/migrations/046_job_application_drafts.sql"
+      - "supabase/migrations/047_job_application_handoffs.sql"
+      - "tests/test_job_application_*.py"
+      - ".github/workflows/b19-6-handoff-regression.yml"
+  pull_request:
+    paths:
+      - "app/routes/job_application_handoffs.py"
+      - "app/services/job_application_handoff.py"
+      - "app/routes/job_application_drafts.py"
+      - "app/services/job_application_drafts.py"
+      - "app/routes/job_application_readiness.py"
+      - "app/services/job_application_readiness.py"
+      - "supabase/migrations/044_job_application_readiness.sql"
+      - "supabase/migrations/045_job_readiness_reconciliation.sql"
+      - "supabase/migrations/046_job_application_drafts.sql"
+      - "supabase/migrations/047_job_application_handoffs.sql"
+      - "tests/test_job_application_*.py"
+      - ".github/workflows/b19-6-handoff-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  b19-6-handoff-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+      - name: Run B19 application pipeline regression suite
+        run: |
+          pytest -q \
+            tests/test_job_application_readiness.py \
+            tests/test_job_application_readiness_api_contract.py \
+            tests/test_job_readiness_reconciliation.py \
+            tests/test_job_application_material_binding.py \
+            tests/test_job_application_drafts.py \
+            tests/test_job_application_handoff.py \
+            tests/test_b19_6_handoff_integration_contract.py
+      - name: Verify B19.6 migration and safety contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          route = Path('app/routes/job_application_handoffs.py').read_text()
+          migration = Path('supabase/migrations/047_job_application_handoffs.sql').read_text()
+          required_route = [
+              'approved_draft_required',
+              'submitted_manual',
+              'autonomous_submission',
+              'user_action_required',
+          ]
+          required_migration = [
+              'relocation_job_application_handoffs',
+              'relocation_job_application_handoff_events',
+              'submitted_manual',
+          ]
+          missing = [x for x in required_route if x not in route] + [x for x in required_migration if x not in migration]
+          if missing:
+              raise SystemExit(f'Missing B19.6 contract markers: {missing}')
+          print('B19.6 handoff contract verified')
+          PY
