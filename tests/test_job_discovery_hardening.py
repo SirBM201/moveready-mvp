@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+import httpx
 from app.services import job_discovery_hardening as hardening
 
 
@@ -68,6 +69,26 @@ class JobDiscoveryHardeningTests(unittest.TestCase):
         self.assertEqual(len(result["jobs"]), 1)
         self.assertEqual(result["jobs"][0]["country"], "Germany")
         self.assertEqual(result["pagination_pages_checked"], 1)
+
+    def test_transient_timeout_is_retried_and_recovers(self):
+        success = {"adapter": "greenhouse", "jobs": [], "complete_listing": True, "http_status": 200}
+        with patch.object(hardening, "_ORIGINAL_FETCH_SOURCE", side_effect=[httpx.ReadTimeout("slow source"), success]), patch.object(hardening.time, "sleep"):
+            result = hardening.fetch_source_hardened("https://boards.greenhouse.io/example", "auto", [])
+        self.assertEqual(result["fetch_attempts"], 2)
+        self.assertTrue(result["recovered_after_retry"])
+
+    def test_503_is_retried_but_403_is_not(self):
+        request = httpx.Request("GET", "https://example.com/careers")
+        err503 = httpx.HTTPStatusError("503", request=request, response=httpx.Response(503, request=request))
+        err403 = httpx.HTTPStatusError("403", request=request, response=httpx.Response(403, request=request))
+        success = {"adapter": "generic", "jobs": [], "complete_listing": False, "http_status": 200}
+        with patch.object(hardening, "_ORIGINAL_FETCH_SOURCE", side_effect=[err503, success]), patch.object(hardening.time, "sleep"):
+            result = hardening.fetch_source_hardened("https://example.com/careers", "auto", [])
+        self.assertEqual(result["fetch_attempts"], 2)
+        with patch.object(hardening, "_ORIGINAL_FETCH_SOURCE", side_effect=err403) as fetch:
+            with self.assertRaisesRegex(RuntimeError, "official_source_access_blocked_http_403"):
+                hardening.fetch_source_hardened("https://example.com/careers", "auto", [])
+        self.assertEqual(fetch.call_count, 1)
 
 
 if __name__ == "__main__":
