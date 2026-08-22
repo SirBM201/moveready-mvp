@@ -21,6 +21,6 @@ def test_readiness_routes_expose_required_contract():
 
 
 def test_readiness_blueprint_is_registered():
-    source = Path("app/main.py").read_text()
+    source = Path("app/__init__.py").read_text()
     assert "job_application_readiness.bp" in source
     assert 'url_prefix=f"{API_PREFIX}/jobs"' in source

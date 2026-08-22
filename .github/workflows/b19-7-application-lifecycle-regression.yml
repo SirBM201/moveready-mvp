@@ -1,0 +1,57 @@
+name: B19.7 Application Lifecycle Regression Gate
+
+on:
+  pull_request:
+    paths:
+      - 'app/services/job_application_lifecycle*.py'
+      - 'app/services/job_application_followup*.py'
+      - 'app/routes/job_application_lifecycle.py'
+      - 'app/routes/job_application_followups.py'
+      - 'tests/test_job_application_lifecycle*.py'
+      - 'tests/test_job_application_followup*.py'
+      - 'supabase/migrations/048_job_application_lifecycle.sql'
+      - 'supabase/migrations/049_job_application_followups.sql'
+      - '.github/workflows/b19-7-application-lifecycle-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+
+jobs:
+  b19-7-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+      - name: Compile B19.7 modules
+        run: |
+          python -m py_compile \
+            app/services/job_application_lifecycle.py \
+            app/services/job_application_lifecycle_reconciliation.py \
+            app/services/job_application_followup.py \
+            app/services/job_application_followup_reconciliation.py \
+            app/routes/job_application_lifecycle.py \
+            app/routes/job_application_followups.py
+      - name: Run B19.7 regression suite
+        env:
+          FLASK_ENV: development
+        run: |
+          python -m pytest -q \
+            tests/test_job_application_lifecycle.py \
+            tests/test_job_application_lifecycle_api_contract.py \
+            tests/test_job_application_lifecycle_reconciliation.py \
+            tests/test_job_application_followup.py \
+            tests/test_job_application_followup_reconciliation.py \
+            tests/test_job_application_followups_api_contract.py

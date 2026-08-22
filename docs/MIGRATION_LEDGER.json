@@ -1,7 +1,7 @@
 {
-  "ledger_version": "b19.6-v1",
-  "updated_at": "2026-08-22",
-  "latest_schema_file": "047_job_application_handoffs.sql",
+  "ledger_version": "b19.7-v1",
+  "updated_at": "2026-08-23",
+  "latest_schema_file": "049_job_application_followups.sql",
   "policy": {
     "applied_files_are_immutable": true,
     "new_schema_changes_are_additive": true,
@@ -57,7 +57,9 @@
     "044_job_application_readiness.sql",
     "045_job_readiness_reconciliation.sql",
     "046_job_application_drafts.sql",
-    "047_job_application_handoffs.sql"
+    "047_job_application_handoffs.sql",
+    "048_job_application_lifecycle.sql",
+    "049_job_application_followups.sql"
   ],
   "legacy_sql_only_files": [
     "017_seed_working_holiday_opportunities.sql",
