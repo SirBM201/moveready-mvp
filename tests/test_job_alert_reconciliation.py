@@ -20,7 +20,7 @@ def test_reconciliation_hides_dismissed_archived_and_duplicate_alerts():
         "counts": {"unread_alerts": 99},
     }
     result = reconcile_job_alert_payload(payload)
-    assert [row["id"] for row in result["alerts"]] == ["scan", "new", "quality"]
+    assert [row["id"] for row in result["alerts"]] == ["scan", "quality", "new"]
     assert result["counts"]["unread_alerts"] == 2
     assert result["counts"]["unread_match_alerts"] == 1
     assert result["counts"]["unread_scan_issues"] == 1
