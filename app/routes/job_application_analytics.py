@@ -3,6 +3,7 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request
 from app.services.account_identity import get_verified_session_email
 from app.services.job_application_analytics import CONTRACT_VERSION, attribution_breakdown, metrics
+from app.services.job_application_analytics_dashboard import build_dashboard
 from app.services.job_application_pattern_intelligence import detect_patterns
 from app.services.job_application_performance_intelligence import SUPPORTED_DIMENSIONS, dimension_intelligence, performance_overview
 from app.services.job_application_portfolio_loader import load_account_portfolio
@@ -18,6 +19,11 @@ def application_analytics():
     if error:return error
     items=load_account_portfolio(email);result=metrics(items)
     return jsonify({"ok":True,"contract_version":CONTRACT_VERSION,"metrics":result,"portfolio_count":len(items),"safety":{"descriptive_only":True,"employer_feedback_inferred":False,"ranking_modified":False,"application_submission_performed":False}})
+@bp.get("/application-analytics/dashboard")
+def application_analytics_dashboard():
+    email,error=_account()
+    if error:return error
+    return jsonify({"ok":True,**build_dashboard(load_account_portfolio(email))})
 @bp.get("/application-analytics/attribution")
 def application_analytics_attribution():
     email,error=_account()
