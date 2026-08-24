@@ -1,5 +1,4 @@
 from pathlib import Path
-import pytest
 from app.services.job_employer_targeting import campaign_employer_policy,employer_campaign_fit,normalize_target
 
 def test_priority_watch_and_excluded_lists_are_canonical_employer_ids():
@@ -21,7 +20,11 @@ def test_excluded_employer_is_removed_from_campaign_discovery():
  assert result["eligible_for_campaign_discovery"] is False
 
 def test_invalid_target_type_is_rejected():
- with pytest.raises(ValueError): normalize_target({"employer_id":"e1","target_type":"guaranteed_sponsor"})
+ try:
+  normalize_target({"employer_id":"e1","target_type":"guaranteed_sponsor"})
+ except ValueError:
+  return
+ raise AssertionError("normalize_target must reject unsupported target types")
 
 def test_target_persistence_is_private_and_claim_safe():
  sql=Path("supabase/migrations/053_job_employer_campaign_targets.sql").read_text()
