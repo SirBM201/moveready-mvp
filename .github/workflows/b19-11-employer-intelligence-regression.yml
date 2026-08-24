@@ -1,0 +1,42 @@
+name: B19.11 Employer Intelligence Regression Gate
+on:
+  pull_request:
+    paths:
+      - 'app/services/job_employer*.py'
+      - 'app/routes/job_employers.py'
+      - 'supabase/migrations/051_job_employer_intelligence.sql'
+      - 'supabase/migrations/052_job_employer_interactions.sql'
+      - 'supabase/migrations/053_job_employer_campaign_targets.sql'
+      - 'tests/test_job_employer*.py'
+      - 'tests/test_b19_11_final_integration.py'
+      - '.github/workflows/b19-11-employer-intelligence-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  PYTHONPATH: ${{ github.workspace }}
+jobs:
+  b19-11-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+      - name: Compile B19.11 modules
+        run: python -m py_compile app/services/job_employer_intelligence.py app/services/job_employer_resolution.py app/services/job_employer_history.py app/services/job_employer_targeting.py app/services/job_employer_ranking.py app/services/job_employer_dashboard.py app/routes/job_employers.py
+      - name: Run B19.11 regression suite
+        env:
+          FLASK_ENV: development
+        run: python -m pytest -q tests/test_job_employer_intelligence.py tests/test_job_employer_resolution.py tests/test_job_employer_history.py tests/test_job_employer_targeting.py tests/test_job_employer_ranking.py tests/test_b19_11_final_integration.py
+      - name: Verify migrations
+        run: |
+          test -f supabase/migrations/051_job_employer_intelligence.sql
+          test -f supabase/migrations/052_job_employer_interactions.sql
+          test -f supabase/migrations/053_job_employer_campaign_targets.sql
