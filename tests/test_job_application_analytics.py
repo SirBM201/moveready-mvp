@@ -1,5 +1,3 @@
-import pytest
-
 from app.services.job_application_analytics import attribution_breakdown, funnel_flags, metrics, outcome_attribution
 
 
@@ -47,5 +45,9 @@ def test_attribution_breakdown_groups_by_recorded_source():
 
 
 def test_unknown_dimension_is_rejected():
-    with pytest.raises(ValueError,match="unsupported_attribution_dimension"):
+    try:
         attribution_breakdown([],"salary")
+    except ValueError as exc:
+        assert "unsupported_attribution_dimension" in str(exc)
+    else:
+        raise AssertionError("unsupported attribution dimension was accepted")
