@@ -1,0 +1,59 @@
+name: B19.8 Application Portfolio Regression Gate
+
+on:
+  pull_request:
+    paths:
+      - 'app/services/job_application_portfolio*.py'
+      - 'app/routes/job_application_portfolio.py'
+      - 'tests/test_job_application_portfolio*.py'
+      - 'tests/test_b19_8_final_integration.py'
+      - '.github/workflows/b19-8-portfolio-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+
+jobs:
+  b19-8-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+      - name: Compile B19.8 modules
+        run: |
+          python -m py_compile \
+            app/services/job_application_portfolio.py \
+            app/services/job_application_portfolio_action_feed.py \
+            app/services/job_application_portfolio_loader.py \
+            app/services/job_application_portfolio_reconciliation.py \
+            app/routes/job_application_portfolio.py
+      - name: Run B19.8 regression suite
+        env:
+          FLASK_ENV: development
+        run: |
+          python -m pytest -q \
+            tests/test_job_application_portfolio.py \
+            tests/test_job_application_portfolio_api_contract.py \
+            tests/test_job_application_portfolio_prioritization.py \
+            tests/test_job_application_portfolio_reconciliation.py \
+            tests/test_job_application_portfolio_action_feed.py \
+            tests/test_b19_8_final_integration.py
+      - name: Verify no duplicate portfolio persistence
+        run: |
+          if grep -R "create table.*relocation_job_application_portfolio" -in supabase/migrations; then
+            echo 'Unexpected duplicate B19.8 portfolio persistence found'
+            exit 1
+          fi
+          echo 'B19.8 remains a derived portfolio/read model'
