@@ -10,8 +10,7 @@ def test_portfolio_progresses_from_preparing_to_hired():
 
 
 def test_due_followup_becomes_top_action():
-    item=build_portfolio_item(job={"id":"j1","title":"Engineer"},lifecycle={"id":"l1","state":"submitted"} if False else None,
-        lifecycles=[{"id":"l1","state":"submitted"}],followups=[{"id":"f1","status":"due","scheduled_for":"2026-08-23T10:00:00Z"}])
+    item=build_portfolio_item(job={"id":"j1","title":"Engineer"},lifecycles=[{"id":"l1","state":"submitted"}],followups=[{"id":"f1","status":"due","scheduled_for":"2026-08-23T10:00:00Z"}])
     assert item["next_action"]["type"]=="complete_followup"
     assert item["priority_score"]==100
     assert item["due_followup_count"]==1
@@ -32,10 +31,11 @@ def test_handoff_ready_prioritizes_manual_submission():
     assert item["safety"]["auto_submit_allowed"] is False
 
 
-def test_stale_vacancy_is_deprioritized_without_changing_state():
+def test_stale_vacancy_is_flagged_for_high_priority_review_without_changing_state():
     item=build_portfolio_item(job={"id":"j1","is_stale":True},readiness={"state":"ready"})
     assert item["pipeline_state"]=="ready_to_apply"
-    assert item["priority_score"]<=20
+    assert item["next_action"]["type"]=="review_stale_vacancy"
+    assert item["priority_score"]==80
 
 
 def test_portfolio_sort_is_priority_first():
