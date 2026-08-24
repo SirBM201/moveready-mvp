@@ -10,11 +10,8 @@
     "repository_ledger_role": "file inventory and deployment ordering; not a substitute for database history"
   },
   "production_confirmation": {
-    "manually_confirmed_frontier": "053_job_employer_campaign_targets.sql",
-    "verification_required": "Run the protected operations schema checks after every database or deployment change.",
-    "pending_manual_application": [
-      "054_job_recruiter_relationships.sql"
-    ]
+    "manually_confirmed_frontier": "054_job_recruiter_relationships.sql",
+    "verification_required": "Run the protected operations schema checks after every database or deployment change."
   },
   "canonical_schema_files": [
     "001_initial_relocation_schema.sql",
