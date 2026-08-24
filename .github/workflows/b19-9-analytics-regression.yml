@@ -1,0 +1,44 @@
+name: B19.9 Application Analytics Regression Gate
+on:
+  pull_request:
+    paths:
+      - 'app/services/job_application_analytics*.py'
+      - 'app/services/job_application_pattern_intelligence.py'
+      - 'app/services/job_application_performance_intelligence.py'
+      - 'app/services/job_search_feedback.py'
+      - 'app/routes/job_application_analytics.py'
+      - 'tests/test_job_application_analytics*.py'
+      - 'tests/test_job_application_pattern_intelligence.py'
+      - 'tests/test_job_application_performance_intelligence.py'
+      - 'tests/test_job_search_feedback.py'
+      - 'tests/test_b19_9_final_integration.py'
+      - '.github/workflows/b19-9-analytics-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  PYTHONPATH: ${{ github.workspace }}
+jobs:
+  b19-9-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+      - name: Compile B19.9 modules
+        run: python -m py_compile app/services/job_application_analytics.py app/services/job_application_analytics_dashboard.py app/services/job_application_pattern_intelligence.py app/services/job_application_performance_intelligence.py app/services/job_search_feedback.py app/routes/job_application_analytics.py
+      - name: Run B19.9 regression suite
+        env:
+          FLASK_ENV: development
+        run: python -m pytest -q tests/test_job_application_analytics.py tests/test_job_application_analytics_api_contract.py tests/test_job_application_performance_intelligence.py tests/test_job_application_pattern_intelligence.py tests/test_job_search_feedback.py tests/test_b19_9_final_integration.py
+      - name: Verify derived analytics architecture
+        run: |
+          if grep -R "create table.*relocation_job_application_analytics" -in supabase/migrations; then echo 'Unexpected duplicate analytics persistence found'; exit 1; fi
+          echo 'B19.9 analytics remain derived from application history'
