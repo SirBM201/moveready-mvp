@@ -1,12 +1,95 @@
 {
-  "ledger_version": "b19.11-v1",
+  "ledger_version": "b19.12-v1",
   "updated_at": "2026-08-24",
-  "latest_schema_file": "053_job_employer_campaign_targets.sql",
-  "policy": {"applied_files_are_immutable": true,"new_schema_changes_are_additive": true,"rollback_default": "forward_repair","database_history_authority": "Supabase schema checks and reviewed production records","repository_ledger_role": "file inventory and deployment ordering; not a substitute for database history"},
-  "production_confirmation": {"manually_confirmed_frontier": "053_job_employer_campaign_targets.sql","verification_required": "Run the protected operations schema checks after every database or deployment change."},
+  "latest_schema_file": "054_job_recruiter_relationships.sql",
+  "policy": {
+    "applied_files_are_immutable": true,
+    "new_schema_changes_are_additive": true,
+    "rollback_default": "forward_repair",
+    "database_history_authority": "Supabase schema checks and reviewed production records",
+    "repository_ledger_role": "file inventory and deployment ordering; not a substitute for database history"
+  },
+  "production_confirmation": {
+    "manually_confirmed_frontier": "053_job_employer_campaign_targets.sql",
+    "verification_required": "Run the protected operations schema checks after every database or deployment change.",
+    "pending_manual_application": [
+      "054_job_recruiter_relationships.sql"
+    ]
+  },
   "canonical_schema_files": [
-    "001_initial_relocation_schema.sql","002_seed_starter_relocation_data.sql","003_seed_estonia_startup_route_detail.sql","004_service_interest_requests.sql","005_official_opportunities.sql","006_readiness_check_runs.sql","007_watchlist_alert_subscriptions.sql","008_user_relocation_profiles.sql","009_saved_routes.sql","010_application_timeline.sql","011_partner_applications.sql","012_seed_finland_d_visa_route.sql","013_seed_finland_d_visa_route_fixed.sql","014_allow_family_member_document_scope.sql","016_seed_official_opportunity_routes.sql","019_account_login_otp.sql","020_account_workspace_repairs.sql","022_report_account_fields_and_sections.sql","023_provider_publication_and_commercial_quotes.sql","024_private_backend_tables_rls.sql","025_service_handoffs_and_support_cases.sql","026_commercial_and_handoff_invariants.sql","027_evidence_inventory_and_packs.sql","027_passport_index_provider_cache.sql","028_application_case_manager.sql","029_application_case_alerts.sql","030_account_preferences_privacy_activity.sql","031_jobs_execution_platform.sql","032_job_discovery_and_application_assistance.sql","034_career_search_scope_and_viability.sql","034_language_coach_v1.sql","035_language_coach_starter_bank.sql","036_passport_official_source_mapping.sql","037_passport_official_source_seed.sql","038_passport_official_source_review_lifecycle.sql","039_language_coach_backend_completion.sql","040_job_vacancy_canonical_identity.sql","041_job_vacancy_reconciliation.sql","042_job_alert_reconciliation.sql","043_job_runtime_vacancy_identity_repair.sql","044_job_application_readiness.sql","045_job_readiness_reconciliation.sql","046_job_application_drafts.sql","047_job_application_handoffs.sql","048_job_application_lifecycle.sql","049_job_application_followups.sql","050_job_search_campaign_persistence.sql","051_job_employer_intelligence.sql","052_job_employer_interactions.sql","053_job_employer_campaign_targets.sql"
+    "001_initial_relocation_schema.sql",
+    "002_seed_starter_relocation_data.sql",
+    "003_seed_estonia_startup_route_detail.sql",
+    "004_service_interest_requests.sql",
+    "005_official_opportunities.sql",
+    "006_readiness_check_runs.sql",
+    "007_watchlist_alert_subscriptions.sql",
+    "008_user_relocation_profiles.sql",
+    "009_saved_routes.sql",
+    "010_application_timeline.sql",
+    "011_partner_applications.sql",
+    "012_seed_finland_d_visa_route.sql",
+    "013_seed_finland_d_visa_route_fixed.sql",
+    "014_allow_family_member_document_scope.sql",
+    "016_seed_official_opportunity_routes.sql",
+    "019_account_login_otp.sql",
+    "020_account_workspace_repairs.sql",
+    "022_report_account_fields_and_sections.sql",
+    "023_provider_publication_and_commercial_quotes.sql",
+    "024_private_backend_tables_rls.sql",
+    "025_service_handoffs_and_support_cases.sql",
+    "026_commercial_and_handoff_invariants.sql",
+    "027_evidence_inventory_and_packs.sql",
+    "027_passport_index_provider_cache.sql",
+    "028_application_case_manager.sql",
+    "029_application_case_alerts.sql",
+    "030_account_preferences_privacy_activity.sql",
+    "031_jobs_execution_platform.sql",
+    "032_job_discovery_and_application_assistance.sql",
+    "034_career_search_scope_and_viability.sql",
+    "034_language_coach_v1.sql",
+    "035_language_coach_starter_bank.sql",
+    "036_passport_official_source_mapping.sql",
+    "037_passport_official_source_seed.sql",
+    "038_passport_official_source_review_lifecycle.sql",
+    "039_language_coach_backend_completion.sql",
+    "040_job_vacancy_canonical_identity.sql",
+    "041_job_vacancy_reconciliation.sql",
+    "042_job_alert_reconciliation.sql",
+    "043_job_runtime_vacancy_identity_repair.sql",
+    "044_job_application_readiness.sql",
+    "045_job_readiness_reconciliation.sql",
+    "046_job_application_drafts.sql",
+    "047_job_application_handoffs.sql",
+    "048_job_application_lifecycle.sql",
+    "049_job_application_followups.sql",
+    "050_job_search_campaign_persistence.sql",
+    "051_job_employer_intelligence.sql",
+    "052_job_employer_interactions.sql",
+    "053_job_employer_campaign_targets.sql",
+    "054_job_recruiter_relationships.sql"
   ],
-  "legacy_sql_only_files": ["017_seed_working_holiday_opportunities.sql","018_seed_portugal_entrepreneur_route.sql","026_generated_reports_account_owner.sql"],
-  "intentional_prefix_exceptions": {"unused_historical_prefixes": [15,21,33],"duplicate_historical_prefixes": {"027": ["027_evidence_inventory_and_packs.sql","027_passport_index_provider_cache.sql"],"034": ["034_career_search_scope_and_viability.sql","034_language_coach_v1.sql"]},"instruction": "Do not rename, renumber, or rewrite an applied historical file. Record a new additive migration for future schema changes."}
+  "legacy_sql_only_files": [
+    "017_seed_working_holiday_opportunities.sql",
+    "018_seed_portugal_entrepreneur_route.sql",
+    "026_generated_reports_account_owner.sql"
+  ],
+  "intentional_prefix_exceptions": {
+    "unused_historical_prefixes": [
+      15,
+      21,
+      33
+    ],
+    "duplicate_historical_prefixes": {
+      "027": [
+        "027_evidence_inventory_and_packs.sql",
+        "027_passport_index_provider_cache.sql"
+      ],
+      "034": [
+        "034_career_search_scope_and_viability.sql",
+        "034_language_coach_v1.sql"
+      ]
+    },
+    "instruction": "Do not rename, renumber, or rewrite an applied historical file. Record a new additive migration for future schema changes."
+  }
 }
