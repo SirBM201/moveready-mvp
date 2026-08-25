@@ -1,5 +1,5 @@
 {
-  "ledger_version": "lq10-v1",
+  "ledger_version": "b19.12.1-v1",
   "updated_at": "2026-08-25",
   "latest_schema_file": "055_job_career_practice.sql",
   "policy": {
