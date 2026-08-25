@@ -11,6 +11,8 @@ from app.core.operations_readiness import (
     admin_route_contract,
     environment_checks,
     environment_summary,
+    migration_ledger_contract,
+    operations_contract_payload,
 )
 from app.utils.admin_auth import require_admin_access
 
@@ -97,3 +99,14 @@ def test_schedule_contracts_are_unique() -> None:
     assert len(SCHEDULE_CONTRACTS) == 4
     assert len({item["workflow"] for item in SCHEDULE_CONTRACTS}) == 4
     assert len({item["cron"] for item in SCHEDULE_CONTRACTS}) == 4
+
+
+def test_operations_migration_frontier_follows_repository_ledger() -> None:
+    ledger = migration_ledger_contract()
+    contract = operations_contract_payload()
+
+    assert ledger["latest_schema_file"] == "056_launch_beta_validation.sql"
+    assert ledger["manually_confirmed_frontier"] == ledger["latest_schema_file"]
+    assert ledger["frontier_matches"] is True
+    assert ledger["status"] == "confirmed"
+    assert contract["migration_ledger"] == ledger
