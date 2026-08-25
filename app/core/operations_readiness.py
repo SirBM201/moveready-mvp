@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 from app.core import config
@@ -8,6 +10,7 @@ from app.core import config
 
 OPERATIONS_CONTRACT_VERSION = "b16-v1"
 ADMIN_HEADER_NAME = "X-MoveReady-Admin-Key"
+MIGRATION_LEDGER_PATH = Path(__file__).resolve().parents[2] / "docs" / "MIGRATION_LEDGER.json"
 
 SCHEDULE_CONTRACTS = [
     {
@@ -126,6 +129,37 @@ def environment_summary(checks: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+
+def migration_ledger_contract() -> Dict[str, Any]:
+    """Return the repository migration frontier without pinning release numbers in code."""
+    try:
+        ledger = json.loads(MIGRATION_LEDGER_PATH.read_text(encoding="utf-8"))
+        latest = str(ledger.get("latest_schema_file") or "").strip()
+        confirmation = ledger.get("production_confirmation") or {}
+        confirmed = str(confirmation.get("manually_confirmed_frontier") or "").strip()
+        if not latest:
+            raise ValueError("latest_schema_file is missing")
+        return {
+            "version": str(ledger.get("ledger_version") or OPERATIONS_CONTRACT_VERSION),
+            "latest_schema_file": latest,
+            "manually_confirmed_frontier": confirmed or None,
+            "frontier_matches": bool(confirmed and confirmed == latest),
+            "source": "docs/MIGRATION_LEDGER.json",
+            "status": "confirmed" if confirmed and confirmed == latest else "verification_required",
+            "database_history_note": "Protected schema checks remain authoritative; the repository ledger does not replace Supabase history.",
+        }
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        return {
+            "version": OPERATIONS_CONTRACT_VERSION,
+            "latest_schema_file": None,
+            "manually_confirmed_frontier": None,
+            "frontier_matches": False,
+            "source": "docs/MIGRATION_LEDGER.json",
+            "status": "unavailable",
+            "error": f"{type(exc).__name__}: {exc}",
+            "database_history_note": "Migration ledger unavailable; verify Supabase history before launch.",
+        }
+
 def operations_contract_payload() -> Dict[str, Any]:
     return {
         "version": OPERATIONS_CONTRACT_VERSION,
@@ -142,12 +176,7 @@ def operations_contract_payload() -> Dict[str, Any]:
         },
         "schedule_count": len(SCHEDULE_CONTRACTS),
         "schedules": SCHEDULE_CONTRACTS,
-        "migration_ledger": {
-            "version": OPERATIONS_CONTRACT_VERSION,
-            "latest_schema_file": "039_language_coach_backend_completion.sql",
-            "source": "docs/MIGRATION_LEDGER.json",
-            "database_history_note": "Protected schema checks remain authoritative; the repository ledger does not replace Supabase history.",
-        },
+        "migration_ledger": migration_ledger_contract(),
         "rollback_policy": "Application deployments may roll back to a previously verified commit. Applied Supabase migrations use forward repair unless a reviewed backup-restore plan explicitly authorizes otherwise.",
     }
 

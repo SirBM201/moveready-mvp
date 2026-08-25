@@ -518,7 +518,7 @@ def admin_operations_status():
             "schema_checks": checks,
             **assessment,
             "recommended_sequence": [
-                "Follow docs/MIGRATION_LEDGER.json through migration 039, including provider publication, quotes, payment audit, private-table RLS, consent-based handoffs, support cases, evidence packs, application cases, alerts, account controls, Jobs, Passport official-source governance, and Language Coach completion.",
+                f"Follow docs/MIGRATION_LEDGER.json through {operations_contract['migration_ledger'].get('latest_schema_file') or 'the reviewed migration frontier'}, then confirm every protected schema check.",
                 "Run the source-governance queue and resolve overdue official sources and route versions before promoting guidance as current.",
                 "Use the Application Case Manager and daily private alert scan without storing raw authority correspondence or complete reference numbers.",
                 "Review privacy requests manually; never treat a deletion request as authorization for immediate unaudited destruction.",
