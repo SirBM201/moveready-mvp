@@ -61,3 +61,5 @@ def update_session(session_id):
  rows=get_supabase().table(TABLE).update({"status":status,"updated_at":_now()}).eq("id",session_id).eq("email",email).execute().data or[]
  if not rows:return jsonify({"ok":False,"error":"career_practice_session_not_found"}),404
  return jsonify({"ok":True,"session":_public(rows[0])})
+
+
