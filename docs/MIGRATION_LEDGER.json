@@ -1,5 +1,5 @@
 {
-  "ledger_version": "lq12-v1",
+  "ledger_version": "b19.12.2-v1",
   "updated_at": "2026-08-25",
   "latest_schema_file": "056_launch_beta_validation.sql",
   "policy": {
