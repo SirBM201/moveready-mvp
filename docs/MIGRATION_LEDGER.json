@@ -1,7 +1,7 @@
 {
-  "ledger_version": "b19.12-v1",
-  "updated_at": "2026-08-24",
-  "latest_schema_file": "054_job_recruiter_relationships.sql",
+  "ledger_version": "lq10-v1",
+  "updated_at": "2026-08-25",
+  "latest_schema_file": "055_job_career_practice.sql",
   "policy": {
     "applied_files_are_immutable": true,
     "new_schema_changes_are_additive": true,
@@ -64,7 +64,8 @@
     "051_job_employer_intelligence.sql",
     "052_job_employer_interactions.sql",
     "053_job_employer_campaign_targets.sql",
-    "054_job_recruiter_relationships.sql"
+    "054_job_recruiter_relationships.sql",
+    "055_job_career_practice.sql"
   ],
   "legacy_sql_only_files": [
     "017_seed_working_holiday_opportunities.sql",
