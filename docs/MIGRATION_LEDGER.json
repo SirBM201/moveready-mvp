@@ -1,7 +1,7 @@
 {
-  "ledger_version": "b19.12.1-v1",
+  "ledger_version": "lq12-v1",
   "updated_at": "2026-08-25",
-  "latest_schema_file": "055_job_career_practice.sql",
+  "latest_schema_file": "056_launch_beta_validation.sql",
   "policy": {
     "applied_files_are_immutable": true,
     "new_schema_changes_are_additive": true,
@@ -67,7 +67,8 @@
     "052_job_employer_interactions.sql",
     "053_job_employer_campaign_targets.sql",
     "054_job_recruiter_relationships.sql",
-    "055_job_career_practice.sql"
+    "055_job_career_practice.sql",
+    "056_launch_beta_validation.sql"
   ],
   "legacy_sql_only_files": [
     "017_seed_working_holiday_opportunities.sql",
@@ -91,8 +92,5 @@
       ]
     },
     "instruction": "Do not rename, renumber, or rewrite an applied historical file. Record a new additive migration for future schema changes."
-  },
-  "latest_migration": "056_launch_beta_validation.sql",
-  "latest_schema_frontier": "056_launch_beta_validation.sql",
-  "migration_count": 56
+  }
 }
