@@ -1,0 +1,37 @@
+name: LQ11 Launch Readiness
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "tests/test_lq11_launch_readiness.py"
+      - "docs/LQ11_LAUNCH_HARDENING.md"
+      - ".github/workflows/lq11-launch-readiness.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "tests/test_lq11_launch_readiness.py"
+      - "docs/LQ11_LAUNCH_HARDENING.md"
+      - ".github/workflows/lq11-launch-readiness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lq11:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FLASK_ENV: development
+      SECRET_KEY: lq11-ci-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Daily alerts and fail-closed delivery
+        run: python -m unittest tests.test_lq11_launch_readiness tests.test_b14_smart_alerts -v
