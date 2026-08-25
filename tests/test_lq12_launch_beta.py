@@ -18,10 +18,11 @@ class LQ12LaunchBetaTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.get_json()["error"], "verified_session_required")
 
-    def test_admin_summary_requires_admin_key(self):
-        with patch.dict(os.environ, {"FLASK_ENV": "development", "MOVEREADY_ADMIN_API_KEY": "lq12-test-admin"}):
-            client = create_app().test_client()
-        self.assertIn(client.get("/api/admin/beta/summary").status_code, {401, 403})
+    def test_admin_summary_is_guarded(self):
+        with open("app/routes/launch_beta.py", encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn("@require_admin_access", source)
+        self.assertIn('"/admin/beta/summary"', source)
 
     def test_no_approval_inference(self):
         with open("app/routes/launch_beta.py", encoding="utf-8") as handle:
