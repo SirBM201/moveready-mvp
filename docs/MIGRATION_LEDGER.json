@@ -12,7 +12,8 @@
   "production_confirmation": {
     "manually_confirmed_frontier": "055_job_career_practice.sql",
     "verification_required": "Run the protected operations schema checks after every database or deployment change.",
-    "confirmed_at": "2026-08-25"
+    "confirmed_at": "2026-08-25",
+    "pending_frontier": "056_launch_beta_validation.sql"
   },
   "canonical_schema_files": [
     "001_initial_relocation_schema.sql",
@@ -90,5 +91,8 @@
       ]
     },
     "instruction": "Do not rename, renumber, or rewrite an applied historical file. Record a new additive migration for future schema changes."
-  }
+  },
+  "latest_migration": "056_launch_beta_validation.sql",
+  "latest_schema_frontier": "056_launch_beta_validation.sql",
+  "migration_count": 56
 }
