@@ -18,7 +18,7 @@ class LQ12LaunchBetaTests(unittest.TestCase):
   with patch.dict(os.environ,{"FLASK_ENV":"development"}):client=create_app().test_client()
   self.assertIn(client.get("/api/admin/beta/summary").status_code,{401,403,503})
  def test_no_approval_inference(self):
-  source=open("app/routes/launch_beta.py",encoding="utf-8").read()
+  with open("app/routes/launch_beta.py",encoding="utf-8") as handle:source=handle.read()
   self.assertIn("not an immigration, employment or approval outcome",source)
   self.assertIn('"minimum":10,"maximum":20',source)
 if __name__=="__main__":unittest.main()
