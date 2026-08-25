@@ -1,0 +1,23 @@
+name: LQ12 Production and Beta Validation
+on:
+  pull_request:
+    paths: ["app/**","tests/test_lq12_launch_beta.py","supabase/migrations/056_launch_beta_validation.sql","docs/LQ12_PRODUCTION_BETA.md",".github/workflows/lq12-launch-beta.yml"]
+  push:
+    branches: [main]
+    paths: ["app/**","tests/test_lq12_launch_beta.py","supabase/migrations/056_launch_beta_validation.sql","docs/LQ12_PRODUCTION_BETA.md",".github/workflows/lq12-launch-beta.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lq12:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FLASK_ENV: development
+      SECRET_KEY: lq12-ci-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt
+      - run: python -m unittest tests.test_lq12_launch_beta -v
