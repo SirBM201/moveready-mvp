@@ -21,6 +21,9 @@ from app.services.supabase_client import get_supabase
 
 bp = Blueprint("smart_alerts", __name__)
 
+DAILY_DIGEST_TIME_UTC = "07:07"
+DAILY_DIGEST_TIMEZONE = "UTC"
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -404,6 +407,19 @@ def smart_alert_inbox():
             "document_expiry_alerts_enabled": account_preferences.get("document_expiry_alerts_enabled", True),
             "opportunity_alerts_enabled": account_preferences.get("opportunity_alerts_enabled", False),
             "smart_alert_preferences": smart_preferences,
+        },
+        "daily_digest": {
+            "mode": "private_in_app",
+            "schedule_time": DAILY_DIGEST_TIME_UTC,
+            "timezone": DAILY_DIGEST_TIMEZONE,
+            "generated_at": _now().isoformat(),
+            "refresh_available": True,
+            "external_delivery_enabled": False,
+            "summary": {
+                "total": len(visible),
+                "critical": counts_by_priority.get("critical", 0),
+                "high": counts_by_priority.get("high", 0),
+            },
         },
         "delivery_status": {
             "in_app": "available" if account_preferences.get("in_app_notifications_enabled", True) else "disabled_by_user",
