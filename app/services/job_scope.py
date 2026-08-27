@@ -209,3 +209,5 @@ def ranked_job_is_handoff_ready(job: Dict[str, Any]) -> bool:
         "recommended",
         "consider",
     }
+
+
