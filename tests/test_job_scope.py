@@ -5,6 +5,7 @@ import unittest
 from app.services.job_scope import (
     country_is_in_scope,
     default_job_country,
+    employer_monitor_country,
     profile_scope_contract,
     profile_scope_update,
     ranked_job_is_alertable,
@@ -22,6 +23,15 @@ PROFILE = {
 
 
 class JobScopeContractTests(unittest.TestCase):
+    def test_employer_monitor_country_handles_multinational_targets(self):
+        self.assertEqual(employer_monitor_country("Canada, Portugal, Germany, Spain", PROFILE), "Canada")
+        self.assertEqual(employer_monitor_country("Kuwait", PROFILE), "Kuwait")
+        self.assertIsNone(employer_monitor_country("Spain", PROFILE))
+        self.assertEqual(employer_monitor_country(None, PROFILE), "Canada")
+        local = dict(PROFILE, search_scope="local")
+        self.assertIsNone(employer_monitor_country("Canada, Germany", local))
+        self.assertEqual(employer_monitor_country("Canada, Kuwait", local), "Kuwait")
+
     def test_both_scope_separates_local_and_international_targets(self):
         contract = profile_scope_contract(PROFILE)
         self.assertTrue(contract["ready"])

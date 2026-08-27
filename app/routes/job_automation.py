@@ -31,6 +31,7 @@ from app.services.job_matching import rank_jobs
 from app.services.job_scope import (
     country_is_in_scope,
     default_job_country,
+    employer_monitor_country,
     profile_scope_contract,
     ranked_job_is_alertable,
     ranked_job_is_handoff_ready,
@@ -814,30 +815,34 @@ def bootstrap_watches():
             }), 409
         keywords = _watch_keywords(profile)
         created = updated = skipped = 0
+        skipped_targets = []
+
+        def skip(company, reason):
+            nonlocal skipped
+            skipped += 1
+            skipped_targets.append({"company_name": (company or {}).get("company_name") or "Unavailable employer", "reason": reason})
+
         for target in targets[:30]:
             company = _visible_company(str(target.get("company_id") or ""), email)
             if not company or not company.get("career_page"):
-                skipped += 1
+                skip(company, "No accessible employer or official career page is recorded.")
                 continue
             source_url = str(company.get("career_page"))
             try:
                 source_url = validate_public_https_url(source_url, resolve_dns=False)
             except ValueError:
-                skipped += 1
+                skip(company, "The career page must be a valid public HTTPS URL.")
                 continue
             if not company.get("is_curated") and not source_host_is_allowed(source_url, []):
-                skipped += 1
+                skip(company, "This source needs verification or a supported ATS career page.")
                 continue
             existing = (
                 supabase.table("relocation_job_watches").select("*")
                 .eq("email", email).eq("source_url", source_url).maybe_single().execute()
             ).data
-            company_country = (
-                _text(company.get("country"), 100)
-                or default_job_country(profile)
-            )
+            company_country = employer_monitor_country(company.get("country"), profile)
             if not country_is_in_scope(company_country, profile):
-                skipped += 1
+                skip(company, "No employer country matches your selected search countries.")
                 continue
             row = {
                 "email": email,
@@ -863,7 +868,14 @@ def bootstrap_watches():
             "created": created,
             "updated": updated,
             "skipped": skipped,
-            "message": "Official career-page monitors are ready for your selected target employers.",
+            "skipped_targets": skipped_targets,
+            "deferred": max(0, len(targets) - 30),
+            "message": (
+                "Official career-page monitors are ready. Each source monitors one matching country, prioritizing your primary destination."
+                if created or updated else
+                "No monitors were created. Review the skipped employer reasons."
+                if targets else "Choose target employers before creating monitors."
+            ),
         }), 201 if created else 200
     except Exception as exc:
         return _database_error("bootstrap official job watches", exc)
