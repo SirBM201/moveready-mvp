@@ -167,6 +167,16 @@ def default_job_country(profile: Optional[Dict[str, Any]]) -> Optional[str]:
     return contract["current_country"]
 
 
+def employer_monitor_country(country: Any, profile: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Choose one in-scope country for the existing single-country monitor model."""
+    countries = country_list(country)
+    if not countries:
+        return default_job_country(profile)
+    keys = {country_key(item) for item in countries}
+    preferred = country_list([default_job_country(profile), *profile_scope_contract(profile)["target_countries"]])
+    return next((item for item in preferred if country_key(item) in keys), None)
+
+
 def country_is_in_scope(country: Any, profile: Optional[Dict[str, Any]]) -> bool:
     contract = profile_scope_contract(profile)
     key = country_key(country)
