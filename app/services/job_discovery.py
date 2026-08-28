@@ -562,6 +562,17 @@ def _parse_greenhouse(body: str, source_url: str) -> List[Dict[str, Any]]:
             continue
         location = item.get("location") if isinstance(item.get("location"), dict) else {}
         country, province, city = _infer_location([location.get("name")])
+        # Greenhouse often abbreviates the display location to a city while
+        # attaching a full office address. Use only unambiguous source evidence.
+        if not country:
+            offices = item.get("offices") if isinstance(item.get("offices"), list) else []
+            office_locations = [_infer_location([office.get("location")]) for office in offices if isinstance(office, dict)]
+            countries = {entry[0] for entry in office_locations if entry[0]}
+            if len(countries) == 1:
+                country = next(iter(countries))
+                matching = [entry for entry in office_locations if entry[0] == country]
+                regions = {entry[1] for entry in matching if entry[1]}
+                province = next(iter(regions)) if len(regions) == 1 else None
         title = clean_text(item.get("title"), 220)
         if not title:
             continue

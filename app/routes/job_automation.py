@@ -477,10 +477,15 @@ def _scan_watch(watch: Dict[str, Any], *, trigger_type: str) -> Dict[str, Any]:
         company_name = str(company.get("company_name") or "Employer")
         allowed_job_hosts = [str(watch.get("source_url") or ""), str(company.get("website") or ""), str(company.get("career_page") or "")]
         seen_fingerprints = set()
+        diagnostics = dict(fetched.get("diagnostics") or {})
+        diagnostics.setdefault("after_relevance", len(fetched.get("jobs") or []))
+        diagnostics.update({"source_host_excluded": 0, "country_unknown": 0, "country_mismatch": 0})
         for candidate in fetched.get("jobs") or []:
             if not source_host_is_allowed(str(candidate.get("job_url") or ""), allowed_job_hosts):
+                diagnostics["source_host_excluded"] += 1
                 continue
             if not candidate_matches_target_country(candidate, watch.get("country")):
+                diagnostics["country_unknown" if not candidate.get("country") else "country_mismatch"] += 1
                 continue
             fingerprint = candidate_fingerprint(candidate, watch_id)
             content_hash = candidate_content_hash(candidate)
@@ -668,6 +673,7 @@ def _scan_watch(watch: Dict[str, Any], *, trigger_type: str) -> Dict[str, Any]:
             "closed_count": closed_count,
             "alert_count": alert_count,
             "http_status": fetched.get("http_status"),
+            "diagnostics": {**diagnostics, "retained": len(seen_fingerprints)},
         }
         supabase.table("relocation_job_scan_runs").update({
             "status": status,

@@ -44,7 +44,14 @@ def _candidate_is_relevant(row: Dict[str,Any],keywords: Sequence[str])->bool:
     for term in terms:
         tokens=_role_tokens(term); target.update(tokens); distinctive.update(x for x in tokens if x not in _GENERIC_ROLE_WORDS)
     overlap=title_tokens & target
-    return len(overlap)>=2 or bool(overlap & distinctive)
+    if len(overlap)>=2 or bool(overlap & distinctive): return True
+    # Related industrial occupations need evidence in the vacancy itself, not
+    # generic leadership/planning words in a retail or office description.
+    industrial_search = bool(target & {"production", "manufacturing", "molding", "injection"})
+    industrial_title = bool(title_tokens & {"compounder", "millwright", "molds", "molding", "extrusion", "machinist"})
+    description = _base.clean_text(row.get("description_summary"), 4000).casefold().replace("mould", "mold")
+    industrial_evidence = bool(re.search(r"\b(manufacturing|production|machinery|molding|factory)\b", description))
+    return industrial_search and industrial_title and industrial_evidence
 
 def _looks_like_real_vacancy(row: Dict[str,Any])->bool:
     title=_base.clean_text(row.get("job_title"),220)
@@ -89,7 +96,9 @@ def _fetch_with_retry(source_url:str,requested_adapter:str,keywords:Sequence[str
     last:Exception|None=None
     for attempt in range(1,_MAX_TRANSIENT_ATTEMPTS+1):
         try:
-            result=_ORIGINAL_FETCH_SOURCE(source_url,requested_adapter,keywords,_listing_hops=_listing_hops)
+            # Extract first; apply relevance once in _merge_jobs. This also
+            # makes stage counts independent of the older broad token filter.
+            result=_ORIGINAL_FETCH_SOURCE(source_url,requested_adapter,[],_listing_hops=_listing_hops)
             return result,attempt
         except Exception as exc:
             last=exc
@@ -102,7 +111,12 @@ def fetch_source_hardened(source_url:str,requested_adapter:str,keywords:Sequence
     first,attempts=_fetch_with_retry(source_url,requested_adapter,keywords,_listing_hops=_listing_hops)
     adapter=str(first.get("adapter") or ""); first_jobs=list(first.get("jobs") or [])
     base={**first,"fetch_attempts":attempts,"recovered_after_retry":attempts>1}
-    if adapter not in {"generic","jsonld"} or _listing_hops>0: return {**base,"jobs":_merge_jobs([first_jobs],keywords)}
+    if adapter not in {"generic","jsonld"} or _listing_hops>0:
+        jobs = _merge_jobs([first_jobs],keywords)
+        return {**base, "jobs": jobs,
+                "diagnostics": {"extracted": len(first_jobs), "after_relevance": len(jobs), "relevance_or_duplicate_excluded": len(first_jobs)-len(jobs)},
+                # A filtered list is not proof that excluded vacancies closed.
+                "complete_listing": bool(first.get("complete_listing")) and not keywords}
     if not first_jobs: return {**base,"jobs":[]}
     groups=[first_jobs]; known={_job_identity(x) for x in _merge_jobs(groups,keywords)}; pages_checked=1
     for page in range(1,_MAX_GENERIC_PAGES):
@@ -113,7 +127,9 @@ def fetch_source_hardened(source_url:str,requested_adapter:str,keywords:Sequence
         if not new: break
         groups.append(new); known.update(_job_identity(x) for x in new)
         if len(known)>=_base.MAX_CANDIDATES: break
-    return {**base,"jobs":_merge_jobs(groups,keywords),"pagination_pages_checked":pages_checked,"complete_listing":bool(first.get("complete_listing")) and pages_checked==1}
+    jobs = _merge_jobs(groups,keywords)
+    extracted = sum(len(group) for group in groups)
+    return {**base,"jobs":jobs,"diagnostics":{"extracted":extracted,"after_relevance":len(jobs),"relevance_or_duplicate_excluded":extracted-len(jobs)},"pagination_pages_checked":pages_checked,"complete_listing":bool(first.get("complete_listing")) and pages_checked==1 and not keywords}
 
 def install()->None:
     # Geography normalization is deliberately global. Canada-specific subdivision recognition
