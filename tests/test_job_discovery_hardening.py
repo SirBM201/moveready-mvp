@@ -5,6 +5,40 @@ from app.services import job_discovery_hardening as hardening
 
 
 class JobDiscoveryHardeningTests(unittest.TestCase):
+    def test_related_industrial_titles_require_description_evidence(self):
+        terms = ["Production Supervisor", "Production Supervision", "Shift Leadership", "Production Planning"]
+        for title in ["Compounder", "Millwright (433A Licensed)", "Moulds Coordinator - Contract"]:
+            row = {"job_title": title, "description_summary": "Support manufacturing and production equipment."}
+            self.assertTrue(hardening._candidate_is_relevant(row, terms))
+            self.assertFalse(hardening._candidate_is_relevant({"job_title": title}, terms))
+        for title in ["Assistant Manager", "Financial Analyst", "DevOps Engineer"]:
+            self.assertFalse(hardening._candidate_is_relevant({"job_title": title, "description_summary": "Leadership and planning for a manufacturing company."}, terms))
+
+    def test_filter_diagnostics_do_not_mark_filtered_feed_complete(self):
+        rows = [
+            {"job_title": "Moulds Coordinator", "job_url": "https://example.com/jobs/1", "country": "Canada", "description_summary": "Manufacturing production support"},
+            {"job_title": "Retail Manager", "job_url": "https://example.com/jobs/2", "country": "Canada"},
+        ]
+        with patch.object(hardening, "_ORIGINAL_FETCH_SOURCE", return_value={"adapter":"greenhouse", "jobs":rows, "complete_listing":True}) as fetch:
+            result = hardening.fetch_source_hardened("https://boards.greenhouse.io/example", "auto", ["Production Supervisor"])
+        self.assertEqual(fetch.call_args.args[2], [])
+        self.assertEqual(result["diagnostics"]["extracted"], 2)
+        self.assertEqual(result["diagnostics"]["after_relevance"], 1)
+        self.assertFalse(result["complete_listing"])
+
+    def test_description_evidence_is_not_truncated_to_title_length(self):
+        row = {"job_title": "Moulds Coordinator", "description_summary": "Benefits and introduction. " * 20 + "Support production machinery."}
+        self.assertTrue(hardening._candidate_is_relevant(row, ["Production Supervisor"]))
+
+    def test_greenhouse_office_address_supplies_country_without_guessing(self):
+        import json
+        from app.services import job_discovery
+        def parse(offices):
+            return job_discovery._parse_greenhouse(json.dumps({"jobs":[{"title":"Compounder", "location":{"name":"Toronto"}, "offices":offices}]}), "https://boards.greenhouse.io/example")[0]
+        self.assertEqual(parse([{"location":"Toronto, Ontario, Canada"}])["country"], "Canada")
+        self.assertIsNone(parse([])["country"])
+        self.assertIsNone(parse([{"location":"Canada"},{"location":"United States"}])["country"])
+
     def test_navigation_links_are_not_vacancies(self):
         self.assertFalse(hardening._looks_like_real_vacancy({"job_title": "Search jobs", "job_url": "https://example.com/jobs"}))
         self.assertTrue(hardening._looks_like_real_vacancy({"job_title": "Production Supervisor", "job_url": "https://example.com/jobs/123", "country": "Canada"}))
