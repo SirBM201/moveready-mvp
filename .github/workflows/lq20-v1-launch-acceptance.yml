@@ -1,0 +1,40 @@
+name: LQ20 V1 Launch Acceptance
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "tests/test_lq20_v1_launch_acceptance.py"
+      - "tests/test_lq19_v1_launch_journey.py"
+      - "docs/LQ20_V1_LAUNCH_ACCEPTANCE.md"
+      - ".github/workflows/lq20-v1-launch-acceptance.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "tests/test_lq20_v1_launch_acceptance.py"
+      - "tests/test_lq19_v1_launch_journey.py"
+      - "docs/LQ20_V1_LAUNCH_ACCEPTANCE.md"
+      - ".github/workflows/lq20-v1-launch-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FLASK_ENV: development
+      SECRET_KEY: lq20-ci-only
+      CORS_ORIGINS: https://example.vercel.app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Verify V1 health, auth, API, privacy, and scope boundaries
+        run: python -m unittest tests.test_lq20_v1_launch_acceptance tests.test_lq19_v1_launch_journey -v
