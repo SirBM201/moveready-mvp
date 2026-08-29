@@ -1,8 +1,13 @@
 from __future__ import annotations
 from datetime import datetime,timezone
-from flask import Blueprint,jsonify,request
+from flask import Blueprint,current_app,jsonify,request
+from app.core import config
+from app.core.operations_readiness import admin_route_contract,environment_checks,environment_summary,migration_ledger_contract
+from app.routes.health import _route_contract
 from app.services.account_identity import get_verified_session_email
+from app.services.email_delivery import email_delivery_status
 from app.services.supabase_client import get_supabase
+from app.services.v1_controlled_launch_closure import build_controlled_launch_closure
 from app.utils.admin_auth import require_admin_access
 
 bp=Blueprint("launch_beta",__name__)
@@ -14,6 +19,12 @@ def _account():
  email=get_verified_session_email()
  return(email,None)if email else(None,(jsonify({"ok":False,"error":"verified_session_required"}),401))
 def _public(row):return{k:v for k,v in(row or{}).items()if k!="email"}
+
+@bp.get("/beta/launch-closure")
+def launch_closure():
+ email_status=email_delivery_status()
+ payload=build_controlled_launch_closure(route_contract=_route_contract(),admin_contract=admin_route_contract(current_app),migration_ledger=migration_ledger_contract(),environment=environment_summary(environment_checks(email_status)),email_otp_enabled=bool(email_status.get("enabled") and email_status.get("configured")),payment_links_enabled=config.PAYMENT_LINKS_ENABLED,external_alerts_enabled=config.WHATSAPP_ALERTS_ENABLED)
+ return jsonify(payload),200 if payload["ok"] else 503
 
 @bp.get("/beta/reports")
 def list_reports():
