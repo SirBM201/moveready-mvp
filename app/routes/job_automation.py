@@ -495,12 +495,26 @@ def _scan_watch(watch: Dict[str, Any], *, trigger_type: str) -> Dict[str, Any]:
                 .eq("owner_email", email).eq("source_fingerprint", fingerprint).maybe_single().execute()
             ).data
             now_iso = _now_iso()
+            expires_at = candidate.get("expires_at")
+            deadline_passed = False
+            if expires_at:
+                try:
+                    parsed_expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+                    if parsed_expiry.tzinfo is None:
+                        parsed_expiry = parsed_expiry.replace(tzinfo=timezone.utc)
+                    deadline_passed = parsed_expiry < _now()
+                except (TypeError, ValueError):
+                    deadline_passed = False
             metadata = {
                 "automation_watch_id": watch_id,
                 "source_adapter": adapter,
                 "official_source": True,
                 "company_name_from_source": candidate.get("company_name"),
                 "monitor_misses": 0,
+                "qualification_requirements": candidate.get("qualification_requirements") or [],
+                "mandatory_barriers": candidate.get("mandatory_barriers") or [],
+                "vacancy_evidence_version": candidate.get("evidence_version") or "legacy",
+                "deadline_state": "passed" if deadline_passed else ("recorded" if expires_at else "unknown"),
             }
             base_row = {
                 "owner_email": email,
@@ -517,8 +531,8 @@ def _scan_watch(watch: Dict[str, Any], *, trigger_type: str) -> Dict[str, Any]:
                 "description_summary": candidate.get("description_summary"),
                 "skills": candidate.get("skills") or [],
                 "posted_at": candidate.get("posted_at"),
-                "expires_at": candidate.get("expires_at"),
-                "status": "open",
+                "expires_at": expires_at,
+                "status": "expired" if deadline_passed else "open",
                 "source_status": "verified",
                 "source_fingerprint": fingerprint,
                 "source_content_hash": content_hash,
@@ -570,7 +584,7 @@ def _scan_watch(watch: Dict[str, Any], *, trigger_type: str) -> Dict[str, Any]:
                     ranked_existing,
                     int(watch.get("min_match_score") or 0),
                 )
-                if prior_status in {"closed", "expired"} and alertable:
+                if prior_status in {"closed", "expired"} and not deadline_passed and alertable:
                     _alert, created = _create_alert(
                         email=email,
                         watch_id=watch_id,
@@ -610,7 +624,7 @@ def _scan_watch(watch: Dict[str, Any], *, trigger_type: str) -> Dict[str, Any]:
                 new_count += 1
                 ranked_job = rank_jobs([job], profile)[0]
                 match_score = int(ranked_job.get("match_score") or 0)
-                if ranked_job_is_alertable(
+                if not deadline_passed and ranked_job_is_alertable(
                     ranked_job,
                     int(watch.get("min_match_score") or 0),
                 ):
