@@ -1,0 +1,20 @@
+name: LQ21 Controlled Launch Closure
+on:
+  pull_request:
+    paths: ["app/**","tests/test_lq21_controlled_launch_closure.py","docs/LQ21_CONTROLLED_LAUNCH_CLOSURE.md",".github/workflows/lq21-controlled-launch-closure.yml"]
+  push:
+    branches: [main]
+    paths: ["app/**","tests/test_lq21_controlled_launch_closure.py","docs/LQ21_CONTROLLED_LAUNCH_CLOSURE.md",".github/workflows/lq21-controlled-launch-closure.yml"]
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  closure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env: {FLASK_ENV: development, SECRET_KEY: lq21-ci-only, CORS_ORIGINS: "https://example.vercel.app"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt
+      - run: python -m unittest tests.test_lq21_controlled_launch_closure tests.test_lq20_v1_launch_acceptance -v
