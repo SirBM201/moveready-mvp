@@ -9,6 +9,8 @@ from app.services.job_application_portfolio import CONTRACT_VERSION, EXECUTION_C
 from app.services.job_application_portfolio_action_feed import CONTRACT_VERSION as ACTION_FEED_VERSION, build_portfolio_action_feed, what_should_i_do_next
 from app.services.job_application_portfolio_reconciliation import build_corrective_plan, validate_corrective_operation
 from app.services.job_offer_mobility_handoff import build_offer_mobility_handoff
+from app.services.job_v1_launch_journey import build_v1_launch_journey
+from app.services.job_visibility import job_is_visible_to_account
 from app.services.supabase_client import get_supabase
 
 bp=Blueprint("job_application_portfolio",__name__)
@@ -38,6 +40,14 @@ def application_portfolio():
     if state:items=[x for x in items if str(x.get("pipeline_state") or "").lower()==state]
     if str(request.args.get("actionable") or "").lower() in {"1","true","yes"}:items=[x for x in items if x.get("next_action",{}).get("type")!="none"]
     return jsonify({"ok":True,"contract_version":CONTRACT_VERSION,"execution_command_version":EXECUTION_COMMAND_VERSION,"count":len(items),"items":items,"summary":{"terminal":sum(1 for x in items if x.get("terminal")),"actionable":sum(1 for x in items if x.get("next_action",{}).get("type")!="none"),"blocking":sum(1 for x in items if x.get("next_action",{}).get("blocking")),"ready_to_apply":sum(1 for x in items if x.get("pipeline_state")=="ready_to_apply"),"in_progress":sum(1 for x in items if x.get("pipeline_state") in {"draft_ready","handoff_ready","submitted","screening","interview","offer"}),"due_followups":sum(int(x.get("due_followup_count") or 0) for x in items),"reconciliation_required":sum(1 for x in items if x.get("reconciliation",{}).get("requires_write_reconciliation"))},"safety":{"read_model_only":True,"auto_submit_allowed":False,"auto_contact_employer":False,"eligibility_inference_allowed":False}})
+
+@bp.get("/v1-launch-journey")
+def v1_launch_journey():
+    email,error=_account()
+    if error:return error
+    rows=get_supabase().table(JOB_TABLE).select("*").limit(250).execute().data or []
+    visible=[row for row in rows if job_is_visible_to_account(row,email)]
+    return jsonify({"ok":True,"journey":build_v1_launch_journey(profile=_profile(email),vacancies=visible,portfolio=_portfolio(email))})
 
 @bp.get("/application-portfolio/actions")
 def application_portfolio_actions():
