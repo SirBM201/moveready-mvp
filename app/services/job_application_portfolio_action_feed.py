@@ -23,6 +23,7 @@ def portfolio_action(item: Mapping[str, Any]) -> dict[str, Any] | None:
         "complete_followup": "Complete due job follow-up",
         "reconcile_terminal_followups": "Clean up completed application follow-ups",
         "review_stale_vacancy": "Review stale vacancy before continuing",
+        "resolve_readiness_gap": "Resolve the next readiness gap",
         "complete_readiness": "Complete application readiness",
         "generate_application_draft": "Prepare vacancy-specific application draft",
         "review_and_prepare_handoff": "Review application materials for handoff",
@@ -48,11 +49,11 @@ def portfolio_action(item: Mapping[str, Any]) -> dict[str, Any] | None:
         "summary": summary,
         "priority": _priority(score),
         "score": score,
-        "href": f"/jobs/application-portfolio/{item.get('job_id')}",
+        "href": action.get("href") or f"/jobs/execution?jobId={item.get('job_id')}",
         "status": item.get("pipeline_state"),
         "due_at": deadline.get("at"),
         "hours_until_due": deadline.get("hours_remaining"),
-        "metadata": {"action_type": action_type, "deadline_level": deadline.get("level"), "reconciliation_required": bool(reconciliation.get("requires_write_reconciliation"))},
+        "metadata": {"action_type": action_type, "gap_code": action.get("gap_code"), "blocking": bool(action.get("blocking")), "deadline_level": deadline.get("level"), "reconciliation_required": bool(reconciliation.get("requires_write_reconciliation"))},
         "source": "b19.8_application_portfolio",
     }
 
