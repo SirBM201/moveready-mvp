@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
 
 CONTRACT_VERSION = "b19.8.3-v1"
+EXECUTION_COMMAND_VERSION = "lq16.1-v1"
 TERMINAL_STATES = frozenset({"hired", "rejected", "withdrawn"})
 ACTIVE_FOLLOWUP_STATES = frozenset({"scheduled", "due"})
 
@@ -126,6 +127,26 @@ def next_action(*, pipeline: str, readiness: Mapping[str, Any] | None,
     deadline_level = str((deadline or {}).get("level") or "none")
     urgency = "high" if deadline_level in {"overdue", "critical", "urgent"} else "normal"
     if pipeline == "preparing":
+        issues = list((readiness or {}).get("issues") or [])
+        ranked = sorted(
+            (row for row in issues if isinstance(row, Mapping)),
+            key=lambda row: (
+                0 if row.get("blocking") else 1,
+                {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(str(row.get("severity") or "medium"), 2),
+                str(row.get("code") or ""),
+            ),
+        )
+        if ranked:
+            gap = ranked[0]
+            return {
+                "type": "resolve_readiness_gap",
+                "urgency": "high" if gap.get("blocking") else urgency,
+                "gap_code": gap.get("code"),
+                "category": gap.get("category") or "readiness",
+                "readiness_action": gap.get("action") or "review_readiness",
+                "title": gap.get("message") or "Resolve the next readiness gap",
+                "blocking": bool(gap.get("blocking")),
+            }
         return {"type": "complete_readiness", "urgency": urgency, "readiness_state": _readiness_state(readiness)}
     if pipeline == "ready_to_apply":
         return {"type": "generate_application_draft", "urgency": urgency}
@@ -136,6 +157,24 @@ def next_action(*, pipeline: str, readiness: Mapping[str, Any] | None,
     if pipeline in {"submitted", "under_review", "interview", "offer"}:
         return {"type": "schedule_followup", "urgency": urgency}
     return {"type": "review_application", "urgency": urgency}
+
+
+def action_href(action: Mapping[str, Any], job_id: Any) -> str:
+    encoded = str(job_id or "")
+    readiness_action = str(action.get("readiness_action") or "")
+    if readiness_action == "record_work_rights": return "/jobs/profile"
+    if readiness_action == "prepare_cv": return "/jobs/career-studio"
+    if readiness_action == "prepare_cover_letter": return f"/jobs/career-studio?kind=cover_letter&jobId={encoded}"
+    if readiness_action in {"verify_source", "verify_sponsorship"}: return f"/jobs/vacancies/{encoded}"
+    if readiness_action == "verify_requirements": return f"/jobs/vacancies/{encoded}/alignment"
+    return f"/jobs/execution?jobId={encoded}"
+
+
+def execution_progress(pipeline: str) -> dict[str, Any]:
+    stages = ["preparing", "ready_to_apply", "draft_ready", "handoff_ready", "submitted", "screening", "interview", "offer", "hired"]
+    if pipeline in {"rejected", "withdrawn"}: return {"stage": pipeline, "completed": True, "percent": 100}
+    index = stages.index(pipeline) if pipeline in stages else 0
+    return {"stage": pipeline, "completed": pipeline == "hired", "percent": round(index * 100 / (len(stages) - 1))}
 
 
 def priority_score(*, pipeline: str, action: Mapping[str, Any], vacancy: Mapping[str, Any] | None = None,
@@ -167,12 +206,16 @@ def build_portfolio_item(*, job: Mapping[str, Any], readiness: Mapping[str, Any]
     deadline = deadline_intelligence(job=job, followups=owned_followups, now=now)
     reconciliation = reconcile_portfolio_state(pipeline=state, job=job, followups=owned_followups)
     action = next_action(pipeline=state, readiness=readiness, followups=owned_followups, deadline=deadline, reconciliation=reconciliation)
+    action = {**action, "href": action_href(action, job_id)}
     return {
-        "contract_version": CONTRACT_VERSION, "job_id": job_id, "title": job.get("title"),
-        "company": job.get("company") or job.get("company_name"), "location": job.get("location"),
+        "contract_version": CONTRACT_VERSION, "execution_command_version": EXECUTION_COMMAND_VERSION,
+        "job_id": job_id, "title": job.get("title") or job.get("job_title"),
+        "job_title": job.get("job_title") or job.get("title"),
+        "company": job.get("company") or job.get("company_name"),
+        "company_name": job.get("company_name") or job.get("company"), "location": job.get("location"),
         "pipeline_state": state, "terminal": state in TERMINAL_STATES, "readiness_state": _readiness_state(readiness),
         "draft_id": (draft or {}).get("id"), "handoff_id": (handoff or {}).get("id"), "lifecycle_id": (lifecycle or {}).get("id"),
-        "deadline": deadline, "reconciliation": reconciliation, "next_action": action,
+        "deadline": deadline, "reconciliation": reconciliation, "next_action": action, "progress": execution_progress(state),
         "priority_score": priority_score(pipeline=state, action=action, vacancy=job, deadline=deadline),
         "active_followup_count": sum(1 for row in owned_followups if str(row.get("status") or "") in ACTIVE_FOLLOWUP_STATES),
         "due_followup_count": sum(1 for row in owned_followups if str(row.get("status") or "") == "due"),
