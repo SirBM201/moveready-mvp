@@ -5,6 +5,7 @@ import json
 from typing import Any, Dict, List, Mapping, Optional, Set
 
 CONTRACT_VERSION = "b19.4-v1"
+READINESS_ENGINE_VERSION = "lq15.1-v1"
 
 READINESS_STATES = (
     "discovered", "review_required", "blocked", "materials_required",
@@ -31,7 +32,8 @@ REVIEW_CODES = {"source_verification_required", "work_rights_verification_requir
 FINGERPRINT_FIELDS = (
     "status", "source_status", "scan_status", "relocation_support_status", "sponsorship_status",
     "cover_letter_required", "application_questions_required", "job_title", "country", "province", "city",
-    "requirements", "description", "source_url", "apply_url", "canonical_identity", "updated_at",
+    "requirements", "description", "description_summary", "skills", "metadata", "expires_at",
+    "source_url", "apply_url", "canonical_identity", "updated_at",
 )
 
 
@@ -44,8 +46,56 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def _issue(code: str, message: str, *, blocking: bool = False) -> Dict[str, Any]:
-    return {"code": code, "message": message, "blocking": blocking}
+def _issue(code: str, message: str, *, blocking: bool = False, category: str = "verification", action: str = "review") -> Dict[str, Any]:
+    return {
+        "code": code,
+        "message": message,
+        "blocking": blocking,
+        "category": category,
+        "severity": "critical" if blocking else ("high" if category in {"verification", "qualification"} else "medium"),
+        "action": action,
+    }
+
+
+def _metadata(vacancy: Mapping[str, Any]) -> Mapping[str, Any]:
+    value = vacancy.get("metadata")
+    return value if isinstance(value, Mapping) else {}
+
+
+def _readiness_plan(issues: List[Dict[str, Any]], vacancy: Mapping[str, Any], profile: Mapping[str, Any], materials: Mapping[str, Any]) -> Dict[str, Any]:
+    weights = {"critical": 25, "high": 12, "medium": 7}
+    score = max(0, 100 - sum(weights.get(str(item.get("severity")), 7) for item in issues))
+    categories = {name: [] for name in ("blocking", "qualification", "verification", "materials")}
+    for item in issues:
+        key = "blocking" if item.get("blocking") else str(item.get("category") or "verification")
+        categories.setdefault(key, []).append(item)
+    ordered = sorted(issues, key=lambda item: ({"critical": 0, "high": 1, "medium": 2}.get(str(item.get("severity")), 3), str(item.get("code"))))
+    next_actions = [{
+        "code": item["code"],
+        "priority": index + 1,
+        "label": item["message"],
+        "action": item.get("action") or "review",
+        "blocking": bool(item.get("blocking")),
+    } for index, item in enumerate(ordered[:5])]
+    metadata = _metadata(vacancy)
+    evidence_checks = {
+        "official_source": bool(vacancy.get("source_url") or vacancy.get("job_url")),
+        "current_status": str(vacancy.get("status") or "open").lower() not in {"closed", "archived", "expired", "withdrawn"},
+        "requirements": bool(metadata.get("qualification_requirements") or vacancy.get("requirements") or vacancy.get("description_summary")),
+        "deadline": bool(vacancy.get("expires_at")),
+        "work_rights": bool(profile.get("work_authorization") or profile.get("authorization_status")),
+        "cv": bool(materials.get("cv_id") or materials.get("cv_ready")),
+    }
+    known = sum(1 for value in evidence_checks.values() if value)
+    return {
+        "score": score,
+        "gaps": ordered,
+        "gap_summary": {key: len(value) for key, value in categories.items()},
+        "next_actions": next_actions,
+        "evidence_coverage": round((known / len(evidence_checks)) * 100),
+        "evidence_checks": evidence_checks,
+        "unknown_is_not_ready": True,
+    }
 
 
 def vacancy_fingerprint(vacancy: Mapping[str, Any]) -> str:
@@ -80,25 +130,30 @@ def evaluate_application_readiness(vacancy: Mapping[str, Any], *, profile: Optio
     source_status = _text(vacancy.get("source_status") or vacancy.get("scan_status") or "").lower()
     sponsorship = _text(vacancy.get("relocation_support_status") or vacancy.get("sponsorship_status") or "").lower()
     authorization = _text(profile.get("work_authorization") or profile.get("authorization_status") or "").lower()
-    if vacancy_status in {"closed", "archived", "expired", "withdrawn"}: issues.append(_issue("vacancy_closed", "The vacancy is no longer recorded as open.", blocking=True))
-    if source_status in {"failed", "unavailable", "persistent_failure", "disabled"}: issues.append(_issue("source_unavailable", "The official vacancy source is not currently reliable.", blocking=True))
-    elif source_status not in {"healthy", "completed", "verified", "ok"}: issues.append(_issue("source_verification_required", "Verify the vacancy on the official source before applying."))
+    if vacancy_status in {"closed", "archived", "expired", "withdrawn"}: issues.append(_issue("vacancy_closed", "The vacancy is no longer recorded as open.", blocking=True, action="verify_source"))
+    if source_status in {"failed", "unavailable", "persistent_failure", "disabled"}: issues.append(_issue("source_unavailable", "The official vacancy source is not currently reliable.", blocking=True, action="verify_source"))
+    elif source_status not in {"healthy", "completed", "verified", "ok"}: issues.append(_issue("source_verification_required", "Verify the vacancy on the official source before applying.", action="verify_source"))
     if authorization in {"authorized", "citizen", "permanent_resident", "open_work_permit", "open_permit", "unrestricted"}: pass
     elif sponsorship in {"confirmed", "available", "sponsored", "yes"}: pass
-    elif sponsorship in {"not_available", "not_sponsored", "no", "none"}: issues.append(_issue("work_authorization_required", "This vacancy does not record sponsorship; valid work authorization is required.", blocking=True))
-    elif authorization in {"not_authorized", "none", "requires_sponsorship"}: issues.append(_issue("sponsorship_not_confirmed", "Work authorization is not recorded and employer sponsorship is not confirmed.", blocking=True))
-    else: issues.append(_issue("work_rights_verification_required", "Confirm work authorization or employer sponsorship before applying."))
-    if not (_truthy(vacancy.get("requirements_verified")) or _truthy(existing_application.get("requirements_verified"))): issues.append(_issue("requirements_review_required", "Review the official vacancy requirements before application."))
+    elif sponsorship in {"not_available", "not_sponsored", "no", "none"}: issues.append(_issue("work_authorization_required", "This vacancy does not record sponsorship; valid work authorization is required.", blocking=True, category="qualification", action="record_work_rights"))
+    elif authorization in {"not_authorized", "none", "requires_sponsorship"}: issues.append(_issue("sponsorship_not_confirmed", "Work authorization is not recorded and employer sponsorship is not confirmed.", blocking=True, category="qualification", action="verify_sponsorship"))
+    else: issues.append(_issue("work_rights_verification_required", "Confirm work authorization or employer sponsorship before applying.", category="qualification", action="record_work_rights"))
+    requirements_verified = _truthy(vacancy.get("requirements_verified")) or _truthy(existing_application.get("requirements_verified"))
+    barriers = list(_metadata(vacancy).get("mandatory_barriers") or [])
+    if barriers and not requirements_verified:
+        issues.append(_issue("mandatory_requirement_missing", f"Confirm evidence for the mandatory requirement(s): {', '.join(str(item) for item in barriers[:4])}.", blocking=True, category="qualification", action="verify_requirements"))
+    elif not requirements_verified:
+        issues.append(_issue("requirements_review_required", "Review the official vacancy requirements before application.", category="qualification", action="verify_requirements"))
     cv_id = _text(materials.get("cv_id"))
     cv_ready = _truthy(materials.get("cv_ready"))
-    if not cv_id and not cv_ready: issues.append(_issue("cv_required", "Prepare or select a vacancy-appropriate CV."))
-    elif cv_id and materials.get("cv_valid") is False: issues.append(_issue("cv_invalid", "The selected CV is unavailable, inactive, or is not a CV document."))
+    if not cv_id and not cv_ready: issues.append(_issue("cv_required", "Prepare or select a vacancy-appropriate CV.", category="materials", action="prepare_cv"))
+    elif cv_id and materials.get("cv_valid") is False: issues.append(_issue("cv_invalid", "The selected CV is unavailable, inactive, or is not a CV document.", category="materials", action="prepare_cv"))
     if _truthy(vacancy.get("cover_letter_required")):
         cover_id = _text(materials.get("cover_letter_id"))
         cover_ready = _truthy(materials.get("cover_letter_ready"))
-        if not cover_id and not cover_ready: issues.append(_issue("cover_letter_required", "Prepare the required cover letter."))
-        elif cover_id and materials.get("cover_letter_valid") is False: issues.append(_issue("cover_letter_invalid", "The selected cover letter is unavailable, inactive, or has the wrong document type."))
-    if _truthy(vacancy.get("application_questions_required")) and not _truthy(materials.get("application_answers_ready")): issues.append(_issue("application_answers_required", "Complete the employer application questions."))
+        if not cover_id and not cover_ready: issues.append(_issue("cover_letter_required", "Prepare the required cover letter.", category="materials", action="prepare_cover_letter"))
+        elif cover_id and materials.get("cover_letter_valid") is False: issues.append(_issue("cover_letter_invalid", "The selected cover letter is unavailable, inactive, or has the wrong document type.", category="materials", action="prepare_cover_letter"))
+    if _truthy(vacancy.get("application_questions_required")) and not _truthy(materials.get("application_answers_ready")): issues.append(_issue("application_answers_required", "Complete the employer application questions.", category="materials", action="answer_questions"))
     application_status = _text(existing_application.get("status")).lower()
     submission_confirmed = _truthy(existing_application.get("submission_confirmed"))
     if application_status in {"applied", "submitted"} and submission_confirmed: state = "applied"
@@ -109,7 +164,8 @@ def evaluate_application_readiness(vacancy: Mapping[str, Any], *, profile: Optio
         elif codes & MATERIAL_CODES: state = "materials_required"
         elif codes & REVIEW_CODES: state = "review_required"
         else: state = "ready_for_review"
-    return {"contract_version": CONTRACT_VERSION, "state": state, "terminal": state in TERMINAL_STATES, "issues": issues, "blocking_issue_count": sum(1 for i in issues if i["blocking"]), "can_mark_ready": state == "ready_for_review", "can_start_application": state == "ready_to_apply", "can_record_submission": state == "application_started", "requires_user_confirmation": state in {"ready_for_review", "ready_to_apply", "application_started"}, "pre_application_valid": state in {"ready_for_review", "ready_to_apply", "application_started"}, "safety": {"auto_submit_allowed": False, "submission_claim_requires_confirmation": True, "eligibility_is_not_guaranteed": True}}
+    plan = _readiness_plan(issues, vacancy, profile, materials)
+    return {"contract_version": CONTRACT_VERSION, "readiness_engine_version": READINESS_ENGINE_VERSION, "state": state, "terminal": state in TERMINAL_STATES, "issues": issues, "blocking_issue_count": sum(1 for i in issues if i["blocking"]), "can_mark_ready": state == "ready_for_review", "can_start_application": state == "ready_to_apply", "can_record_submission": state == "application_started", "requires_user_confirmation": state in {"ready_for_review", "ready_to_apply", "application_started"}, "pre_application_valid": state in {"ready_for_review", "ready_to_apply", "application_started"}, **plan, "safety": {"auto_submit_allowed": False, "submission_claim_requires_confirmation": True, "eligibility_is_not_guaranteed": True}}
 
 
 def validate_promotion(evaluation: Mapping[str, Any], target_state: str) -> Dict[str, Any]:
