@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 
 from app.services.job_authorization import extract_authorization_signals
@@ -15,6 +16,19 @@ IGNORED_TOKENS = {
     "a", "an", "and", "for", "in", "lead", "of", "or", "the", "to",
 }
 ACTIVE_VACANCY_STATUSES = {"open", "discovered"}
+
+
+def deadline_state(job: Dict[str, Any]) -> str:
+    value = job.get("expires_at")
+    if not value:
+        return "unknown"
+    try:
+        expiry = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return "invalid"
+    return "passed" if expiry < datetime.now(timezone.utc) else "active"
 
 
 def _tokens(values: Iterable[Any]) -> Set[str]:
@@ -113,7 +127,7 @@ def score_job(
         score += 10
         reasons.append("Seniority aligns with your recorded experience.")
 
-    if str(job.get("status") or "open") == "open":
+    if str(job.get("status") or "open") == "open" and deadline_state(job) != "passed":
         score += 5
 
     return min(score, 100), reasons or [
@@ -133,6 +147,10 @@ def application_viability(
         ]
 
     job = _with_authorization_signals(job)
+    if deadline_state(job) == "passed":
+        return 0, "deadline_passed", [
+            "The stated application deadline has passed. Verify the official source before taking any action."
+        ]
     contract = profile_scope_contract(profile)
     if not contract["ready"]:
         return 0, "profile_incomplete", [
@@ -239,7 +257,8 @@ def rank_jobs(
     batch_ranking = len(jobs) > 1
     for row in jobs:
         status = str(row.get("status") or "open").strip().casefold()
-        if batch_ranking and status not in ACTIVE_VACANCY_STATUSES:
+        expiry_state = deadline_state(row)
+        if batch_ranking and (status not in ACTIVE_VACANCY_STATUSES or expiry_state == "passed"):
             continue
         enriched_row = _with_authorization_signals(row)
         score, reasons = score_job(enriched_row, profile)
@@ -259,6 +278,13 @@ def rank_jobs(
             "search_scope_classification": classification,
             "search_contract_version": contract["version"],
             "is_local_job": classification == "local",
+            "deadline_state": expiry_state,
+            "evidence_completeness": {
+                "skills": bool(enriched_row.get("skills")),
+                "description": bool(enriched_row.get("description_summary")),
+                "deadline": bool(enriched_row.get("expires_at")),
+                "mandatory_barriers": bool((enriched_row.get("metadata") or {}).get("mandatory_barriers")) if isinstance(enriched_row.get("metadata"), dict) else False,
+            },
         })
     return sorted(
         ranked,

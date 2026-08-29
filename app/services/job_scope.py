@@ -200,7 +200,7 @@ def ranked_job_is_alertable(job: Dict[str, Any], min_match_score: int) -> bool:
     priority = str(job.get("application_priority") or "unknown")
     return (
         int(job.get("match_score") or 0) >= int(min_match_score)
-        and priority not in {"out_of_scope", "not_recommended", "profile_incomplete"}
+        and priority not in {"out_of_scope", "not_recommended", "profile_incomplete", "deadline_passed"}
     )
 
 
@@ -209,5 +209,4 @@ def ranked_job_is_handoff_ready(job: Dict[str, Any]) -> bool:
         "recommended",
         "consider",
     }
-
 

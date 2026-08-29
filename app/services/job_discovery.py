@@ -89,6 +89,77 @@ COUNTRY_ALIASES = {
     "usa": "United States",
 }
 
+_MONTHS = {
+    name.casefold(): index for index, name in enumerate(
+        ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"),
+        start=1,
+    )
+}
+_QUALIFICATION_SKILLS = {
+    "injection moulding": (r"\binjection[- ]mould(?:ing)?\b", r"\binjection[- ]mold(?:ing)?\b"),
+    "preventive maintenance": (r"\bprevent(?:ive|ative) maintenance\b",),
+    "troubleshooting": (r"\btroubleshoot(?:ing)?\b", r"\bfault finding\b"),
+    "production planning": (r"\bproduction planning\b", r"\bproduction schedul(?:e|ing)\b"),
+    "quality assurance": (r"\bquality assurance\b", r"\bquality control\b"),
+    "continuous improvement": (r"\bcontinuous improvement\b", r"\bprocess improvement\b"),
+    "team leadership": (r"\bteam leadership\b", r"\bsupervis(?:e|ing|ion)\b", r"\bteam lead(?:er|ership)?\b"),
+    "health and safety": (r"\bhealth (?:and|&) safety\b", r"\bsafety compliance\b"),
+    "mechanical maintenance": (r"\bmechanical maintenance\b", r"\bindustrial mechanic\b"),
+    "GMP": (r"\bGMP\b", r"\bgood manufacturing practices?\b"),
+}
+_MANDATORY_BARRIERS = {
+    "433A Industrial Mechanic (Millwright) licence": (
+        r"\b433A\b", r"\blicen[cs]ed? industrial (?:mechanic|millwright)\b",
+    ),
+    "existing legal authorization to work": (
+        r"\b(?:must|required to) (?:be )?(?:legally )?(?:eligible|authorized|authorised) to work\b",
+        r"\bno (?:visa )?sponsorship\b",
+    ),
+}
+
+
+def extract_vacancy_evidence(value: Any) -> Dict[str, Any]:
+    """Extract only explicit, auditable evidence from official vacancy text."""
+    text = clean_text(value, 20000)
+    skills = [
+        label for label, patterns in _QUALIFICATION_SKILLS.items()
+        if any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+    ]
+    barriers = [
+        label for label, patterns in _MANDATORY_BARRIERS.items()
+        if any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+    ]
+    requirements: List[str] = []
+    for sentence in re.split(r"(?<=[.!?])\s+|\s*[•·]\s*", text):
+        cleaned = clean_text(sentence, 500)
+        if 12 <= len(cleaned) <= 500 and re.search(
+            r"\b(required|requirement|must have|qualification|licen[cs]e|experience)\b",
+            cleaned,
+            re.IGNORECASE,
+        ):
+            requirements.append(cleaned)
+    expires_at = None
+    deadline_pattern = re.compile(
+        r"(?:apply(?:\s+by)?|application(?:s)?(?:\s+deadline|\s+by)?|submit(?:\s+applications?)?\s+by|closing\s+date)\s*:?\s*[^.]{0,100}?"
+        r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+"
+        r"(\d{1,2})(?:st|nd|rd|th)?[,]?\s+(\d{4})",
+        re.IGNORECASE,
+    )
+    match = deadline_pattern.search(text)
+    if match:
+        try:
+            expiry = datetime(int(match.group(3)), _MONTHS[match.group(1).casefold()], int(match.group(2)), 23, 59, 59, tzinfo=timezone.utc)
+            expires_at = expiry.isoformat()
+        except (KeyError, ValueError):
+            expires_at = None
+    return {
+        "skills": normalize_terms(skills),
+        "requirements": normalize_terms(requirements, limit=12),
+        "mandatory_barriers": normalize_terms(barriers, limit=8),
+        "expires_at": expires_at,
+        "evidence_version": "lq14.1",
+    }
+
 
 def clean_text(value: Any, limit: int = 4000) -> str:
     text = html.unescape(str(value or ""))
@@ -576,19 +647,24 @@ def _parse_greenhouse(body: str, source_url: str) -> List[Dict[str, Any]]:
         title = clean_text(item.get("title"), 220)
         if not title:
             continue
+        content = clean_text(item.get("content"), 20000)
+        evidence = extract_vacancy_evidence(content)
         output.append({
             "job_title": title,
             "job_url": str(item.get("absolute_url") or source_url),
             "source_url": source_url,
             "source_name": "Official Greenhouse job board",
-            "description_summary": clean_text(item.get("content"), 4000),
+            "description_summary": content[:4000],
             "country": country,
             "province": province,
             "city": city or clean_text(location.get("name"), 100) or None,
             "employment_type": None,
             "posted_at": _iso_datetime(item.get("updated_at")),
-            "expires_at": None,
-            "skills": [],
+            "expires_at": evidence["expires_at"],
+            "skills": evidence["skills"],
+            "qualification_requirements": evidence["requirements"],
+            "mandatory_barriers": evidence["mandatory_barriers"],
+            "evidence_version": evidence["evidence_version"],
         })
     return output
 
@@ -605,19 +681,24 @@ def _parse_lever(body: str, source_url: str) -> List[Dict[str, Any]]:
         title = clean_text(item.get("text"), 220)
         if not title:
             continue
+        description = clean_text(item.get("descriptionPlain") or item.get("description"), 20000)
+        evidence = extract_vacancy_evidence(description)
         output.append({
             "job_title": title,
             "job_url": str(item.get("hostedUrl") or item.get("applyUrl") or source_url),
             "source_url": source_url,
             "source_name": "Official Lever job board",
-            "description_summary": clean_text(item.get("descriptionPlain") or item.get("description"), 4000),
+            "description_summary": description[:4000],
             "country": country,
             "province": province,
             "city": city or clean_text(categories.get("location"), 100) or None,
             "employment_type": clean_text(categories.get("commitment"), 100) or None,
             "posted_at": None,
-            "expires_at": None,
-            "skills": [],
+            "expires_at": evidence["expires_at"],
+            "skills": evidence["skills"],
+            "qualification_requirements": evidence["requirements"],
+            "mandatory_barriers": evidence["mandatory_barriers"],
+            "evidence_version": evidence["evidence_version"],
         })
     return output
 
@@ -749,6 +830,14 @@ def parse_source(body: str, *, content_type: str, source_url: str, adapter: str,
     output: List[Dict[str, Any]] = []
     seen = set()
     for row in rows:
+        evidence = extract_vacancy_evidence(row.get("description_summary"))
+        if not row.get("skills"):
+            row["skills"] = evidence["skills"]
+        if not row.get("expires_at"):
+            row["expires_at"] = evidence["expires_at"]
+        row.setdefault("qualification_requirements", evidence["requirements"])
+        row.setdefault("mandatory_barriers", evidence["mandatory_barriers"])
+        row.setdefault("evidence_version", evidence["evidence_version"])
         if not candidate_matches(row, keywords):
             continue
         key = (str(row.get("job_url") or "").casefold().rstrip("/"), str(row.get("job_title") or "").casefold())
