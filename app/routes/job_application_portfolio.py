@@ -8,6 +8,7 @@ from app.services.account_identity import get_verified_session_email
 from app.services.job_application_portfolio import CONTRACT_VERSION, EXECUTION_COMMAND_VERSION, build_portfolio_item, sort_portfolio
 from app.services.job_application_portfolio_action_feed import CONTRACT_VERSION as ACTION_FEED_VERSION, build_portfolio_action_feed, what_should_i_do_next
 from app.services.job_application_portfolio_reconciliation import build_corrective_plan, validate_corrective_operation
+from app.services.job_offer_mobility_handoff import build_offer_mobility_handoff
 from app.services.supabase_client import get_supabase
 
 bp=Blueprint("job_application_portfolio",__name__)
@@ -25,6 +26,7 @@ def _group(rows):
 def _latest_readiness(rows):return {str(r.get("job_id")):r for r in rows if r.get("job_id")}
 def _job_artifacts(email,job_id):
     s=get_supabase();return (s.table(READINESS_TABLE).select("*").eq("job_id",job_id).eq("email",email).maybe_single().execute().data,s.table(DRAFT_TABLE).select("*").eq("job_id",job_id).eq("email",email).execute().data or [],s.table(HANDOFF_TABLE).select("*").eq("job_id",job_id).eq("email",email).execute().data or [],s.table(LIFECYCLE_TABLE).select("*").eq("job_id",job_id).eq("email",email).execute().data or [],s.table(FOLLOWUP_TABLE).select("*").eq("job_id",job_id).eq("email",email).execute().data or [])
+def _profile(email):return get_supabase().table("relocation_job_search_profiles").select("*").eq("email",email).maybe_single().execute().data or {}
 def _portfolio(email):
     rr=_owned_rows(READINESS_TABLE,email);dr=_owned_rows(DRAFT_TABLE,email);hr=_owned_rows(HANDOFF_TABLE,email);lr=_owned_rows(LIFECYCLE_TABLE,email);fr=_owned_rows(FOLLOWUP_TABLE,email);r=_latest_readiness(rr);d=_group(dr);h=_group(hr);l=_group(lr);f=_group(fr);ids=set(r)|set(d)|set(h)|set(l)|set(f);jm={str(x.get("id")):x for x in _jobs(ids) if x.get("id")};return sort_portfolio([build_portfolio_item(job=jm.get(j) or {"id":j},readiness=r.get(j),drafts=d.get(j,[]),handoffs=h.get(j,[]),lifecycles=l.get(j,[]),followups=f.get(j,[])) for j in ids])
 
@@ -56,6 +58,15 @@ def application_portfolio_item(job_id):
     r,d,h,l,f=_job_artifacts(email,job_id)
     if not any([r,d,h,l,f]):return jsonify({"ok":False,"error":"application_portfolio_item_not_found"}),404
     jobs=_jobs({job_id});return jsonify({"ok":True,"contract_version":CONTRACT_VERSION,"item":build_portfolio_item(job=jobs[0] if jobs else {"id":job_id},readiness=r,drafts=d,handoffs=h,lifecycles=l,followups=f)})
+
+@bp.get("/application-portfolio/<job_id>/mobility-handoff")
+def offer_mobility_handoff(job_id):
+    email,error=_account()
+    if error:return error
+    _,_,_,lifecycles,_=_job_artifacts(email,job_id);jobs=_jobs({job_id})
+    if not jobs:return jsonify({"ok":False,"error":"job_not_found"}),404
+    lifecycle=max(lifecycles,key=lambda row:str(row.get("state_changed_at") or row.get("updated_at") or "")) if lifecycles else None
+    return jsonify({"ok":True,"handoff":build_offer_mobility_handoff(job=jobs[0],lifecycle=lifecycle,profile=_profile(email))})
 
 @bp.post("/application-portfolio/<job_id>/reconcile")
 def reconcile_application_portfolio(job_id):
