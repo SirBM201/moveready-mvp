@@ -7,3 +7,7 @@ No manual gate is fabricated as passed. Broad public launch remains unapproved b
 ## Production acceptance checkpoint
 
 The controlled-launch endpoint must be present in the active Railway deployment before manual acceptance begins. A healthy legacy endpoint or green frontend proxy check does not prove that the LQ21 backend revision is live.
+
+## 2026-08-30 Railway deployment trigger
+
+PR #69 passed all seven repository gates. This branch deployment is used only to verify the corrected saved-target journey before the production source selector is restored to `main`.
