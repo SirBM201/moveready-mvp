@@ -15,3 +15,4 @@ The controlled-launch endpoint must be present in the active Railway deployment 
 - Controlled launch remains bounded: no public launch, automatic submission, or inferred sponsorship approval.
 - Production acceptance requires the Railway deployment to serve the corrected recorded-target journey state.
 - Railway retry authorized after the free-tier EU West peak-hours restriction cleared; deploy the latest `main` and re-run live acceptance.
+- Off-peak Railway retry initiated after 20:00 Europe/Amsterdam; verify the latest `main` deployment and recorded Canada target before controlled-launch approval.
