@@ -54,3 +54,4 @@ def build_v1_launch_journey(*, profile: Mapping[str, Any] | None, vacancies: Ite
         "excluded_from_v1": ["payments", "marketplace", "automatic_submission", "real_notification_delivery", "settlement_expansion", "provider_network", "travel_booking"],
         "safety": {"progress_is_record_based": True, "eligibility_or_approval_inferred": False, "automatic_external_action": False},
     }
+
