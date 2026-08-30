@@ -14,6 +14,13 @@ def test_v1_journey_moves_from_find_to_qualify():
     assert result["next_action"]["href"]=="/jobs/vacancies/j1"
 
 
+def test_v1_journey_recognizes_persisted_profile_country_fields():
+    profile={"target_roles":["Production Supervisor"],"search_scope":"international","current_country":"Kuwait","primary_country":"Canada","later_countries":[]}
+    result=build_v1_launch_journey(profile=profile,vacancies=[{"id":"j1"}],portfolio=[])
+    assert result["stages"][0]["complete"] is True
+    assert result["next_action"]["stage"]=="qualify"
+
+
 def test_v1_journey_uses_existing_execution_command():
     item={"job_id":"j1","readiness_state":"ready_to_apply","pipeline_state":"ready_to_apply","next_action":{"type":"generate_application_draft","title":"Prepare draft","href":"/jobs/execution?jobId=j1"}}
     result=build_v1_launch_journey(profile={"target_roles":["Engineer"],"target_countries":["Canada"]},vacancies=[{"id":"j1"}],portfolio=[item])
