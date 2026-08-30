@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
+from app.services.job_scope import profile_scope_contract
+
 CONTRACT_VERSION = "lq19.1-v1"
 
 
@@ -14,7 +16,8 @@ def _list(value: Any) -> list[Any]:
 
 def build_v1_launch_journey(*, profile: Mapping[str, Any] | None, vacancies: Iterable[Mapping[str, Any]], portfolio: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     profile = dict(profile or {}); jobs = list(vacancies); items = list(portfolio)
-    setup_complete = bool(_list(profile.get("target_roles") or profile.get("target_job_titles"))) and bool(_list(profile.get("target_countries")))
+    target_countries = _list(profile.get("target_countries")) or profile_scope_contract(profile)["target_countries"]
+    setup_complete = bool(_list(profile.get("target_roles") or profile.get("target_job_titles"))) and bool(target_countries)
     discovered = bool(jobs)
     qualified_items = [row for row in items if str(row.get("readiness_state") or "not_started") not in {"", "not_started", "discovered"}]
     execution_items = [row for row in items if str(row.get("pipeline_state") or "preparing") not in {"preparing"}]
