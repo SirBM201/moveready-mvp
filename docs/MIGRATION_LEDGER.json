@@ -1,7 +1,7 @@
 {
-  "ledger_version": "b19.12.2-v1",
-  "updated_at": "2026-08-25",
-  "latest_schema_file": "056_launch_beta_validation.sql",
+  "ledger_version": "b19.12.2-v2",
+  "updated_at": "2026-09-06",
+  "latest_schema_file": "058_billing_plan_entitlement_rules.sql",
   "policy": {
     "applied_files_are_immutable": true,
     "new_schema_changes_are_additive": true,
@@ -67,7 +67,9 @@
     "053_job_employer_campaign_targets.sql",
     "054_job_recruiter_relationships.sql",
     "055_job_career_practice.sql",
-    "056_launch_beta_validation.sql"
+    "056_launch_beta_validation.sql",
+    "057_billing_core_and_entitlements.sql",
+    "058_billing_plan_entitlement_rules.sql"
   ],
   "legacy_sql_only_files": [
     "017_seed_working_holiday_opportunities.sql",
