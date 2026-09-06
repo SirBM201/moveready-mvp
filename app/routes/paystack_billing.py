@@ -44,13 +44,14 @@ def _one(response: Any) -> Optional[Dict[str, Any]]:
 
 
 def _price_for_checkout(price_id: str) -> Optional[Dict[str, Any]]:
-    price = _one(get_supabase().table("billing_prices").select("*").eq("id", price_id).eq("active", True).maybe_single().execute())
+    db = get_supabase()
+    price = _one(db.table("billing_prices").select("*").eq("id", price_id).eq("active", True).maybe_single().execute())
     if not price:
         return None
-    plan = _one(get_supabase().table("billing_plans").select("*").eq("id", price.get("plan_id")).eq("active", True).maybe_single().execute())
+    plan = _one(db.table("billing_plans").select("*").eq("id", price.get("plan_id")).eq("active", True).maybe_single().execute())
     if not plan:
         return None
-    product = _one(get_supabase().table("billing_products").select("*").eq("id", plan.get("product_id")).eq("code", PRODUCT_CODE).eq("active", True).maybe_single().execute())
+    product = _one(db.table("billing_products").select("*").eq("id", plan.get("product_id")).eq("code", PRODUCT_CODE).eq("active", True).maybe_single().execute())
     if not product:
         return None
     price["plan"] = plan
@@ -59,14 +60,14 @@ def _price_for_checkout(price_id: str) -> Optional[Dict[str, Any]]:
 
 
 def _customer(email: str) -> Dict[str, Any]:
-    existing = _one(get_supabase().table("billing_customers").select("*").eq("account_email", email).maybe_single().execute())
+    db = get_supabase()
+    existing = _one(db.table("billing_customers").select("*").eq("account_email", email).maybe_single().execute())
     if existing:
         return existing
-    created = get_supabase().table("billing_customers").insert({"account_email": email}).execute()
+    created = db.table("billing_customers").insert({"account_email": email}).execute()
     row = _one(created)
     if not row:
-        # Concurrent first checkout can race the unique account_email constraint.
-        row = _one(get_supabase().table("billing_customers").select("*").eq("account_email", email).maybe_single().execute())
+        row = _one(db.table("billing_customers").select("*").eq("account_email", email).maybe_single().execute())
     if not row:
         raise RuntimeError("billing_customer_create_failed")
     return row
@@ -78,29 +79,98 @@ def _payment(reference: str) -> Optional[Dict[str, Any]]:
 
 def _status(paystack_status: str) -> str:
     value = (paystack_status or "").lower()
-    if value == "success": return "succeeded"
-    if value in {"failed", "abandoned"}: return "failed"
-    if value in {"reversed"}: return "refunded"
+    if value == "success":
+        return "succeeded"
+    if value in {"failed", "abandoned"}:
+        return "failed"
+    if value == "reversed":
+        return "refunded"
     return "pending"
+
+
+def _activate_subscription(payment: Dict[str, Any], provider_data: Dict[str, Any]) -> Optional[str]:
+    """Activate the internal subscription only after a verified successful payment.
+
+    The database trigger installed by migration 058 is the sole plan->entitlement writer.
+    Reprocessing the same Paystack payment is idempotent because the payment is linked to
+    its internal subscription after first activation.
+    """
+    if payment.get("subscription_id"):
+        subscription_id = str(payment["subscription_id"])
+        get_supabase().table("billing_subscriptions").update({
+            "status": "active",
+            "updated_at": _now(),
+        }).eq("id", subscription_id).execute()
+        return subscription_id
+
+    price_id = payment.get("price_id")
+    if not price_id:
+        return None
+    price = _one(get_supabase().table("billing_prices").select("*").eq("id", price_id).maybe_single().execute())
+    if not price or not price.get("plan_id"):
+        return None
+
+    provider_subscription_id = str(
+        provider_data.get("subscription_code")
+        or ((provider_data.get("subscription") or {}).get("subscription_code") if isinstance(provider_data.get("subscription"), dict) else "")
+        or ""
+    ).strip() or None
+
+    row = {
+        "customer_id": payment["customer_id"],
+        "plan_id": price["plan_id"],
+        "status": "active",
+        "provider": "paystack",
+        "provider_subscription_id": provider_subscription_id,
+        "current_period_start": provider_data.get("paid_at") or _now(),
+        "metadata": {
+            "activated_by": "verified_paystack_payment",
+            "provider_reference": payment["provider_reference"],
+            "price_id": price_id,
+        },
+    }
+    created = _one(get_supabase().table("billing_subscriptions").insert(row).execute())
+    if not created:
+        raise RuntimeError("billing_subscription_activation_failed")
+    subscription_id = str(created["id"])
+    get_supabase().table("billing_payments").update({
+        "subscription_id": subscription_id,
+        "updated_at": _now(),
+    }).eq("id", payment["id"]).execute()
+    return subscription_id
 
 
 def _sync_verified_payment(reference: str, data: Dict[str, Any]) -> Tuple[bool, str]:
     payment = _payment(reference)
     if not payment:
         return False, "payment_reference_not_initialized_by_moveready"
-    remote_reference = str(data.get("reference") or "")
-    if remote_reference != reference:
+    if str(data.get("reference") or "") != reference:
         return False, "reference_mismatch"
     remote_amount = int(data.get("amount") or -1)
     remote_currency = str(data.get("currency") or "").upper()
     if remote_amount != int(payment.get("amount") or -2) or remote_currency != str(payment.get("currency") or "").upper():
         return False, "amount_or_currency_mismatch"
+
     new_status = _status(str(data.get("status") or ""))
-    update: Dict[str, Any] = {"status": new_status, "updated_at": _now(), "metadata": {**(payment.get("metadata") or {}), "paystack_transaction_id": data.get("id"), "gateway_response": data.get("gateway_response"), "channel": data.get("channel")}}
+    update: Dict[str, Any] = {
+        "status": new_status,
+        "updated_at": _now(),
+        "metadata": {
+            **(payment.get("metadata") or {}),
+            "paystack_transaction_id": data.get("id"),
+            "gateway_response": data.get("gateway_response"),
+            "channel": data.get("channel"),
+        },
+    }
     if new_status == "succeeded":
         update["paid_at"] = data.get("paid_at") or _now()
     get_supabase().table("billing_payments").update(update).eq("id", payment["id"]).execute()
-    # Entitlements are intentionally not granted here until MR Billing 03 defines approved plan-feature mappings.
+
+    if new_status == "succeeded":
+        refreshed = _payment(reference) or {**payment, **update}
+        subscription_id = _activate_subscription(refreshed, data)
+        if not subscription_id:
+            return False, "verified_payment_has_no_activatable_price"
     return True, new_status
 
 
@@ -201,5 +271,4 @@ def webhook():
     update = {"processing_status": processing_status, "processed_at": _now(), "error_message": error_message}
     if existing and existing.get("id"):
         get_supabase().table("billing_provider_events").update(update).eq("id", existing["id"]).execute()
-    # Return 200 after authentic Paystack events are durably classified; retries remain idempotent.
     return jsonify({"ok": True, "event": event_type, "processing_status": processing_status}), 200
