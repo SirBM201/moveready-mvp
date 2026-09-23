@@ -27,6 +27,11 @@ from app.core.config import (
 )
 from app.services.email_delivery import deliver_login_code, email_delivery_status
 from app.services.supabase_client import get_supabase
+from app.services.sparkgrowth_telemetry import (
+    capture_attribution_context,
+    telemetry_session_metadata,
+    track_event,
+)
 
 bp = Blueprint("auth", __name__)
 
@@ -289,6 +294,11 @@ def request_code():
 
     code = f"{secrets.randbelow(1000000):06d}"
     expires_at = _now() + timedelta(minutes=AUTH_OTP_EXPIRES_MINUTES)
+    attribution = capture_attribution_context(
+        payload, source_page=source_page, referrer=request.referrer
+    )
+    login_metadata = _metadata()
+    login_metadata["growth_attribution"] = attribution
     row = {
         "email": email,
         "code_hash": _code_hash(email, code),
@@ -296,7 +306,7 @@ def request_code():
         "attempts": 0,
         "expires_at": _iso(expires_at),
         "source_page": source_page,
-        "metadata": _metadata(),
+        "metadata": login_metadata,
     }
 
     try:
@@ -333,6 +343,16 @@ def request_code():
                 "hint": "Configure and verify an approved OTP email provider before enabling public account login.",
             }
         ), 503
+
+    if stored and stored.get("id"):
+        growth_meta = telemetry_session_metadata(str(stored["id"]), attribution)
+        track_event(
+            "session",
+            growth_meta["growth_subject_id"],
+            growth_meta["growth_session_id"],
+            attribution,
+            evidence={"milestone": "otp_code_issued"},
+        )
 
     result: Dict[str, Any] = {
         "ok": True,
@@ -391,13 +411,40 @@ def verify_code():
 
     token = secrets.token_urlsafe(48)
     session_expires_at = _now() + timedelta(days=AUTH_SESSION_DAYS)
+    login_metadata = login_code.get("metadata") or {}
+    attribution = (
+        login_metadata.get("growth_attribution")
+        if isinstance(login_metadata, dict)
+        and isinstance(login_metadata.get("growth_attribution"), dict)
+        else {}
+    )
+    growth_meta = telemetry_session_metadata(str(code_id), attribution)
+    session_metadata = _metadata()
+    session_metadata.update(growth_meta)
+
+    is_first_registration = False
+    try:
+        prior_sessions = (
+            get_supabase()
+            .table("relocation_user_sessions")
+            .select("id")
+            .eq("email", email)
+            .limit(1)
+            .execute()
+        )
+        is_first_registration = not bool(prior_sessions.data)
+    except Exception:
+        # Telemetry uncertainty must never break account creation. Fail closed:
+        # do not claim a first registration when the history check is unavailable.
+        is_first_registration = False
+
     session_row = {
         "email": email,
         "token_hash": _token_hash(token),
         "status": "active",
         "expires_at": _iso(session_expires_at),
         "last_seen_at": _iso(_now()),
-        "metadata": _metadata(),
+        "metadata": session_metadata,
     }
 
     try:
@@ -405,6 +452,14 @@ def verify_code():
         session_response = get_supabase().table("relocation_user_sessions").insert(session_row).execute()
         session = (session_response.data or [None])[0]
         _trim_active_sessions(email)
+        if is_first_registration:
+            track_event(
+                "registration",
+                growth_meta["growth_subject_id"],
+                growth_meta["growth_session_id"],
+                attribution,
+                evidence={"milestone": "first_verified_account_session"},
+            )
         return jsonify({"ok": True, "session_token": token, "session": _public_session(session or session_row)})
     except Exception as exc:
         return jsonify({"ok": False, "error": "session_create_failed", "details": str(exc)}), 503
