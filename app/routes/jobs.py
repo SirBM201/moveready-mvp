@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from flask import Blueprint, jsonify, request
 from werkzeug.utils import secure_filename
 
-from app.services.account_identity import get_verified_session_email
+from app.services.account_identity import get_verified_session, get_verified_session_email
 from app.services.job_actions import build_job_actions, company_target_status, count_job_actions
 from app.services.job_matching import rank_jobs
 from app.services.job_scope import (
@@ -26,6 +26,7 @@ from app.services.job_scope import (
 )
 from app.services.job_visibility import job_is_visible_to_account
 from app.services.supabase_client import get_supabase
+from app.services.sparkgrowth_telemetry import track_event
 
 
 bp = Blueprint("jobs", __name__)
@@ -417,6 +418,21 @@ def update_job_profile():
             .execute()
         )
         profile = (response.data or [None])[0] or _profile(email)
+        session = get_verified_session()
+        metadata = session.get("metadata") if isinstance(session, dict) else {}
+        if isinstance(metadata, dict):
+            subject_id = str(metadata.get("growth_subject_id") or "")
+            growth_session_id = str(metadata.get("growth_session_id") or "")
+            attribution = metadata.get("growth_attribution")
+            if subject_id and growth_session_id:
+                track_event(
+                    "activation",
+                    subject_id,
+                    growth_session_id,
+                    attribution if isinstance(attribution, dict) else {},
+                    attribution_model="last_touch",
+                    evidence={"milestone": "jobs_profile_configured"},
+                )
         return jsonify({
             "ok": True,
             "profile": profile,

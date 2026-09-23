@@ -3,13 +3,8 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 
-def get_verified_session_email() -> Optional[str]:
-    """Return the email from a valid MoveReady session token, if present.
-
-    Public endpoints may still support contact-based lookup for MVP users.
-    When a valid session token is present, this helper lets the endpoint prefer
-    the verified account email and ignore user-supplied email values.
-    """
+def get_verified_session() -> Optional[dict]:
+    """Return the current verified MoveReady session without trusting request PII."""
     try:
         from app.routes import account_auth
 
@@ -17,12 +12,23 @@ def get_verified_session_email() -> Optional[str]:
         if not token:
             return None
         session, _error = account_auth._load_active_session(token)
-        if not session:
-            return None
-        email = str(session.get("email") or "").strip().lower()
-        return email or None
+        return session
     except Exception:
         return None
+
+
+def get_verified_session_email() -> Optional[str]:
+    """Return the email from a valid MoveReady session token, if present.
+
+    Public endpoints may still support contact-based lookup for MVP users.
+    When a valid session token is present, this helper lets the endpoint prefer
+    the verified account email and ignore user-supplied email values.
+    """
+    session = get_verified_session()
+    if not session:
+        return None
+    email = str(session.get("email") or "").strip().lower()
+    return email or None
 
 
 def choose_contact_email(payload_email: Optional[str]) -> Tuple[Optional[str], str, Optional[str]]:
