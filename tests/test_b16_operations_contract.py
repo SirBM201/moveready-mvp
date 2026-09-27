@@ -108,5 +108,5 @@ def test_operations_migration_frontier_follows_repository_ledger() -> None:
     assert ledger["latest_schema_file"] == "057_supabase_explicit_data_api_grants.sql"
     assert ledger["manually_confirmed_frontier"] == "056_launch_beta_validation.sql"
     assert ledger["frontier_matches"] is False
-    assert ledger["status"] == "pending_confirmation"
+    assert ledger["status"] == "verification_required"
     assert contract["migration_ledger"] == ledger
