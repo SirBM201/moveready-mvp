@@ -1,7 +1,7 @@
 {
-  "ledger_version": "b19.12.2-v1",
-  "updated_at": "2026-08-25",
-  "latest_schema_file": "056_launch_beta_validation.sql",
+  "ledger_version": "b19.12.3-v1",
+  "updated_at": "2026-09-27",
+  "latest_schema_file": "057_supabase_explicit_data_api_grants.sql",
   "policy": {
     "applied_files_are_immutable": true,
     "new_schema_changes_are_additive": true,
@@ -67,7 +67,8 @@
     "053_job_employer_campaign_targets.sql",
     "054_job_recruiter_relationships.sql",
     "055_job_career_practice.sql",
-    "056_launch_beta_validation.sql"
+    "056_launch_beta_validation.sql",
+    "057_supabase_explicit_data_api_grants.sql"
   ],
   "legacy_sql_only_files": [
     "017_seed_working_holiday_opportunities.sql",
