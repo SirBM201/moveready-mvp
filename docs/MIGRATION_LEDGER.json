@@ -1,6 +1,6 @@
 {
   "ledger_version": "b19.12.3-v1",
-  "updated_at": "2026-09-27",
+  "updated_at": "2026-09-29",
   "latest_schema_file": "057_supabase_explicit_data_api_grants.sql",
   "policy": {
     "applied_files_are_immutable": true,
@@ -10,9 +10,10 @@
     "repository_ledger_role": "file inventory and deployment ordering; not a substitute for database history"
   },
   "production_confirmation": {
-    "manually_confirmed_frontier": "056_launch_beta_validation.sql",
-    "verification_required": "Run the protected operations schema checks after every database or deployment change.",
-    "confirmed_at": "2026-08-25"
+    "manually_confirmed_frontier": "057_supabase_explicit_data_api_grants.sql",
+    "verification_required": "Re-run protected operations schema checks after each subsequent database or deployment change.",
+    "confirmed_at": "2026-09-29",
+    "history_note": "MoveReady migration versions were absent from Supabase history before this task. Historical versions were not inserted retroactively; migration 057 was recorded only after its production grant effects were applied and verified."
   },
   "canonical_schema_files": [
     "001_initial_relocation_schema.sql",
