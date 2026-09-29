@@ -18,3 +18,21 @@ def test_new_table_migrations_declare_data_api_access():
                 f"{path.name} creates a public table without an explicit GRANT/REVOKE. "
                 "Declare the intended anon/authenticated/service_role access in the same migration."
             )
+
+def test_launch_beta_grants_only_operations_used_by_the_api():
+    """LQ12 needs reads and report inserts; its backend has no update/delete path."""
+    sql = (MIGRATIONS / "057_supabase_explicit_data_api_grants.sql").read_text(encoding="utf-8")
+    normalized = re.sub(r"\s+", " ", sql.lower())
+    assert "alter table if exists public.relocation_launch_beta_reports enable row level security" in normalized
+    assert (
+        "revoke all privileges on table public.relocation_launch_beta_reports "
+        "from public, anon, authenticated, service_role"
+    ) in normalized
+    assert (
+        "grant select, insert on table public.relocation_launch_beta_reports "
+        "to service_role"
+    ) in normalized
+    grant_statements = re.findall(r"\bgrant\b([^;]*);", normalized)
+    assert len(grant_statements) == 1
+    assert "update" not in grant_statements[0]
+    assert "delete" not in grant_statements[0]
